@@ -29,7 +29,6 @@ RUN pip install -e /app/contracts --force-reinstall
 COPY core /app/core
 COPY src /app/src
 COPY dvt_extension_api /app/dvt_extension_api
-COPY docs /app/docs
 COPY config.py /app/config.py
 COPY RELEASE /app/RELEASE
 COPY pyproject.toml /app/pyproject.toml
@@ -48,7 +47,6 @@ COPY --from=base-builder /app/contracts /app/contracts
 COPY --from=base-builder /app/core /app/core
 COPY --from=base-builder /app/src /app/src
 COPY --from=base-builder /app/dvt_extension_api /app/dvt_extension_api
-COPY --from=base-builder /app/docs /app/docs
 COPY --from=base-builder /app/config.py /app/config.py
 COPY --from=base-builder /app/RELEASE /app/RELEASE
 COPY --from=base-builder /app/pyproject.toml /app/pyproject.toml
