@@ -23,7 +23,6 @@ RUN mkdir -p /app/contracts/src && \
 COPY core /app/core
 COPY src /app/src
 COPY dvt_extension_api /app/dvt_extension_api
-COPY docs /app/docs
 COPY config.py /app/config.py
 COPY RELEASE /app/RELEASE
 COPY pyproject.toml /app/pyproject.toml
