@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   mirror-and-trigger:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dvt-mirror]
     steps:
       - name: Checkout bridge helpers
         uses: actions/checkout@v4
