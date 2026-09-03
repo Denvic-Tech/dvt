@@ -1,0 +1,13 @@
+from typing import Protocol
+
+from ..entities import MCPToken
+
+
+class MCPTokenRepository(Protocol):
+    async def get_by_id(self, token_id: str) -> MCPToken | None: ...
+
+    async def get_for_user(self, token_id: str, user_id: str) -> MCPToken | None: ...
+
+    async def list_for_user(self, user_id: str) -> list[MCPToken]: ...
+
+    async def save(self, token: MCPToken) -> MCPToken: ...

@@ -1,0 +1,11 @@
+PING = "/ping"
+API_PREFIX = "/api/v1"
+
+GET_TASKS = f"{API_PREFIX}/get_tasks"
+GET_TASK_LONG_POLLING = f"{API_PREFIX}/get_task/long_polling"
+UPDATE_TASK_STATUS = f"{API_PREFIX}/update_task_status"
+REGISTER_CONNECTOR = f"{API_PREFIX}/connector"
+GET_CONNECTORS = f"{API_PREFIX}/get_connectors"
+REGISTER_PROJECT = f"{API_PREFIX}/projects"
+GET_PROJECTS = f"{API_PREFIX}/get_projects"
+ADD_LOG = f"{API_PREFIX}/add_log"

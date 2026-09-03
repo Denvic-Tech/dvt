@@ -1,0 +1,5 @@
+pytest==8.4.0
+pytest-asyncio==1.4.0
+testcontainers==4.14.0
+minio==7.2.20
+docker==7.1.0

@@ -1,0 +1,5 @@
+from src.crud.organization.exceptions import OrganizationINNConflictException
+
+
+OrganizationINNConflictError = OrganizationINNConflictException
+

@@ -1,0 +1,4 @@
+interface:
+  display_name: "DVT Project Ops"
+  short_description: "Operate and diagnose a local DVT checkout"
+  default_prompt: "Use $dvt-project-ops to inspect or maintain this DVT development checkout."

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dvt.local/schemas/memory-benchmark/benchmark_run.schema.json",
+  "title": "MemoryBenchmarkRunConfig",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "pipeline_path",
+    "user_id",
+    "options"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pipeline_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "user_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "options": {
+      "type": "object",
+      "required": [
+        "outputs",
+        "sample_interval",
+        "repeat",
+        "repeat_include_reports",
+        "include_metadata",
+        "validate_only",
+        "dry_run",
+        "preset",
+        "global_input_overrides",
+        "node_overrides",
+        "patches"
+      ],
+      "properties": {
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sample_interval": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "repeat": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "repeat_include_reports": {
+          "type": "boolean"
+        },
+        "include_metadata": {
+          "type": "boolean"
+        },
+        "validate_only": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "global_input_overrides": {
+          "type": "object"
+        },
+        "node_overrides": {
+          "type": "object"
+        },
+        "patches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

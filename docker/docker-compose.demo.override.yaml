@@ -1,0 +1,38 @@
+services:
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: dvt-node-exporter
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc|var/lib/docker/containers|var/lib/docker/overlay2)($|/)'
+    networks:
+      - dvt-net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: dvt-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    networks:
+      - dvt-net
+
+networks:
+  dvt-net:
+    external: true

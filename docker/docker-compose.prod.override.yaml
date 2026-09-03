@@ -1,0 +1,88 @@
+services:
+
+  prod-builder:
+    image: dvt/prod-builder:latest
+    build:
+      context: .
+      dockerfile: docker/prod-builder.Dockerfile
+      additional_contexts:
+        dvt_base_image: "service:base"
+
+  orchestrator:
+    image: dvt/orchestrator:latest
+    build:
+      context: .
+      dockerfile: services/orchestrator/docker/prod.Dockerfile
+      additional_contexts:
+        dvt_deps_image: "service:deps"
+        dvt_prod_builder_image: "service:prod-builder"
+        dvt_base_image: "service:base"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
+
+  task-worker:
+    image: dvt/task-worker:latest
+    build:
+      context: .
+      dockerfile: services/task_worker/docker/prod.Dockerfile
+      additional_contexts:
+        dvt_deps_image: "service:deps"
+        dvt_prod_builder_image: "service:prod-builder"
+        dvt_base_image: "service:base"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
+    volumes:
+      - ./installation:/app/installation
+
+  gateway:
+    image: dvt/gateway:latest
+    build:
+      context: .
+      dockerfile: services/gateway/docker/prod.Dockerfile
+      additional_contexts:
+        dvt_deps_image: "service:deps"
+        dvt_prod_builder_image: "service:prod-builder"
+        dvt_base_image: "service:base"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
+      JWT_ACCESS_TOKEN_SECRET_KEY: ${DVT_JWT_ACCESS_TOKEN_SECRET_KEY:-}
+      JWT_REFRESH_TOKEN_SECRET_KEY: ${DVT_JWT_REFRESH_TOKEN_SECRET_KEY:-}
+      JWT_ONETIME_TOKEN_SECRET_KEY: ${DVT_JWT_ONETIME_TOKEN_SECRET_KEY:-}
+      JWT_API_TOKEN_SECRET_KEY: ${DVT_JWT_API_TOKEN_SECRET_KEY:-}
+      CODE_HASH_SALT: ${DVT_CODE_HASH_SALT:-}
+    volumes:
+      - ./installation:/app/installation
+
+  dvt-ai-mcp:
+    profiles: [ "ai-mcp" ]
+    image: dvt/dvt-ai-mcp:latest
+    build:
+      context: .
+      dockerfile: services/dvt_ai_mcp/Dockerfile
+    environment:
+      DVT_ENVIRONMENT: ${ENVIRONMENT:-prod}
+
+  project-scheduler:
+    image: dvt/project-scheduler:latest
+    build:
+      context: .
+      dockerfile: services/project_scheduler/docker/prod.Dockerfile
+      additional_contexts:
+        dvt_deps_image: "service:deps"
+        dvt_prod_builder_image: "service:prod-builder"
+        dvt_base_image: "service:base"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
+
+  installation_manager:
+    image: dvt/installation_manager:latest
+
+  ui:
+    image: dvt/ui:latest
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
+
+  proxy:
+    image: dvt/proxy:latest
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}

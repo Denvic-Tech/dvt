@@ -1,0 +1,106 @@
+DVT Licensing Terms
+
+1. Base License
+
+DVT core software ("DVT Core") is licensed under the GNU Affero General Public
+License, version 3 ("AGPLv3"). The complete, unmodified text of the AGPLv3 is in
+the LICENSE file distributed with DVT.
+
+For purposes of these terms, DVT Core means the DVT software distributed under
+the AGPLv3, excluding separately licensed third-party components and software
+that qualifies as a DVT Extension under these terms.
+
+The DVT Extension Exception below is an additional permission under section 7
+of the AGPLv3. It does not replace the AGPLv3 or waive its requirements for DVT
+Core.
+
+2. DVT Extension Exception
+
+The copyright holders of DVT Core grant the following additional permission:
+software that qualifies as a DVT Extension may interact with, be loaded by, be
+combined with, and be distributed with DVT Core through the Documented DVT
+Extension Interfaces without the terms of the AGPLv3 applying to that DVT
+Extension solely because of that interaction, loading, combination, or
+co-distribution.
+
+This exception applies only to the extent stated in these terms.
+
+3. What Qualifies as a DVT Extension
+
+A "DVT Extension" is a separate work designed to add functionality to DVT Core
+through one or more Documented DVT Extension Interfaces.
+
+"Documented DVT Extension Interfaces" means extension points that DVT project
+documentation identifies as officially supported interfaces for extensions.
+They include, as applicable, the DVT Extension manifest, the public DVT
+Extension API, extension node registration, extension Gateway entrypoints and
+routes, extension migration and database facilities, and other officially
+documented extension interfaces that DVT may provide in the future.
+
+A work is not disqualified from being a DVT Extension merely because it is
+installed together with DVT Core, distributed in the same package or delivery,
+loaded or executed by DVT Core, or runs in the same process as DVT Core.
+
+4. What the Exception Permits
+
+A qualifying DVT Extension may be licensed under terms chosen by its copyright
+holder, including Open Source, proprietary, or commercial terms. It may be
+used, modified, sold, licensed, and distributed separately from DVT Core or
+together with DVT Core.
+
+A qualifying DVT Extension may, through the Documented DVT Extension
+Interfaces, register nodes, add Gateway routes using the supported extension
+mechanism, use supported extension migration and database facilities, and use
+other officially supported extension capabilities.
+
+Using the Documented DVT Extension Interfaces by itself does not require an
+otherwise independent DVT Extension to be licensed under the AGPLv3 or require
+its source code to be made available under the AGPLv3 solely because of that
+use.
+
+5. What the Exception Does Not Permit
+
+This exception is a narrow compatibility permission. It does not grant an
+exception from the AGPLv3 for DVT Core itself or for code to the extent that it:
+
+- copies or incorporates substantial portions of DVT Core source code;
+- modifies DVT Core;
+- is based on DVT Core for reasons other than its use of the Documented DVT
+  Extension Interfaces;
+- incorporates or embeds DVT Core internal implementation instead of using the
+  Documented DVT Extension Interfaces; or
+- distributes a modified version of DVT Core.
+
+This exception does not state that access to DVT internals is technically
+prevented or sandboxed. Use of interfaces that are not Documented DVT Extension
+Interfaces receives no additional permission under this exception; the AGPLv3
+and applicable copyright law continue to govern such use.
+
+Nothing in this exception changes the legal test for whether a work is a
+modified work, covered work, or other work based on DVT Core, except for the
+specific additional permission granted above.
+
+6. Bundling, Distribution, and Modified DVT Core
+
+Distributing or installing DVT Core together with a qualifying DVT Extension
+does not, by itself, change the license of that DVT Extension. DVT Core remains
+licensed under the AGPLv3, and recipients retain all rights in DVT Core granted
+to them by the AGPLv3.
+
+Bundling may not be used to avoid the AGPLv3 requirements for DVT Core. A
+modified version of DVT Core remains subject to the AGPLv3, including the
+corresponding source requirements that apply when the modified DVT Core is
+conveyed.
+
+7. Network Use
+
+This exception does not waive or limit section 13 of the AGPLv3 for DVT Core.
+If modified DVT Core is made available for users to interact with remotely
+through a computer network, the source-code obligations of the AGPLv3 continue
+to apply to DVT Core as provided by that license.
+
+8. No Trademark Grant
+
+Neither the AGPLv3 nor this DVT Extension Exception grants rights to use any
+project or company name, trademark, service mark, or logo, except to the extent
+such use is permitted or required by applicable law.

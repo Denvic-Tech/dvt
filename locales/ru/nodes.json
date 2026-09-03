@@ -1,0 +1,4755 @@
+{
+    "nodes": {
+        "DataFrameAddColumnByExpression": {
+            "input_definitions": {
+                "df": {
+                    "display_name": "dataframe",
+                    "display_type": null,
+                    "description": null
+                },
+                "column_name": {
+                    "display_name": "имя_колонки",
+                    "display_type": null,
+                    "description": null
+                },
+                "expression": {
+                    "display_name": "выражение",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Добавить/Изменить колонку по выражению",
+            "description": ""
+        },
+        "DateTimeToString": {
+            "input_definitions": {
+                "datetime": {
+                    "display_name": "дата_время",
+                    "display_type": null,
+                    "description": null
+                },
+                "format": {
+                    "display_name": "формат",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "STRING",
+                    "description": null
+                }
+            },
+            "display_name": "Преобразовать дату/время в строку",
+            "description": ""
+        },
+        "SimpleOutputNode": {
+            "input_definitions": {
+                "value_final": {
+                    "display_name": "конечное_значение",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "display_name": "Простой вывод",
+            "description": ""
+        },
+        "DataFrameCastColumnType": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "dtypes": {
+                    "display_name": "dtypes",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Заменить типы данных",
+            "description": ""
+        },
+        "DataFrameFillNA": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "fill_values": {
+                    "display_name": "fill_values",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Заполнить NA/Null значения",
+            "description": ""
+        },
+        "StringToDateTime": {
+            "input_definitions": {
+                "datetime_string": {
+                    "display_name": "строка_даты_времени",
+                    "display_type": null,
+                    "description": null
+                },
+                "format": {
+                    "display_name": "формат",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "DATETIME",
+                    "description": null
+                }
+            },
+            "display_name": "Преобразовать строку в дату/время",
+            "description": ""
+        },
+        "DataFrameTestOutputNode": {
+            "input_definitions": {
+                "rows": {
+                    "display_name": "строки",
+                    "display_type": null,
+                    "description": null
+                },
+                "columns": {
+                    "display_name": "колонки",
+                    "display_type": null,
+                    "description": null
+                },
+                "prefix": {
+                    "display_name": "префикс_колонки",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "display_name": "Тестовый вывод Dataframe",
+            "description": ""
+        },
+        "DataFrameQuery": {
+            "input_definitions": {
+                "df": {
+                    "display_name": "dataframe",
+                    "display_type": null,
+                    "description": null
+                },
+                "query": {
+                    "display_name": "запрос",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Запрос к Dataframe",
+            "description": ""
+        },
+        "LoadCSV": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "path": {
+                    "display_name": "путь",
+                    "display_type": "STRING",
+                    "description": "Поддерживаются glob-паттерны, например:\n  'reports/01-01-*.csv' — все файлы за 1 января\n  'reports/2025-*/data-*.csv' — все файлы за 2025 год"
+                },
+                "delimiter": {
+                    "display_name": "разделитель",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "encoding": {
+                    "display_name": "encoding",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "usecols": {
+                    "display_name": "колонки",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "dtypes": {
+                    "display_name": "dtypes",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение CSV",
+            "description": ""
+        },
+        "CreateStringNode": {
+            "input_definitions": {
+                "string": {
+                    "display_name": "строка",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "STRING",
+                    "description": null
+                }
+            },
+            "display_name": "Создать строку",
+            "description": ""
+        },
+        "DataFrameUnion": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df1": {
+                    "display_name": "df1",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "df2": {
+                    "display_name": "df2",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column_mapping": {
+                    "display_name": "сопоставление_колонок",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Объединить (Union) DataFrames",
+            "description": ""
+        },
+        "DataFrameGroupByAgg": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "group_by_columns": {
+                    "display_name": "Колокни_группировки",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "new_cols": {
+                    "display_name": "новые_колонки",
+                    "display_type": "STRING",
+                    "description": "Список новых имен столбцов для агрегированных результатов."
+                },
+                "source_cols": {
+                    "display_name": "колонки_для_агрегации",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Список столбцов для агрегирования."
+                },
+                "agg_funcs": {
+                    "display_name": "функции_агрегирования",
+                    "display_type": "STRING",
+                    "description": "Список функций агрегирования, которые должны быть применены к каждому столбцу."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Группировать данные с агрегацией",
+            "description": ""
+        },
+        "CreateDict": {
+            "input_definitions": {
+                "json_string": {
+                    "display_name": "json_строка",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "DICT",
+                    "description": null
+                }
+            },
+            "display_name": "Создать словарь",
+            "description": ""
+        },
+        "SaveCSV": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "path": {
+                    "display_name": "путь",
+                    "display_type": "STRING",
+                    "description": "Относительный путь к CSV-файлу, например: reports/export.csv"
+                },
+                "delimiter": {
+                    "display_name": "разделитель",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "encoding": {
+                    "display_name": "encoding",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "index": {
+                    "display_name": "индекс",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                },
+                "header": {
+                    "display_name": "header",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                },
+                "single_file": {
+                    "display_name": "single_file",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Сохранить CSV",
+            "description": ""
+        },
+        "ReadQueryFromDB": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "TTL_CACHE": {
+                    "display_name": "TTL_CACHE",
+                    "display_type": "INT",
+                    "description": "Время жизни кеша"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "query": {
+                    "display_name": "query",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "params": {
+                    "display_name": "params",
+                    "display_type": "DICT",
+                    "description": null
+                },
+                "time_zone": {
+                    "display_name": "time_zone",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Прочитать запрос SQL из БД",
+            "description": ""
+        },
+        "JsonToDict": {
+            "input_definitions": {
+                "json_string": {
+                    "display_name": "json_строка",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "DICT",
+                    "description": null
+                }
+            },
+            "display_name": "Преобразовать JSON строку в словарь/список",
+            "description": ""
+        },
+        "DataFrameDisplayNode": {
+            "input_definitions": {
+                "df": {
+                    "display_name": "df",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "display_name": "Отобразить Dataframe",
+            "description": ""
+        },
+        "DataFrameRenameColumns": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "mapping": {
+                    "display_name": "mapping",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Переименовать колонки",
+            "description": ""
+        },
+        "DataFrameConvertToPeriodStart": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column": {
+                    "display_name": "колонка",
+                    "display_type": "COLUMN_NAME",
+                    "description": "колонка"
+                },
+                "period": {
+                    "display_name": "период",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "new_column": {
+                    "display_name": "новая_колонка",
+                    "display_type": "STRING",
+                    "description": "новая колонка"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "ДатаВремя → В начало периода",
+            "description": ""
+        },
+        "DataFrameDropColumns": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "columns": {
+                    "display_name": "колонки",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Удалить колонки",
+            "description": ""
+        },
+        "AddTimeDelta": {
+            "input_definitions": {
+                "datetime": {
+                    "display_name": "дата_время",
+                    "display_type": null,
+                    "description": null
+                },
+                "days": {
+                    "display_name": "дни",
+                    "display_type": null,
+                    "description": null
+                },
+                "seconds": {
+                    "display_name": "секунды",
+                    "display_type": null,
+                    "description": null
+                },
+                "microseconds": {
+                    "display_name": "микросекунды",
+                    "display_type": null,
+                    "description": null
+                },
+                "milliseconds": {
+                    "display_name": "миллисекунды",
+                    "display_type": null,
+                    "description": null
+                },
+                "minutes": {
+                    "display_name": "минуты",
+                    "display_type": null,
+                    "description": null
+                },
+                "hours": {
+                    "display_name": "часы",
+                    "display_type": null,
+                    "description": null
+                },
+                "weeks": {
+                    "display_name": "недели",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "DATETIME",
+                    "description": null
+                }
+            },
+            "display_name": "ДатаВремя - добавить период",
+            "description": ""
+        },
+        "InputsVisualNode": {
+            "input_definitions": {
+                "input_1": {
+                    "display_name": "вход_1",
+                    "display_type": null,
+                    "description": null
+                },
+                "input_2": {
+                    "display_name": "вход_2",
+                    "display_type": null,
+                    "description": null
+                },
+                "input_3": {
+                    "display_name": "вход_3",
+                    "display_type": null,
+                    "description": null
+                },
+                "input_4": {
+                    "display_name": "вход_4",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "display_name": "Визуальный узел ввода",
+            "description": ""
+        },
+        "DataFrameSelectColumns": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "columns": {
+                    "display_name": "колонки",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Отобрать колонки",
+            "description": ""
+        },
+        "SimpleInputNode": {
+            "input_definitions": {
+                "value_in": {
+                    "display_name": "входное_значение",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "value_out": {
+                    "display_name": "выходное_значение",
+                    "type": "STRING",
+                    "description": null
+                }
+            },
+            "display_name": "Простой ввод",
+            "description": ""
+        },
+        "DataFrameSortValues": {
+            "input_definitions": {
+                "df": {
+                    "display_name": "dataframe",
+                    "display_type": null,
+                    "description": null
+                },
+                "by": {
+                    "display_name": "по",
+                    "display_type": null,
+                    "description": null
+                },
+                "ascending": {
+                    "display_name": "по_возрастанию",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Сортировать значения",
+            "description": ""
+        },
+        "GetCurrentDateTime": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column_name": {
+                    "display_name": "имя_колонки",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "ДатуВремя - текущая дата",
+            "description": ""
+        },
+        "DataFrameExecCode": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "code": {
+                    "display_name": "code",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Выполнить Python-код над Dataframe",
+            "description": ""
+        },
+        "DataFrameFilter": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "conditions": {
+                    "display_name": "conditions",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход_истина",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "inverted_output": {
+                    "display_name": "выход_ложь",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Фильтровать",
+            "description": ""
+        },
+        "CreateDBConnection": {
+            "input_definitions": {
+                "dialect": {
+                    "display_name": "диалект",
+                    "display_type": null,
+                    "description": null
+                },
+                "host": {
+                    "display_name": "хост",
+                    "display_type": null,
+                    "description": null
+                },
+                "port": {
+                    "display_name": "порт",
+                    "display_type": null,
+                    "description": null
+                },
+                "username": {
+                    "display_name": "имя_пользователя",
+                    "display_type": null,
+                    "description": null
+                },
+                "password": {
+                    "display_name": "пароль",
+                    "display_type": null,
+                    "description": null
+                },
+                "database": {
+                    "display_name": "база_данных",
+                    "display_type": null,
+                    "description": null
+                },
+                "query_params": {
+                    "display_name": "параметры_запроса",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "connection": {
+                    "display_name": "соединение",
+                    "type": "DB_CONNECTION",
+                    "description": null
+                }
+            },
+            "display_name": "Соединение с БД",
+            "description": ""
+        },
+        "CreateList": {
+            "input_definitions": {
+                "json_string": {
+                    "display_name": "json_строка",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "STRING,FLOAT,INT,BOOLEAN",
+                    "description": null
+                }
+            },
+            "display_name": "Создать список",
+            "description": ""
+        },
+        "DataFrameJoin": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "left": {
+                    "display_name": "левая",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "right": {
+                    "display_name": "правая",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "left_on": {
+                    "display_name": "слева",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонки для join в левом DF"
+                },
+                "right_on": {
+                    "display_name": "справа",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонки для join в правом DF"
+                },
+                "how": {
+                    "display_name": "способ",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Соединить (Join)",
+            "description": ""
+        },
+        "BoolList": {
+            "input_definitions": {
+                "values_string": {
+                    "display_name": "строка_значений",
+                    "display_type": null,
+                    "description": null
+                },
+                "delimiter": {
+                    "display_name": "разделитель",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "BOOLEAN",
+                    "description": null
+                }
+            },
+            "display_name": "Преобразовать строку в список boolean",
+            "description": ""
+        },
+        "StringToList": {
+            "input_definitions": {
+                "string": {
+                    "display_name": "строка",
+                    "display_type": null,
+                    "description": null
+                },
+                "separator": {
+                    "display_name": "разделитель",
+                    "display_type": null,
+                    "description": null
+                },
+                "strip_whitespace": {
+                    "display_name": "удалить_пробелы",
+                    "display_type": null,
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output": {
+                    "display_name": "выход",
+                    "type": "STRING",
+                    "description": null
+                }
+            },
+            "display_name": "Преобразовать строку в список",
+            "description": ""
+        },
+        "JsonToDataFrame": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "json": {
+                    "display_name": "json",
+                    "display_type": "JSON",
+                    "description": null
+                },
+                "orient": {
+                    "display_name": "orient",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "JSON → Dataframe",
+            "description": ""
+        },
+        "DataFramePivot": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "index": {
+                    "display_name": "индекс",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка, значения которой станут строками сводной таблицы."
+                },
+                "column": {
+                    "display_name": "колонка",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка, уникальные значения которой станут столбцами."
+                },
+                "aggfunc": {
+                    "display_name": "функция_агрегирования",
+                    "display_type": "SCHEMA",
+                    "description": "Словарь {<колонка>: <функция>}, например: {'sales':'sum','revenue':'mean'}."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Pivot (развернуть) Dataframe",
+            "description": ""
+        },
+        "WriteDataFrameToDB": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "database_name": {
+                    "display_name": "имя_базы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "table_name": {
+                    "display_name": "имя_таблицы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "schema_name": {
+                    "display_name": "имя_схемы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "chunksize": {
+                    "display_name": "chunksize",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "index_col": {
+                    "display_name": "колонка_индекса",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "write_mode": {
+                    "display_name": "способ_записи",
+                    "display_type": "STRING",
+                    "description": "Режим записи в таблицу: truncate сокращает таблицу, append добавляет данные, recreate удаляет и создает таблицу заново."
+                },
+                "min_batch_rows": {
+                    "display_name": "min_batch_rows",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "use_clickhouse_connect_driver": {
+                    "display_name": "use_clickhouse_connect_driver",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                },
+                "create_table_sql": {
+                    "display_name": "create_table_sql",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Запись Датафрейма в БД",
+            "description": ""
+        },
+        "HTTPRequest": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "url": {
+                    "display_name": "url",
+                    "display_type": "STRING",
+                    "description": "URL для запроса"
+                },
+                "method": {
+                    "display_name": "метод",
+                    "display_type": "STRING",
+                    "description": "HTTP метод"
+                },
+                "headers": {
+                    "display_name": "headers",
+                    "display_type": "DICT",
+                    "description": "HTTP заголовки в формате JSON"
+                },
+                "params": {
+                    "display_name": "params",
+                    "display_type": "DICT",
+                    "description": "Параметры запроса (query parameters) в формате JSON"
+                },
+                "json_payload": {
+                    "display_name": "json_payload",
+                    "display_type": "DICT",
+                    "description": "JSON тело запроса (для POST, PUT, PATCH)"
+                },
+                "data": {
+                    "display_name": "data",
+                    "display_type": "DICT",
+                    "description": "Form-encoded данные (для POST)"
+                },
+                "timeout": {
+                    "display_name": "timeout",
+                    "display_type": "INT",
+                    "description": "Таймаут запроса в секундах"
+                },
+                "verify_ssl": {
+                    "display_name": "verify_ssl",
+                    "display_type": "BOOLEAN",
+                    "description": "Проверять SSL сертификаты"
+                },
+                "auth": {
+                    "display_name": "auth",
+                    "display_type": "SCHEMA",
+                    "description": "Настройки авторизации HTTP запроса"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "JSON",
+                    "description": "Результат HTTP запроса"
+                }
+            },
+            "display_name": "HTTP запрос",
+            "description": "Выполнение HTTP запросов"
+        },
+        "ReadVariablesFromDB": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "sql_code": {
+                    "display_name": "sql_код_исполнения",
+                    "display_type": "STRING",
+                    "description": "SQL код (можно использовать переменные в формате {{Jinja}} для динамического переопределения SQL-запроса"                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "mode": {
+                    "display_name": "режим",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "manual_variables": {
+                    "display_name": "manual_variables",
+                    "display_type": "SCHEMA",
+                    "description": "Определения переменных, сгруппированные вручную по имени выходной переменной"
+                },
+                "sql_variables": {
+                    "display_name": "sql_variables",
+                    "display_type": "SCHEMA",
+                    "description": "Значения NULL для каждого столбца/значения по умолчанию переопределяются для режима `sql`"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Чтение переменных из БД",
+            "description": ""
+        },
+        "CreateVariable": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "name": {
+                    "display_name": "name",
+                    "display_type": "STRING",
+                    "description": "Имя переменной"
+                },
+                "type": {
+                    "display_name": "type",
+                    "display_type": "STRING",
+                    "description": "Тип переменной"
+                },
+                "is_list_type": {
+                    "display_name": "is_list_type",
+                    "display_type": "BOOLEAN",
+                    "description": "Интерпретировать переменную как список значений указанного типа."
+                },
+                "value": {
+                    "display_name": "value",
+                    "display_type": "*",
+                    "description": "Значение переменной"
+                },
+                "nullable": {
+                    "display_name": "nullable",
+                    "display_type": "BOOLEAN",
+                    "description": "Разрешить NULL, если значение переменной вычислилось в NULL и default не задан."
+                },
+                "default": {
+                    "display_name": "default",
+                    "display_type": "SCHEMA",
+                    "description": "Литеральное значение по умолчанию, если значение переменной вычислилось в NULL."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Создать переменную",
+            "description": ""
+        },
+        "ManageVariables": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "defined_variables": {
+                    "display_name": "defined_variables",
+                    "display_type": "SCHEMA",
+                    "description": "Переменные для создания или переопределения"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Создать/управлять переменными",
+            "description": ""
+        },
+        "DataFrameSelectVariables": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "selected_variables": {
+                    "display_name": "selected_variables",
+                    "display_type": "SCHEMA",
+                    "description": "Переменные, выбранные из Dataframe"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Dataframe → в Переменные",
+            "description": ""
+        },
+        "SaveExcel": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "path": {
+                    "display_name": "путь",
+                    "display_type": "STRING",
+                    "description": "Относительный путь к XLSX-файлу, например: reports/export.xlsx"
+                },
+                "sheet_name": {
+                    "display_name": "имя_листа",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "index": {
+                    "display_name": "Индекс",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                },
+                "header": {
+                    "display_name": "заголовок",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                },
+                "single_file": {
+                    "display_name": "одним_файлом",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Сохранить Excel",
+            "description": ""
+        },
+        "SaveParquet": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "path": {
+                    "display_name": "путь",
+                    "display_type": "STRING",
+                    "description": "Относительный путь к parquet dataset, например: reports/2025-09/data.parquet"
+                },
+                "mode": {
+                    "display_name": "режим",
+                    "display_type": "STRING",
+                    "description": "Режим записи"
+                },
+                "compression": {
+                    "display_name": "compression",
+                    "display_type": "STRING",
+                    "description": "Кодек сжатия parquet"
+                },
+                "write_index": {
+                    "display_name": "write_index",
+                    "display_type": "BOOLEAN",
+                    "description": "Сохранять индекс DataFrame как колонку"
+                },
+                "partition_on": {
+                    "display_name": "partition_on",
+                    "display_type": "STRING",
+                    "description": "Список колонок для Hive-partitioning"
+                },
+                "row_cap": {
+                    "display_name": "row_cap",
+                    "display_type": "INT",
+                    "description": "Максимум строк в одном parquet-файле (режим row-cap)"
+                },
+                "parquet_types": {
+                    "display_name": "parquet_types",
+                    "display_type": "SCHEMA",
+                    "description": "Жесткий parquet-контракт: {column_name: parquet_type}"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Сохранить в Parquet",
+            "description": ""
+        },
+        "WriteDataFrameToDBV2": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "database_name": {
+                    "display_name": "имя_базы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "table_name": {
+                    "display_name": "имя_таблицы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "schema_name": {
+                    "display_name": "имя_схемы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "chunksize": {
+                    "display_name": "chunksize",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "index_col": {
+                    "display_name": "колонка_индекса",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "write_mode": {
+                    "display_name": "способ_записи",
+                    "display_type": "STRING",
+                    "description": "Mode for writing to the table: 'truncate' truncates the table, 'append' adds data"
+                },
+                "min_batch_rows": {
+                    "display_name": "min_batch_rows",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "use_clickhouse_connect_driver": {
+                    "display_name": "use_clickhouse_connect_driver",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Запись Датафрейма в БД V2",
+            "description": ""
+        },
+        "WriteDataFrameToDBV3": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "database_name": {
+                    "display_name": "имя_базы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "table_name": {
+                    "display_name": "имя_таблицы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "schema_name": {
+                    "display_name": "имя_схемы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "write_mode": {
+                    "display_name": "способ_записи",
+                    "display_type": "STRING",
+                    "description": "append | truncate | upsert"
+                },
+                "on_extra_df_columns": {
+                    "display_name": "on_extra_df_columns",
+                    "display_type": "STRING",
+                    "description": "Как обрабатывать столбцы фрейма данных, которые не существуют в целевой таблице."
+                },
+                "on_missing_df_columns": {
+                    "display_name": "on_missing_df_columns",
+                    "display_type": "STRING",
+                    "description": "Как обрабатывать столбцы целевой таблицы, которые отсутствуют во фрейме данных."
+                },
+                "chunksize": {
+                    "display_name": "chunksize",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "upsert_config": {
+                    "display_name": "настройка_upsert",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "system_variable_definitions": {
+                "target_table": {},
+                "rows_written": {}
+            },
+            "display_name": "Запись Датафрейма в БД V3",
+            "description": ""
+        },
+        "WriteDataFrameToDBV4": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "database_name": {
+                    "display_name": "имя_базы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "table_name": {
+                    "display_name": "имя_таблицы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "schema_name": {
+                    "display_name": "имя_схемы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "write_mode": {
+                    "display_name": "способ_записи",
+                    "display_type": "STRING",
+                    "description": "append | truncate | upsert"
+                },
+                "on_extra_df_columns": {
+                    "display_name": "on_extra_df_columns",
+                    "display_type": "STRING",
+                    "description": "Как обрабатывать столбцы Датафрейма, которые не существуют в целевой таблице."
+                },
+                "on_missing_df_columns": {
+                    "display_name": "on_missing_df_columns",
+                    "display_type": "STRING",
+                    "description": "Как обрабатывать столбцы целевой таблицы, которые отсутствуют во Датафрейме"
+                },
+                "chunksize": {
+                    "display_name": "chunksize",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "upsert_config": {
+                    "display_name": "настройка_upsert",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "column_mapping": {
+                    "display_name": "сопоставление_колонок",
+                    "display_type": "SCHEMA",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "system_variable_definitions": {
+                "target_table": {},
+                "rows_written": {}
+            },
+            "display_name": "Запись Датафрейма в БД V4",
+            "description": "Записывает DataFrame в существующую таблицу. Нода не создаёт отсутствующие базы данных, схемы или таблицы: целевую структуру нужно подготовить и проверить до запуска."
+        },
+        "RepackS3Parquet": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "source_pattern": {
+                    "display_name": "source_pattern",
+                    "display_type": "STRING",
+                    "description": "Относительный путь или glob-паттерн для поиска parquet-файлов. Если передан путь к каталогу без wildcard, будут взяты *.parquet внутри него."
+                },
+                "target_path": {
+                    "display_name": "target_path",
+                    "display_type": "STRING",
+                    "description": "Относительный путь итогового parquet-файла. Должен находиться вне source_pattern."
+                },
+                "min_file_size_bytes": {
+                    "display_name": "min_file_size_bytes",
+                    "display_type": "INT",
+                    "description": "Файлы строго меньше этого размера будут кандидатами на перепаковку."
+                },
+                "max_output_size_bytes": {
+                    "display_name": "max_output_size_bytes",
+                    "display_type": "INT",
+                    "description": "Максимальный допустимый размер итогового parquet-файла."
+                },
+                "max_files_per_repack": {
+                    "display_name": "max_files_per_repack",
+                    "display_type": "INT",
+                    "description": "Необязательное максимальное количество исходных файлов в одном repack. Если значение не задано, количество файлов не ограничивается."
+                },
+                "last_modified_before": {
+                    "display_name": "last_modified_before",
+                    "display_type": "DATETIME",
+                    "description": "Необязательная UTC-дата отсечения. Используются только S3-объекты, у которых LastModified больше или равен указанному значению. Более старые объекты исключаются из repack."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Сжатие и переупаковка в S3 - Parquet",
+            "description": ""
+        },
+        "ConditionalSignalRouter": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "condition": {
+                    "display_name": "condition",
+                    "display_type": "BOOLEAN",
+                    "description": "Boolean condition that selects the outgoing signal branch."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "then_signal": {
+                    "display_name": "then_signal",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход) for the 'IF' branch."
+                },
+                "else_signal": {
+                    "display_name": "else_signal",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход) for the 'ELSE' branch."
+                }
+            },
+            "display_name": "Ветвление исполнения по пайплайну",
+            "description": ""
+        },
+        "CreateTable": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "database_name": {
+                    "display_name": "имя_базы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "schema_name": {
+                    "display_name": "имя_схемы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "table_name": {
+                    "display_name": "имя_таблицы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "dataframe_metadata": {
+                    "display_name": "dataframe_metadata",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "table_create_spec": {
+                    "display_name": "table_create_spec",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "on_exists": {
+                    "display_name": "on_exists",
+                    "display_type": "STRING",
+                    "description": "ignore | recreate | error"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "system_variable_definitions": {
+                "target_table_name": {},
+                "target_schema_name": {},
+                "target_db_name": {}
+            },
+            "display_name": "Создать SQL-таблицу",
+            "description": ""
+        },
+        "ExecuteProject": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "target_project_id": {
+                    "display_name": "target_project_id",
+                    "display_type": "STRING",
+                    "description": "ID проекта для запуска"
+                },
+                "target_project_name": {
+                    "display_name": "target_project_name",
+                    "display_type": "STRING",
+                    "description": "Отображаемое название проекта для выполнения"
+                },
+                "variables_df": {
+                    "display_name": "датафрейм_переменных",
+                    "display_type": "DATAFRAME",
+                    "description": "Строки для последовательных запусков; колонки становятся переменными подпроекта"
+                },
+                "wait_for_completion": {
+                    "display_name": "ждать_завершения",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                },
+                "timeout_sec": {
+                    "display_name": "таймаут_ожидания_сек",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "cancel_on_timeout": {
+                    "display_name": "прерывать_по_таймауту",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Выполнить Подпроект",
+            "description": ""
+        },
+        "Text": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "text_content": {
+                    "display_name": "text_content",
+                    "display_type": "STRING",
+                    "description": "Текст для отображения"
+                },
+                "font_family": {
+                    "display_name": "font_family",
+                    "display_type": "STRING",
+                    "description": "Семейство шрифта"
+                },
+                "font_size": {
+                    "display_name": "font_size",
+                    "display_type": "INT",
+                    "description": "Размер шрифта в пунктах"
+                },
+                "font_weight": {
+                    "display_name": "font_weight",
+                    "display_type": "STRING",
+                    "description": "Насыщенность шрифта"
+                },
+                "font_style": {
+                    "display_name": "font_style",
+                    "display_type": "STRING",
+                    "description": "Стиль шрифта"
+                },
+                "text_color": {
+                    "display_name": "text_color",
+                    "display_type": "STRING",
+                    "description": "Цвет текста в HEX формате (например, #FF0000)"
+                },
+                "background_color": {
+                    "display_name": "background_color",
+                    "display_type": "STRING",
+                    "description": "Цвет фона в HEX формате"
+                },
+                "border_width": {
+                    "display_name": "border_width",
+                    "display_type": "INT",
+                    "description": "Ширина рамки в пикселях"
+                },
+                "border_color": {
+                    "display_name": "border_color",
+                    "display_type": "STRING",
+                    "description": "Цвет рамки"
+                },
+                "text_align": {
+                    "display_name": "text_align",
+                    "display_type": "STRING",
+                    "description": "Выравнивание текста"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Текстовый комментарий",
+            "description": ""
+        },
+        "ServiceOutputNode": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "input": {
+                    "display_name": "вход",
+                    "display_type": "*",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                }
+            },
+            "display_name": "Service Node",
+            "description": ""
+        },
+        "LoadJSON": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "path": {
+                    "display_name": "путь",
+                    "display_type": "STRING",
+                    "description": "Поддерживаются glob-паттерны, например:\n  'reports/01-01-*.json' — все файлы за 1 января\n  'reports/2025-*/data-*.json' — все файлы за 2025 год"
+                },
+                "encoding": {
+                    "display_name": "encoding",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "JSON",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение JSON",
+            "description": ""
+        },
+        "DataFrameToJson": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "orient": {
+                    "display_name": "orient",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "JSON",
+                    "description": null
+                }
+            },
+            "display_name": "DataFrame → JSON",
+            "description": ""
+        },
+        "ExpandJSON": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "json": {
+                    "display_name": "json",
+                    "display_type": "JSON",
+                    "description": null
+                },
+                "separator": {
+                    "display_name": "separator",
+                    "display_type": "STRING",
+                    "description": "Разделитель для ключей"
+                },
+                "max_depth": {
+                    "display_name": "max_depth",
+                    "display_type": "INT",
+                    "description": "Максимальная глубина вложенности"
+                },
+                "max_array_size": {
+                    "display_name": "max_array_size",
+                    "display_type": "INT",
+                    "description": "Максимальный размер массива для размножения"
+                },
+                "max_total_rows": {
+                    "display_name": "max_total_rows",
+                    "display_type": "INT",
+                    "description": "Максимальное общее количество строк"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "JSON",
+                    "description": null
+                }
+            },
+            "display_name": "Развернуть JSON",
+            "description": ""
+        },
+        "JSONEditor": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "json": {
+                    "display_name": "json",
+                    "display_type": "JSON",
+                    "description": null
+                },
+                "record_path": {
+                    "display_name": "record_path",
+                    "display_type": "STRING",
+                    "description": "Путь к источнику записей."
+                },
+                "meta_paths": {
+                    "display_name": "meta_paths",
+                    "display_type": "STRING",
+                    "description": "Пути, которые нужно добавить в каждую запись."
+                },
+                "explode_paths": {
+                    "display_name": "explode_paths",
+                    "display_type": "STRING",
+                    "description": "Массивы, по которым нужно размножать строки."
+                },
+                "keep_json_paths": {
+                    "display_name": "keep_json_paths",
+                    "display_type": "STRING",
+                    "description": "Поддеревья, которые нужно сохранить как JSON."
+                },
+                "exclude_paths": {
+                    "display_name": "exclude_paths",
+                    "display_type": "STRING",
+                    "description": "Пути, которые нужно исключить из результата."
+                },
+                "separator": {
+                    "display_name": "separator",
+                    "display_type": "STRING",
+                    "description": "Разделитель для итоговых flat keys."
+                },
+                "auto_detect_record_path": {
+                    "display_name": "auto_detect_record_path",
+                    "display_type": "BOOLEAN",
+                    "description": "Автоматически подобрать record_path из JSON metadata."
+                },
+                "max_rows": {
+                    "display_name": "max_rows",
+                    "display_type": "INT",
+                    "description": "Максимальное число выходных строк."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "JSON",
+                    "description": null
+                }
+            },
+            "display_name": "JSON редактор (расширенный)",
+            "description": "Подготовка JSON к дальнейшей нормализации и преобразованию в DataFrame."
+        },
+        "GetExistSMBConnection": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection_id": {
+                    "display_name": "connection_id",
+                    "display_type": "SMB_CONNECTION_ID",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "SMB_CONNECTION",
+                    "description": null
+                }
+            },
+            "display_name": "Сетевая папка",
+            "description": ""
+        },
+        "GetExistFTPConnection": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection_id": {
+                    "display_name": "connection_id",
+                    "display_type": "FTP_CONNECTION_ID",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "FTP_CONNECTION",
+                    "description": null
+                }
+            },
+            "display_name": "FTP подключение",
+            "description": ""
+        },
+        "GetExistS3Connection": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection_id": {
+                    "display_name": "connection_id",
+                    "display_type": "S3_CONNECTION_ID",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION",
+                    "description": null
+                }
+            },
+            "display_name": "S3 подключение",
+            "description": ""
+        },
+        "GetExistDBConnection": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection_id": {
+                    "display_name": "connection_id",
+                    "display_type": "DB_CONNECTION_ID",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                }
+            },
+            "display_name": "Подключение к Базе данных",
+            "description": ""
+        },
+        "GetMockDBConnection": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection_type": {
+                    "display_name": "тип_подключения",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                }
+            },
+            "display_name": "Get Mock DB Connection",
+            "description": ""
+        },
+        "GetMockTableSchema": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "входные_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "schema": {
+                    "display_name": "схема",
+                    "display_type": "TABLE_SCHEMA",
+                    "description": "Фиксированная схема таблицы"
+                }
+            },
+            "display_name": "Тестовая схема таблицы",
+            "description": "Возвращает фиксированную схему таблицы для проверки UI и метаданных."
+        },
+        "LoadExcel": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "path": {
+                    "display_name": "путь",
+                    "display_type": "STRING",
+                    "description": "Поддерживаются glob-паттерны, например:\n  'reports/01-01-*.excel' — все файлы за 1 января\n  'reports/2025-*/data-*.excel' — все файлы за 2025 год"
+                },
+                "sheet_name": {
+                    "display_name": "имя_листа",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "usecols": {
+                    "display_name": "колонки",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "usecols_range": {
+                    "display_name": "колонки_диапазон",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "header_row": {
+                    "display_name": "заголовок_строк",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "read_timeout_sec": {
+                    "display_name": "таймаут_чтения_сек",
+                    "display_type": "INT",
+                    "description": "Таймаут чтения одного Excel-файла в секундах"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение Excel",
+            "description": ""
+        },
+        "LoadParquet": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+                    "description": null
+                },
+                "connection_overrides": {
+                    "display_name": "connection_overrides",
+                    "display_type": "SCHEMA",
+                    "description": null
+                },
+                "path": {
+                    "display_name": "путь",
+                    "display_type": "STRING",
+                    "description": "Путь в формате s3://bucket/user_id/<path>.parquet (задавай относительный path)"
+                },
+                "usecols": {
+                    "display_name": "колонки",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение Parquet",
+            "description": ""
+        },
+        "ReadQueryFromDBV3": {
+            "input_definitions": {
+                "sql_code": {
+                    "display_name": "sql_код_исполнения",
+                    "display_type": "STRING",
+                    "description": "SQL код (можно использовать переменные в формате {{Jinja}} для динамического переопределения SQL-запроса"
+                },
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "partition_col": {
+                    "display_name": "колонка_партицирования",
+                    "display_type": "STRING",
+                    "description": "Обязательный параметр. Используйте точное имя скалярной колонки из результата запроса; предпочтительна стабильная непустая индексированная числовая колонка или дата без SQL-кавычек."
+                },
+                "partition_grouping": {
+                    "display_name": "группировка_партиций",
+                    "display_type": "DICT",
+                    "description": "Необязательная настройка группировки партиций. Задавайте её только с учётом типа колонки, кардинальности и распределения данных."
+                },
+                "npartitions": {
+                    "display_name": "кол_партиций",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "limit": {
+                    "display_name": "лимит",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "max_rows_per_partition": {
+                    "display_name": "макс_строк_на_партицию",
+                    "display_type": "INT",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение SQL-запроса из БД V3",
+            "description": "Читает результат произвольного SQL-запроса. Для обычного чтения таблицы используйте ReadTableFromDBV3 и специализированные low-code трансформации."
+        },
+        "ReadQueueTopic": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "topic_id": {
+                    "display_name": "id_топика",
+                    "display_type": "STRING",
+                    "description": "ID топика очереди"
+                },
+                "stream_key": {
+                    "display_name": "stream_key",
+                    "display_type": "STRING",
+                    "description": "Ключ потока в Queue (если не указан, формируется как 'queue_topic:{topic_id}:stream')"
+                },
+                "delete_after_read": {
+                    "display_name": "delete_after_read",
+                    "display_type": "BOOLEAN",
+                    "description": "Если True, удаляет прочитанные ID из Queue"
+                },
+                "count_limit": {
+                    "display_name": "лимит_чтения",
+                    "display_type": "INT",
+                    "description": "Общее максимальное количество сообщений (если указано, чтение остановится после этого числа)"
+                },
+                "chunk_size": {
+                    "display_name": "chunk_size",
+                    "display_type": "INT",
+                    "description": "Максимальное число сообщений за один XRANGE-запрос"
+                },
+                "index_col": {
+                    "display_name": "колонка_индекса",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка для использования в качестве индекса"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение Queue Topic",
+            "description": ""
+        },
+        "ReadTableFromDB": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "TTL_CACHE": {
+                    "display_name": "TTL_CACHE",
+                    "display_type": "INT",
+                    "description": "Время жизни кеша"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "table_name": {
+                    "display_name": "имя_таблицы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "database_name": {
+                    "display_name": "имя_базы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "schema_name": {
+                    "display_name": "имя_схемы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "index_col": {
+                    "display_name": "колонка_индекса",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "columns": {
+                    "display_name": "колонки",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "limit": {
+                    "display_name": "limit",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "time_zone": {
+                    "display_name": "time_zone",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "use_clickhouse_connect_driver": {
+                    "display_name": "use_clickhouse_connect_driver",
+                    "display_type": "BOOLEAN",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение таблицы из БД",
+            "description": ""
+        },
+        "ReadTableFromDBV3": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "TTL_CACHE": {
+                    "display_name": "TTL_CACHE",
+                    "display_type": "INT",
+                    "description": "Время жизни кеша"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                },
+                "table_name": {
+                    "display_name": "имя_таблицы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "database_name": {
+                    "display_name": "имя_базы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "schema_name": {
+                    "display_name": "имя_схемы",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "columns": {
+                    "display_name": "колонки",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Обязательный непустой список колонок. Чтобы читать и показывать в UI все колонки, передайте полный список из каталога; null не означает выбор всех в сохранённом графе."
+                },
+                "limit": {
+                    "display_name": "limit",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "time_zone": {
+                    "display_name": "таймзона",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "partition_col": {
+                    "display_name": "колонка_партицирования",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Обязательная колонка для детерминированного read_v3. Используйте точное имя из каталога без SQL-кавычек и обратных кавычек."
+                },
+                "partition_grouping": {
+                    "display_name": "группировка_партиций",
+                    "display_type": "DICT",
+                    "description": "Необязательная настройка группировки партиций. Задавайте её только с учётом типа колонки, кардинальности и распределения данных."
+                },
+                "npartitions": {
+                    "display_name": "кол_партиций",
+                    "display_type": "INT",
+                    "description": null
+                },
+                "max_rows_per_partition": {
+                    "display_name": "макс_строк_на_партицию",
+                    "display_type": "INT",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "system_variable_definitions": {
+                "source_table_name": {},
+                "source_schema_name": {},
+                "source_db_name": {}
+            },
+            "display_name": "Чтение таблицы из БД",
+            "description": "Читает таблицу БД с детерминированным партицированием. Используйте эту ноду для обычного чтения таблиц."
+        },
+        "ExecutePython": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df_in": {
+                    "display_name": "df_in",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "json_in": {
+                    "display_name": "json_in",
+                    "display_type": "JSON",
+                    "description": null
+                },
+                "code": {
+                    "display_name": "код",
+                    "display_type": "STRING",
+                    "description": "Код Python"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": "DataFrame output"
+                },
+                "output_json": {
+                    "display_name": "исх_json",
+                    "display_type": "JSON",
+                    "description": "JSON output"
+                }
+            },
+            "display_name": "Выполнить Python-код",
+            "description": "Выполняет произвольный код на Python. Используйте df_out и json_out для заполнения типизированных выходных данных."
+        },
+        "ExecuteSQL": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "sql_code": {
+                    "display_name": "sql_код_исполнения",
+                    "display_type": "STRING",
+                     "description": "SQL код (можно использовать переменные в формате {{Jinja}} для динамического переопределения SQL-запроса"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "DB_CONNECTION",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": "DataFrame output"
+                }
+            },
+            "display_name": "Выполнить произвольный SQL-код",
+            "description": ""
+        },
+        "ConvertVariablesToDataFrame": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Переменные → в Dataframe",
+            "description": ""
+        },
+        "AddTimeDeltaToDataFrame": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column_with_time": {
+                    "display_name": "колонка_даты",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "new_column_with_time": {
+                    "display_name": "новая_колонка",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "years": {
+                    "display_name": "годы",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "months": {
+                    "display_name": "месяцы",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "days": {
+                    "display_name": "дни",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "seconds": {
+                    "display_name": "секунды",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "microseconds": {
+                    "display_name": "микросекунды",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "milliseconds": {
+                    "display_name": "милисекунды",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "minutes": {
+                    "display_name": "минуты",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "hours": {
+                    "display_name": "часы",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "weeks": {
+                    "display_name": "недели",
+                    "display_type": "FLOAT",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "ДатаВремя - добавить период к полю",
+            "description": ""
+        },
+        "DataFrameLagColumns": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "columns_to_lag": {
+                    "display_name": "columns_to_lag",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонки для создания лагов"
+                },
+                "lag_steps": {
+                    "display_name": "lag_steps",
+                    "display_type": "INT",
+                    "description": "Количество шагов сдвига (положительное - сдвиг вниз, отрицательное - вверх)"
+                },
+                "fill_value": {
+                    "display_name": "fill_value",
+                    "display_type": "PRIMITIVE",
+                    "description": "Значение для заполнения пустых мест после сдвига (по умолчанию NaN)"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Сдвиг значений по строке",
+            "description": ""
+        },
+        "DataFrameNumericNormalizer": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "columns_to_normalize": {
+                    "display_name": "columns_to_normalize",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонки для нормализации. Если пустые, то будут все колонки"
+                },
+                "lower_border": {
+                    "display_name": "lower_border",
+                    "display_type": "FLOAT",
+                    "description": "Нижняя граница нормализации"
+                },
+                "upper_border": {
+                    "display_name": "upper_border",
+                    "display_type": "FLOAT",
+                    "description": "Верхняя граница нормализации"
+                },
+                "replace_empty_values": {
+                    "display_name": "replace_empty_values",
+                    "display_type": "BOOLEAN",
+                    "description": "Заполнять ли NaN/null значения"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Нормализовать числовые колонки",
+            "description": ""
+        },
+        "DataFrameRegexReplace": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column_to_replace": {
+                    "display_name": "column_to_replace",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка для замены значений"
+                },
+                "pattern": {
+                    "display_name": "pattern",
+                    "display_type": "STRING",
+                    "description": "Регулярное выражение для поиска"
+                },
+                "replacement": {
+                    "display_name": "replacement",
+                    "display_type": "STRING",
+                    "description": "Строка для замены найденного совпадения"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Заменить значения по Regex-выражению",
+            "description": "Заменяет значения в выбранной колонке на основе регулярного выражения.\nДля каждой строки применяется re.sub(pattern, replacement, string)."
+        },
+        "DataFrameReplaceValues": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column_to_replace": {
+                    "display_name": "column_to_replace",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка для замены значений"
+                },
+                "dictionary": {
+                    "display_name": "dictionary",
+                    "display_type": "DICT",
+                    "description": "Словарь"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Заменить значения в колонке",
+            "description": ""
+        },
+        "DataFrameSetTimezone": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column": {
+                    "display_name": "колонка",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "timezone": {
+                    "display_name": "timezone",
+                    "display_type": "STRING",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "ДатаВремя - Установить таймзону",
+            "description": ""
+        },
+        "DataFrameSplitColumn": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "column": {
+                    "display_name": "колонка",
+                    "display_type": "COLUMN_NAME",
+                    "description": null
+                },
+                "delimiter": {
+                    "display_name": "разделитель",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "max_splits": {
+                    "display_name": "max_splits",
+                    "display_type": "INT",
+                    "description": "Максимальное количество разделений (n). Получается n+1 столбец."
+                },
+                "drop_source": {
+                    "display_name": "drop_source",
+                    "display_type": "BOOLEAN",
+                    "description": "Удалить колонку источника"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Разделить колонку по разделителю",
+            "description": ""
+        },
+        "DataFrameUnpivot": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "index_columns": {
+                    "display_name": "index_columns",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонки, которые должны остаться неизменными (идентификаторы строк)."
+                },
+                "columns_to_long": {
+                    "display_name": "columns_to_long",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонки, которые нужно расплавить. Если не заданы — берутся все кроме id_vars."
+                },
+                "new_column_name_with_names": {
+                    "display_name": "new_column_name_with_names",
+                    "display_type": "STRING",
+                    "description": "Имя новой колонки, содержащей имена исходных столбцов."
+                },
+                "new_column_name_with_values": {
+                    "display_name": "new_column_name_with_values",
+                    "display_type": "STRING",
+                    "description": "Имя новой колонки, содержащей значения исходных столбцов."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Unpivot (свернуть) Dataframe",
+            "description": ""
+        },
+        "GetCalendarEventsFromBitrix24": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "calendar_type": {
+                    "display_name": "calendar_type",
+                    "display_type": "STRING",
+                    "description": "Тип календаря: user, group или company_calendar"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "owner_id_column": {
+                    "display_name": "owner_id_column",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка с ID владельцев календаря. Для company: ID не требуется."
+                },
+                "sections": {
+                    "display_name": "sections",
+                    "display_type": "STRING",
+                    "description": "ID календарей через запятую (опционально)"
+                },
+                "request_pool_size": {
+                    "display_name": "request_pool_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "requests_per_second": {
+                    "display_name": "requests_per_second",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "batch_size": {
+                    "display_name": "batch_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "operating_limit": {
+                    "display_name": "operating_limit",
+                    "display_type": "FLOAT",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Получить Календари Битрикс24",
+            "description": "Выгружает события календаря по списку ID владельцев (пользователей/групп)."
+        },
+        "GetElapsedTimeFromBitrix24": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "task_id_column": {
+                    "display_name": "колонка_ID_задач",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка с ID задач"
+                },
+                "request_pool_size": {
+                    "display_name": "request_pool_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "requests_per_second": {
+                    "display_name": "requests_per_second",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "batch_size": {
+                    "display_name": "batch_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "operating_limit": {
+                    "display_name": "operating_limit",
+                    "display_type": "FLOAT",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Получить время задач Битрикс24",
+            "description": ""
+        },
+        "GetTaskDataFromBitrix24V2": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "entity": {
+                    "display_name": "сущность",
+                    "display_type": "STRING",
+                    "description": "Сущность: task_history, task_result или timeline_* (deal/lead/contact/company)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "id_column": {
+                    "display_name": "колонка_id_сущностей",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка с ID сущностей (задач или CRM-сущностей для timeline)"
+                },
+                "request_pool_size": {
+                    "display_name": "request_pool_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "requests_per_second": {
+                    "display_name": "requests_per_second",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "batch_size": {
+                    "display_name": "batch_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "operating_limit": {
+                    "display_name": "operating_limit",
+                    "display_type": "FLOAT",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Получить связанные данные к сущности Битрикс24",
+            "description": ""
+        },
+        "GetTaskEntityDataFromBitrix24": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "entity": {
+                    "display_name": "entity",
+                    "display_type": "STRING",
+                    "description": "task сущность: task_history или task_result"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "df": {
+                    "display_name": "df",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                },
+                "task_id_column": {
+                    "display_name": "колонка_id_задач",
+                    "display_type": "COLUMN_NAME",
+                    "description": "Колонка с ID задач"
+                },
+                "request_pool_size": {
+                    "display_name": "request_pool_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "requests_per_second": {
+                    "display_name": "requests_per_second",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "batch_size": {
+                    "display_name": "batch_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "operating_limit": {
+                    "display_name": "operating_limit",
+                    "display_type": "FLOAT",
+                    "description": null
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Получить связаные данные по задачам Битрикс24",
+            "description": "Выгружает данные по списку ID задач Bitrix24."
+        },
+        "ReadDataFromBitrix24": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "connection": {
+                    "display_name": "подключение",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "entity": {
+                    "display_name": "entity",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "entity_type_id": {
+                    "display_name": "entity_type_id",
+                    "display_type": "STRING",
+                    "description": "Тип crm.item.* (SPA/Invoice/other dynamic types)"
+                },
+                "spa_title": {
+                    "display_name": "spa_title",
+                    "display_type": "STRING",
+                    "description": "SPA название по списку crm.type.list"
+                },
+                "catalog_iblock_id": {
+                    "display_name": "catalog_iblock_id",
+                    "display_type": "STRING",
+                    "description": "iblockId for catalog.product.*"
+                },
+                "list_code": {
+                    "display_name": "list_code",
+                    "display_type": "STRING",
+                    "description": "IBLOCK_CODE for lists.* (list or list_element)"
+                },
+                "list_id": {
+                    "display_name": "list_id",
+                    "display_type": "STRING",
+                    "description": "IBLOCK_ID for lists.* (list or list_element)"
+                },
+                "deal_id": {
+                    "display_name": "deal_id",
+                    "display_type": "STRING",
+                    "description": "Deal ID for deal_contact, deal_product_rows"
+                },
+                "tasks_id": {
+                    "display_name": "tasks_id",
+                    "display_type": "STRING",
+                    "description": "Task ID for elapsed_time, task_comment"
+                },
+                "iblock_id": {
+                    "display_name": "iblock_id",
+                    "display_type": "STRING",
+                    "description": "IBLOCK_ID for iblock.element.*, iblock.section.*"
+                },
+                "storage_id": {
+                    "display_name": "storage_id",
+                    "display_type": "STRING",
+                    "description": "Storage ID for disk.*"
+                },
+                "calendar_type": {
+                    "display_name": "calendar_type",
+                    "display_type": "STRING",
+                    "description": "Calendar type: user, group, resource"
+                },
+                "calendar_owner_id": {
+                    "display_name": "calendar_owner_id",
+                    "display_type": "STRING",
+                    "description": "Owner ID for calendar (user_id, group_id, resource_id)"
+                },
+                "mode": {
+                    "display_name": "режим",
+                    "display_type": "STRING",
+                    "description": null
+                },
+                "start_date": {
+                    "display_name": "дата_начала",
+                    "display_type": "DATETIME",
+                    "description": null
+                },
+                "end_date": {
+                    "display_name": "дата_конца",
+                    "display_type": "DATETIME",
+                    "description": null
+                },
+                "last_modified": {
+                    "display_name": "дата_последней_модификации",
+                    "display_type": "DATETIME",
+                    "description": null
+                },
+                "request_pool_size": {
+                    "display_name": "request_pool_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "requests_per_second": {
+                    "display_name": "requests_per_second",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "batch_size": {
+                    "display_name": "batch_size",
+                    "display_type": "FLOAT",
+                    "description": null
+                },
+                "operating_limit": {
+                    "display_name": "operating_limit",
+                    "display_type": "FLOAT",
+                    "description": "Ожидание между запросами при ограничении"
+                },
+                "export_timeout_seconds": {
+                    "display_name": "export_timeout_seconds",
+                    "display_type": "FLOAT",
+                    "description": "Максимальное время выгрузки в секундах. 0 - без ограничения."
+                },
+                "use_synonyms": {
+                    "display_name": "use_synonyms",
+                    "display_type": "BOOLEAN",
+                    "description": "Использовать синонимы (человекочитаемые имена) вместо UF_ названий полей. Требует entityTypeId для сущности."
+                },
+                "custom_filters": {
+                    "display_name": "custom_filters",
+                    "display_type": "DICT",
+                    "description": "Дополнительные фильтры, которые будут добавлены в запрос. Применяются поверх автоматически сгенерированных фильтров."
+                },
+                "selected_columns": {
+                    "display_name": "selected_columns",
+                    "display_type": "STRING",
+                    "description": "Список полей для выгрузки. Если пусто или None — выгружаются все поля."
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": null
+                }
+            },
+            "display_name": "Чтение основых данных из Битрикс24",
+            "description": ""
+        },
+        "ReadYandexMetricaLogs": {
+            "input_definitions": {
+                "input_variables": {
+                    "display_name": "вход_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "входящие переменные"
+                },
+                "signal_in": {
+                    "display_name": "сигнал_вход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (вход)"
+                },
+                "token": {
+                    "display_name": "token",
+                    "display_type": "STRING",
+                    "description": "OAuth токен Яндекс.Метрики"
+                },
+                "counter_id": {
+                    "display_name": "counter_id",
+                    "display_type": "STRING",
+                    "description": "ID счетчика"
+                },
+                "source": {
+                    "display_name": "source",
+                    "display_type": "STRING",
+                    "description": "Источник данных"
+                },
+                "mode": {
+                    "display_name": "режим",
+                    "display_type": "STRING",
+                    "description": "Режим выгрузки (history, regular, regular_early). Если не задан, используйте даты."
+                },
+                "start_date": {
+                    "display_name": "start_date",
+                    "display_type": "STRING",
+                    "description": "Дата начала (YYYY-MM-DD). Обязательна, если mode не задан."
+                },
+                "end_date": {
+                    "display_name": "end_date",
+                    "display_type": "STRING",
+                    "description": "Дата конца (YYYY-MM-DD). Обязательна, если mode не задан."
+                },
+                "fields": {
+                    "display_name": "fields",
+                    "display_type": "STRING",
+                    "description": "Список полей Logs API (выбор из перечисления)"
+                }
+            },
+            "output_definitions": {
+                "output_variables": {
+                    "display_name": "исх_переменные",
+                    "display_type": "VARIABLE",
+                    "description": "Переменные (выход)"
+                },
+                "signal_out": {
+                    "display_name": "сигнал_выход",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения (выход)"
+                },
+                "signal_error": {
+                    "display_name": "сигнал_ошибки",
+                    "display_type": "SIGNAL",
+                    "description": "Сигнал исполнения по ошибке (выход)"
+                },
+                "output": {
+                    "display_name": "выход",
+                    "display_type": "DATAFRAME",
+                    "description": "Logs Dataframe"
+                }
+            },
+            "display_name": "Чтение из Yandex Metrica Logs",
+            "description": "Выгружает Logs из Yandex Metrica и возвращает Dataframe"
+        }
+    },
+    "type_mapping": {
+        "STRING": "СТРОКА",
+        "BOOLEAN": "БУЛЕВО",
+        "INT": "ЦЕЛОЕ",
+        "FLOAT": "ВЕЩЕСТВЕННОЕ",
+        "DICT": "СЛОВАРЬ",
+        "DATAFRAME": "ДАТАФРЕЙМ",
+        "DB_CONNECTION": "БД-СОЕДИНЕНИЕ",
+        "DATETIME": "ДАТА",
+        "OBJECT": "ОБЪЕКТ",
+        "UNKNOWN": "НЕИЗВЕСТНЫЙ",
+        "ANY": "*",
+        "NUMBER": "ЧИСЛО",
+        "PRIMITIVE": "ПРИМИТИВ",
+        "JSON": "JSON",
+        "COLUMN": "КОЛОНКА",
+        "COLUMN_NAME": "ИМЯ_КОЛОНКИ",
+        "DB_CONNECTION_ID": "DB_CONNECTION_ID",
+        "FILE_CONNECTION": "S3_CONNECTION,FTP_CONNECTION,SMB_CONNECTION",
+        "S3_CONNECTION": "S3_CONNECTION",
+        "S3_CONNECTION_ID": "S3_CONNECTION_ID",
+        "FTP_CONNECTION": "FTP_CONNECTION",
+        "FTP_CONNECTION_ID": "FTP_CONNECTION_ID",
+        "SMB_CONNECTION": "SMB_CONNECTION",
+        "SMB_CONNECTION_ID": "SMB_CONNECTION_ID",
+        "KAFKA_CONNECTION": "KAFKA_CONNECTION",
+        "KAFKA_CONNECTION_ID": "KAFKA_CONNECTION_ID",
+        "TIMEDELTA": "TIMEDELTA",
+        "SCHEMA": "СХЕМА",
+        "VARIABLE": "ПЕРЕМЕННАЯ",
+        "SIGNAL": "СИГНАЛ"
+    }
+}

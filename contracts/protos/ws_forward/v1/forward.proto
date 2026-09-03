@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package ws_forward.v1;
+
+service ForwardWS {
+  rpc ForwardStream(stream ForwardRequest) returns (ForwardAck);
+  rpc ForwardUnary(ForwardRequest) returns (ForwardAck);
+}
+
+message ForwardRequest {
+  string user_id = 1;
+  string project_id = 2;
+
+  string type = 10;
+  string task_id = 11;
+  string node_id = 12;
+  string payload_json = 13;
+  string ts = 14;
+}
+
+message ForwardAck {
+  bool ok = 1;
+  string error = 2;
+}

@@ -1,0 +1,54 @@
+{
+  "build": {
+    "name": "BuildSqliteReadBenchmarkDatasetNode",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 300000
+      },
+      "db_path": {
+        "__dvt_type": "const",
+        "value": "tmp/read_benchmark_v3.sqlite"
+      },
+      "table_name": {
+        "__dvt_type": "const",
+        "value": "benchmark_read_table"
+      }
+    }
+  },
+  "read": {
+    "name": "ReadTableFromDBV3BenchmarkNode",
+    "inputs": {
+      "db_path": {
+        "__dvt_type": "link",
+        "node_id": "build",
+        "output_name": "database_path"
+      },
+      "table_name": {
+        "__dvt_type": "link",
+        "node_id": "build",
+        "output_name": "output_table_name"
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "partition_grouping": {
+        "__dvt_type": "const",
+        "value": {
+          "mode": "range"
+        }
+      }
+    }
+  },
+  "materialize": {
+    "name": "MaterializeDataFrameRowsBenchmarkNode",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "read",
+        "output_name": "dataframe"
+      }
+    }
+  }
+}

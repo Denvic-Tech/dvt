@@ -1,0 +1,76 @@
+{
+  "data": {
+    "name": "ClickHouseWriteDfBenchmarkNode",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": {
+          "value": 1000000
+        }
+      },
+      "partitions": {
+        "__dvt_type": "const",
+        "value": {
+          "value": 10
+        }
+      }
+    }
+  },
+  "write": {
+    "name": "WriteDataFrameToDB",
+    "inputs": {
+      "connection": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "connection"
+      },
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "dataframe"
+      },
+      "database_name": {
+        "__dvt_type": "const",
+        "value": {
+          "value": "testdb"
+        }
+      },
+      "table_name": {
+        "__dvt_type": "const",
+        "value": {
+          "value": "benchmark_table"
+        }
+      },
+      "chunksize": {
+        "__dvt_type": "const",
+        "value": {
+          "value": 100000
+        }
+      },
+      "index_col": {
+        "__dvt_type": "const",
+        "value": {
+          "value": "id"
+        }
+      },
+      "write_mode": {
+        "__dvt_type": "const",
+        "value": {
+          "value": "recreate"
+        }
+      },
+      "min_batch_rows": {
+        "__dvt_type": "const",
+        "value": {
+          "value": 500000
+        }
+      },
+      "use_clickhouse_connect_driver": {
+        "__dvt_type": "const",
+        "value": {
+          "value": true
+        }
+      }
+    }
+  }
+}

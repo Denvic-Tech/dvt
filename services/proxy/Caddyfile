@@ -1,0 +1,44 @@
+:80 {
+    # 1) DVT AI MCP Streamable HTTP
+    @mcp_enabled {
+        path /mcp /mcp/*
+        expression `{$DVT_AI_MCP_ENABLED:false} == true`
+    }
+    handle @mcp_enabled {
+        reverse_proxy {$AI_MCP_HOST}:{$AI_MCP_PORT} {
+            flush_interval -1
+        }
+    }
+
+    @mcp_disabled {
+        path /mcp /mcp/*
+        expression `{$DVT_AI_MCP_ENABLED:false} != true`
+    }
+    respond @mcp_disabled "Not Found" 404
+
+    # 2) Internal
+    @internal path /api/internal/*
+    handle @internal {
+        @allowed remote_ip 127.0.0.1 172.16.0.0/12 192.168.0.0/16 10.0.0.0/8
+        handle @allowed {
+            reverse_proxy {$GATEWAY_HOST}:{$GATEWAY_PORT}
+        }
+        respond "Forbidden" 403
+    }
+
+    # 3) Публичное API
+    @api path /api/*
+    handle @api {
+        reverse_proxy {$GATEWAY_HOST}:{$GATEWAY_PORT}
+    }
+
+    # 4) WebSocket
+    @ws path /ws*
+    handle @ws {
+        reverse_proxy {$GATEWAY_HOST}:{$GATEWAY_PORT}
+    }
+
+    handle {
+        reverse_proxy {$UI_HOST}:{$UI_PORT}
+    }
+}

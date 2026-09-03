@@ -1,0 +1,25 @@
+repos:
+  - repo: local
+    hooks:
+      - id: check-import-boundaries
+        name: Check import boundaries
+        entry: "python scripts/.pre_commit/check_import_boundaries.py"
+        language: system
+      - id: check-commit-message
+        name: Check commit message
+        entry: "python scripts/.pre_commit/check_commit_message.py"
+        language: system
+        stages: [ commit-msg ]
+        pass_filenames: true
+      - id: unit-tests
+        name: Run unit tests (pytest)
+        entry: python -m pytest tests/unit
+        language: system
+        stages: [ pre-push ]
+        pass_filenames: false
+      - id: check-migration-revisions
+        name: Validate migration graph and sync RELEASE
+        entry: "python scripts/.pre_commit/check_migration_revisions.py"
+        language: system
+        stages: [ pre-commit, pre-push ]
+        pass_filenames: false

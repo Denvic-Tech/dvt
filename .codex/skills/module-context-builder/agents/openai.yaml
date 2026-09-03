@@ -1,0 +1,4 @@
+interface:
+  display_name: "Module Context Builder"
+  short_description: "Build and evolve src/modules contexts"
+  default_prompt: "Use $module-context-builder to create or refine a bounded context module in src/modules."

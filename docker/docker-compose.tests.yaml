@@ -1,0 +1,266 @@
+x-tester-service: &tester-service
+  image: dvt/tester:latest
+  build:
+    context: .
+    dockerfile: services/tester/docker/dev.Dockerfile
+    additional_contexts:
+      dvt_deps_image: "service:deps"
+      dvt_dev_builder_image: "service:dev-builder"
+      dvt_base_image: "service:base"
+      dvt_base_odbc_image: "service:base-odbc"
+  env_file:
+    - .env
+  environment:
+    LOG_TO_DB: "false"
+  profiles: [ "testing" ]
+
+services:
+  tester_unit:
+    <<: *tester-service
+    command: [ "pytest", "tests/unit" ]
+    volumes:
+      - ${EXTENSIONS_VOLUME_PATH:-./extensions}:/app/extensions
+
+  tester_integration:
+    <<: *tester-service
+    command: [ "pytest", "tests/integration" ]
+    environment:
+      LOG_TO_DB: "false"
+      DVT_INTEGRATION_IMAGE_PREFIX: ${DVT_INTEGRATION_IMAGE_PREFIX:-dvt}
+      DVT_INTEGRATION_IMAGE_TAG: ${DVT_INTEGRATION_IMAGE_TAG:-latest}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TC_MAX_TRIES: "600"
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      MINIO_TEST_ENDPOINT: https://minio-test-db:9000
+      FTP_TEST_HOST: ftp_test_db
+      FTP_TEST_PORT: "21"
+    depends_on:
+      minio_test_db:
+        condition: service_healthy
+      ftp_test_db:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${EXTENSIONS_VOLUME_PATH:-./extensions}:/app/extensions
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  tester_e2e:
+    <<: *tester-service
+    command: [ "pytest", "tests/e2e" ]
+    environment:
+      LOG_TO_DB: "false"
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TC_MAX_TRIES: "600"
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+    env_file:
+      - .env
+      - path: e2e.env
+        required: false
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${EXTENSIONS_VOLUME_PATH:-./extensions}:/app/extensions
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgres_test_db:
+    image: postgres:15.3-alpine
+    container_name: dvt-postgres-test-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_TEST_USER:-testuser}
+      POSTGRES_PASSWORD: ${POSTGRES_TEST_PASSWORD:-testpassword}
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-testdb}
+    ports:
+      - "${POSTGRES_TEST_PORT:-54321}:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_TEST_USER:-testuser} -d ${POSTGRES_TEST_DB:-testdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mysql_test_db:
+    image: mysql:8.0
+    container_name: dvt-mysql-test-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_TEST_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_TEST_DB:-testdb}
+      MYSQL_USER: ${MYSQL_TEST_USER:-testuser}
+      MYSQL_PASSWORD: ${MYSQL_TEST_PASSWORD:-testpassword}
+    ports:
+      - "${MYSQL_TEST_PORT:-33061}:3306"
+    volumes:
+      - mysql_test_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u$$MYSQL_USER", "-p$$MYSQL_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  clickhouse_test_db:
+    image: clickhouse/clickhouse-server:24.11
+    container_name: dvt-clickhouse-test-db
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_TEST_USER:-testuser}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_TEST_PASSWORD:-testpassword}
+      CLICKHOUSE_DB: ${CLICKHOUSE_TEST_DB:-testdb}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1 # Необходимо для создания пользователей/БД через SQL
+    ports:
+      - "${CLICKHOUSE_TEST_HTTP_PORT:-8124}:8123" # HTTP
+      - "${CLICKHOUSE_TEST_NATIVE_PORT:-9001}:9000" # Native TCP
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_test_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "-u", "${CLICKHOUSE_TEST_USER:-testuser}", "--password", "${CLICKHOUSE_TEST_PASSWORD:-testpassword}", "-q", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dvt-net
+
+  mssql_test_db:
+    image: mcr.microsoft.com/mssql/server:2022-CU12-ubuntu-22.04
+    container_name: dvt-mssql-test-db
+    environment:
+      SA_PASSWORD: "Str0ngP@ss!"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "${MSSQL_TEST_PORT:-11433}:1433"
+    volumes:
+      - mssql_test_data:/var/opt/mssql
+    healthcheck:
+        test: ["CMD-SHELL", "sqlcmd -S localhost -U SA -P 'Str0ngP@ss!' -Q 'SELECT 1'"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+
+  oracle_test_db:
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: dvt-oracle-test-db
+    environment:
+      ORACLE_PASSWORD: testpassword
+      APP_USER: testuser
+      APP_USER_PASSWORD: testpassword
+    ports:
+      - "${ORACLE_TEST_PORT:-11521}:1521"
+    volumes:
+      - oracle_test_data:/opt/oracle/oradata
+
+  minio_test_db:
+    image: minio/minio:latest
+    container_name: dvt-minio-test-db
+    restart: unless-stopped
+    ports:
+      - "3900:9000"
+      - "3901:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-k", "-f", "https://127.0.0.1:9000/minio/health/live" ]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - minio_test_data:/data
+      - ./data/minio/minio-init.sh:/docker-entrypoint-init.d/minio-init.sh:ro
+      - ./data/minio/cors.json:/etc/minio/cors.json:ro
+      - ./data/minio/certs:/root/.minio/certs:ro
+    networks:
+      default:
+        aliases:
+          - minio-test-db
+      dvt-net:
+
+  ftp_test_db:
+    image: dvt/ftp-test-db:latest
+    build:
+      context: docker
+      dockerfile: ftp-test-db.Dockerfile
+    container_name: dvt-ftp-test-db
+    ports:
+      - "9021:21"
+      - "21000-21010:21000-21010"
+    cap_add:
+      - NET_ADMIN
+    environment:
+      USERS: "ftpuser|ftppassword|/home/ftpuser|10000|10000"
+      ADDRESS: "ftp_test_db"
+      MIN_PORT: "21000"
+      MAX_PORT: "21010"
+      FTP_TEST_DB_NETEM_ENABLED: "${FTP_TEST_DB_NETEM_ENABLED:-false}"
+      FTP_TEST_DB_NETEM_IFACE: "${FTP_TEST_DB_NETEM_IFACE:-eth0}"
+      FTP_TEST_DB_NETEM_DELAY: "${FTP_TEST_DB_NETEM_DELAY:-100ms}"
+      FTP_TEST_DB_NETEM_JITTER: "${FTP_TEST_DB_NETEM_JITTER:-20ms}"
+      FTP_TEST_DB_NETEM_RATE: "${FTP_TEST_DB_NETEM_RATE:-500bit}"
+      FTP_TEST_DB_NETEM_LOSS: "${FTP_TEST_DB_NETEM_LOSS:-}"
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z 127.0.0.1 21" ]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - ftp_test_data:/home/ftpuser
+
+  samba_test_db_init:
+    image: alpine:3.20
+    container_name: dvt-smb-test-db-init
+    command:
+      - /bin/sh
+      - -c
+      - mkdir -p /samba/public && chown -R 1000:1000 /samba/public && chmod -R ug+rwX,o-rwx /samba/public
+    volumes:
+      - samba_test_data:/samba/public
+    restart: "no"
+
+  samba_test_db:
+    image: crazymax/samba:latest
+    container_name: dvt-smb-test-db
+    ports:
+      - "11445:445"
+    volumes:
+      - ./samba/config.yml:/data/config.yml:ro
+      - samba_test_data:/samba/public
+    depends_on:
+      samba_test_db_init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  task_benchmarking:
+    build:
+      context: .
+      dockerfile: services/task_benchmarking/docker/dev.Dockerfile
+    image: dvt/task-benchmarking:dev
+    container_name: dvt-task-benchmarking
+    environment:
+      CLICKHOUSE_TEST_HOST: clickhouse_test_db
+      CLICKHOUSE_TEST_HTTP_PORT: 8123
+    volumes:
+      - ./tmp:/app/tmp
+
+volumes:
+  postgres_test_data:
+  mysql_test_data:
+  clickhouse_test_data:
+  mssql_test_data:
+  minio_test_data:
+  oracle_test_data:
+  ftp_test_data:
+  samba_test_data:
+
+networks:
+  dvt-net:
+    external: true

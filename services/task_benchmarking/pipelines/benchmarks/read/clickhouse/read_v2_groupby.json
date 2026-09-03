@@ -1,0 +1,97 @@
+{
+  "connection": {
+    "name": "BuildClickHouseConnectionUrlBenchmarkNode",
+    "inputs": {
+      "host": {
+        "__dvt_type": "const",
+        "value": "localhost"
+      },
+      "port": {
+        "__dvt_type": "const",
+        "value": 8124
+      },
+      "user": {
+        "__dvt_type": "const",
+        "value": "testuser"
+      },
+      "password": {
+        "__dvt_type": "const",
+        "value": "testpassword"
+      },
+      "database_name": {
+        "__dvt_type": "const",
+        "value": "testdb"
+      }
+    }
+  },
+  "read": {
+    "name": "ReadClickHouseTableV2BenchmarkNode",
+    "inputs": {
+      "connection_url": {
+        "__dvt_type": "link",
+        "node_id": "connection",
+        "output_name": "connection_url"
+      },
+      "table_name": {
+        "__dvt_type": "const",
+        "value": "csv_sale_from_arustamov"
+      },
+      "partition_col": {
+        "__dvt_type": "const",
+        "value": "Номер чека"
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 64
+      }
+    }
+  },
+  "groupby": {
+    "name": "DataFrameGroupByAgg",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "read",
+        "output_name": "dataframe"
+      },
+      "group_by_columns": {
+        "__dvt_type": "const",
+        "value": [
+          "Товарная группа"
+        ]
+      },
+      "new_cols": {
+        "__dvt_type": "const",
+        "value": [
+          "sum_amount"
+        ]
+      },
+      "source_cols": {
+        "__dvt_type": "const",
+        "value": [
+          "Сумма к оплате"
+        ]
+      },
+      "agg_funcs": {
+        "__dvt_type": "const",
+        "value": [
+          "sum"
+        ]
+      }
+    }
+  },
+  "materialize": {
+    "name": "MaterializeDataFrameRowsBenchmarkNode",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "groupby",
+        "output_name": "output"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 2
+      }
+    }
+  }
+}

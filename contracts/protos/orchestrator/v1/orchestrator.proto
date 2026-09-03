@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package orchestrator.v1;
+
+service Orchestrator {
+  rpc EnqueueTask(EnqueueTaskRequest) returns (EnqueueTaskResponse);
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+  rpc ControlTask(TaskControlMessage) returns (TaskControlResponse);
+  rpc GetSystemStats(GetSystemStatsRequest) returns (GetSystemStatsResponse);
+  rpc GetExecutionCapacity(GetExecutionCapacityRequest) returns (GetExecutionCapacityResponse);
+}
+
+message EnqueueTaskRequest {
+  // Pydantic TaskInternal JSON payload.
+  string task_payload_json = 1;
+  string content_type = 2;
+}
+
+message EnqueueTaskResponse {
+  bool accepted = 1;
+  string task_id = 2;
+  string error = 3;
+}
+
+message CancelTaskRequest {
+  string task_id = 1;
+}
+
+message CancelTaskResponse {
+  bool accepted = 1;
+  string error = 2;
+}
+
+message TaskControlMessage {
+  string task_id = 1;
+  string command = 2;
+}
+
+message TaskControlResponse {
+  bool accepted = 1;
+  string error = 2;
+}
+
+message GetSystemStatsRequest {}
+
+message GetSystemStatsResponse {
+  // Pydantic SystemInfo list JSON payload.
+  string system_infos_json = 1;
+  string content_type = 2;
+}
+
+message GetExecutionCapacityRequest {}
+
+message WorkerCapacityInfo {
+  string worker_id = 1;
+  uint32 max_concurrent = 2;
+  string status = 3;
+  bool alive = 4;
+  repeated string capabilities = 5;
+  bool busy = 6;
+  uint32 available_slots = 7;
+}
+
+message GetExecutionCapacityResponse {
+  uint32 alive_workers_count = 1;
+  uint32 total_capacity = 2;
+  repeated WorkerCapacityInfo workers = 3;
+  uint32 busy_capacity = 4;
+  uint32 available_capacity = 5;
+}

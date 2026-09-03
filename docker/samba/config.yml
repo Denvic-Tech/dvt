@@ -1,0 +1,19 @@
+auth:
+  - user: test
+    group: test
+    uid: 1000
+    gid: 1000
+    password: testpass
+
+global:
+  - "server min protocol = SMB2"
+
+share:
+  - name: public
+    path: /samba/public
+    browsable: yes
+    readonly: no
+    guestok: no
+    validusers: test
+    writelist: test
+    veto: no

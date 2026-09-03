@@ -1,0 +1,38 @@
+services:
+
+  base:
+    image: dvt/base:latest
+    build:
+      context: .
+      dockerfile: docker/base.Dockerfile
+    env_file: .env
+    command: [ "true" ]
+
+  base-odbc:
+    image: dvt/base-odbc:latest
+    build:
+      context: .
+      dockerfile: docker/base-odbc.Dockerfile
+    env_file: .env
+    command: [ "true" ]
+
+  dev-builder:
+    image: dvt/builder:latest
+    build:
+      context: .
+      dockerfile: docker/dev-builder.Dockerfile
+      additional_contexts:
+        dvt_base_image: "service:base"
+    env_file: .env
+    command: [ "true" ]
+    depends_on:
+      - base
+
+  deps:
+    image: dvt/deps:latest
+    build:
+      context: .
+      dockerfile: docker/deps.Dockerfile
+
+    env_file: .env
+    command: [ "true" ]

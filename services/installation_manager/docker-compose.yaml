@@ -1,0 +1,44 @@
+x-default-logging: &default-logging
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "${DVT_DOCKER_LOG_MAX_SIZE:-50m}"
+      max-file: "${DVT_DOCKER_LOG_MAX_FILE:-5}"
+
+services:
+  installation_manager:
+    <<: *default-logging
+    image: ${DVT_INSTALLATION_MANAGER_IMAGE:-cr.distribution.denvic.tech/dvt/installation_manager:latest}
+    container_name: dvt-installation_manager
+    environment:
+      # Путь каталога данных DVT на хосте (для интерполяции compose и .env внутри контейнера)
+      DVT_LIB_DIR: ${DVT_LIB_DIR:-/var/lib/dvt}
+      UPDATE_SERVICE_TARGET_SERVICES: orchestrator;task-worker;project-scheduler;gateway;dvt-ai-mcp;ui;proxy
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-dvt}
+      # Имя собственного сервиса — исключается из проверки "стек DVT запущен",
+      # иначе одиночный установщик показывает экран обновления вместо установки.
+      UPDATE_SERVICE_SELF_NAME: installation_manager
+      # Реестр и адреса дистрибуции для ПОСЛЕДУЮЩЕЙ установки полного стека из UI
+      CONTAINER_REGISTRY_URL: ${CONTAINER_REGISTRY_URL:-cr.distribution.denvic.tech}
+      RAW_STORAGE_URL: ${RAW_STORAGE_URL:-https://raw.distribution.denvic.tech}
+      DVT_AI_MCP_ENABLED: ${DVT_AI_MCP_ENABLED:-false}
+      DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+    ports:
+      - "${DVT_INSTALLATION_MANAGER_EXTERNAL_PORT:-8888}:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DVT_LIB_DIR:-/var/lib/dvt}:/dvt-lib
+    healthcheck:
+      test: [ "CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()\"" ]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+networks:
+  dvt-net:
+    external: true

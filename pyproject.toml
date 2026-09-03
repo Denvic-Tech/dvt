@@ -1,0 +1,188 @@
+[project]
+name = "DVT"
+version = "1.22.0rc2"
+authors = [
+    { name = "preposition17" },
+    { name = "frankmurrey" },
+    { name = "fonartur" },
+]
+description = "DVT."
+readme = "README.md"
+requires-python = "==3.13"
+
+[tool.pytest]
+strict_markers = true
+python_files = "tests/test_*.py"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "--basetemp=tmp/pytest/basetemp",
+    "--import-mode=importlib"
+]
+cache_dir = "tmp/pytest/cache"
+markers = [
+    "docker_required: marks tests as requiring running docker containers",
+]
+testpaths = [
+    "tests",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+indent-width = 4
+force-exclude = true
+respect-gitignore = true
+show-fixes = true
+output-format = "grouped"
+src = ["core", "src", "services"]
+
+extend-exclude = [
+    ".venv",
+    ".venv3.13",
+    "venv",
+    ".codex",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+    "tmp",
+    "trash",
+    "alembic/versions",
+    "migrations",
+    "node_modules",
+]
+
+[tool.ruff.lint]
+select = [
+    # Базовая корректность
+    "E", # pycodestyle errors
+    "F", # Pyflakes
+
+    # Импорты
+    "I", # isort
+
+    # Модернизация синтаксиса под target-version
+    "UP", # pyupgrade
+
+    # Частые баги и сомнительные места
+    "B", # flake8-bugbear
+    "SIM", # flake8-simplify
+    "C4", # flake8-comprehensions
+    "PIE", # flake8-pie
+    "RET", # flake8-return
+    "ARG", # flake8-unused-arguments
+
+    # Логирование / exceptions / pathlib / print
+    "G", # flake8-logging-format
+    "TRY", # tryceratops
+    "PTH", # flake8-use-pathlib
+    "T20", # flake8-print
+
+    # Часть pylint-правил внутри Ruff
+    "PL",
+    # Собственные правила Ruff
+    "RUF",
+]
+# Отключить E501 (ограничение на длину строки, если не хочешь им пользоваться)
+ignore = [
+    # Форматтер сам занимается строками; E501 часто даёт шум.
+    "E501",
+    # Иногда слишком душнит исключения, особенно в application/service layer.
+    "TRY003", # long exception messages outside exception class
+    "TRY301", # abstract raise to inner function
+
+    # Часто мешает в FastAPI/SQLAlchemy/Pydantic, где есть magic values.
+    "PLR2004",
+
+    # Можно включить позже, когда проект уже чистый.
+    "PLC0415",
+    "PLR0913", # too many arguments
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+fixable = ["ALL"]
+unfixable = [
+    "F401", # unused imports — иногда это re-export в __init__.py
+    "B", # bugbear лучше смотреть глазами
+]
+
+# TODO/FIXME/HACK не считать случайным мусором.
+task-tags = ["TODO", "FIXME", "HACK", "XXX"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = [
+    "F401", # re-export
+]
+
+"tests/**/*.py" = [
+    "S101", # assert в тестах норм
+    "ARG001", # unused fixture argument
+    "ARG002",
+    "ARG003",
+    "ARG005",
+    "PLR2004", # magic values в тестах ок
+    "T20", # print иногда удобно при отладке тестов
+]
+
+"scripts/**/*.py" = [
+    "T20", # print в скриптах часто ок
+    "INP001", # scripts могут быть без package __init__.py
+]
+
+"alembic/**/*.py" = [
+    "INP001",
+]
+
+"migrations/**/*.py" = [
+    "INP001",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+skip-magic-trailing-comma = false
+
+# Полезно, если в docstring есть Python-примеры.
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[tool.ruff.lint.isort]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "core",
+    "services",
+    "src",
+    "config",
+    "local-folder",
+]
+
+sections = { core = ["core"], services = ["services"], src = ["src"], config = ["config"] }
+
+known-first-party = [
+    "core",
+    "services",
+    "src",
+    "config",
+]
+
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+plugins = ["pydantic.mypy"]
+show_error_codes = true
+warn_unused_configs = true
+ignore_missing_imports = true

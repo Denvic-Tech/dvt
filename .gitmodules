@@ -1,0 +1,4 @@
+[submodule "services/ui"]
+	path = services/ui
+	url = https://github.com/Denvic-Tech/dvt-ui.git
+	branch = dev

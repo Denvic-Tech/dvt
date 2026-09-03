@@ -1,0 +1,66 @@
+loggers:
+  tzlocal:
+    level: WARNING
+
+  httpcore:
+    level: WARNING
+
+  httpx:
+    level: WARNING
+
+  urllib3:
+    level: WARNING
+
+  kafka:
+    level: WARNING
+
+  uvicorn:
+    level: INFO
+
+  uvicorn.error:
+    level: INFO
+
+  uvicorn.access:
+    level: INFO
+
+  asyncio:
+    level: INFO
+
+  aiokafka:
+    level: WARNING
+
+  sqlalchemy.engine:
+    level: WARNING
+
+  botocore:
+    level: INFO
+
+  boto3:
+    level: INFO
+
+  zipfile:
+    level: WARNING
+
+  aiobotocore:
+    level: WARNING
+
+  s3fs:
+    level: WARNING
+
+  pandas:
+    level: WARNING
+
+  fsspec:
+    level: WARNING
+
+  clickhouse_driver:
+    level: WARNING
+
+  grpc:
+    level: WARNING
+
+  smbprotocol:
+    level: WARNING
+
+  spnego:
+    level: WARNING

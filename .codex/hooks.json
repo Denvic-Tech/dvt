@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"from pathlib import Path; import runpy, subprocess; root = Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()); runpy.run_path(str(root / '.codex' / 'hooks' / 'run_unit_tests_stop.py'), run_name='__main__')\"",
+            "timeout": 1800,
+            "statusMessage": "Running dockerized unit tests"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,108 @@
+name: Sync private GitLab mirror
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitlab-mirror-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  mirror-and-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout bridge helpers
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure GitLab mirror SSH identity
+        shell: bash
+        env:
+          GITLAB_MIRROR_SSH_KEY: ${{ secrets.GITLAB_MIRROR_SSH_KEY }}
+          GITLAB_KNOWN_HOSTS: ${{ secrets.GITLAB_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "${GITLAB_MIRROR_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "${GITLAB_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 0644 ~/.ssh/known_hosts
+
+      - name: Synchronize heads and tags
+        shell: bash
+        env:
+          GITLAB_MIRROR_SSH_URL: ${{ vars.GITLAB_MIRROR_SSH_URL }}
+        run: |
+          set -Eeuo pipefail
+          : "${GITLAB_MIRROR_SSH_URL:?Configure repository variable GITLAB_MIRROR_SSH_URL}"
+          python3 scripts/github/sync_git_mirror.py \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "${GITLAB_MIRROR_SSH_URL}"
+
+      - name: Classify internal CI trigger
+        id: classify
+        shell: bash
+        run: |
+          python3 scripts/github/classify_ci_event.py \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --ref "${GITHUB_REF}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Resolve exact source commit
+        id: source
+        if: steps.classify.outputs.should_trigger == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git fetch --quiet --force --tags origin '+refs/heads/*:refs/remotes/origin/*'
+          if [[ "${GITHUB_REF}" == refs/heads/* ]]; then
+            branch="${GITHUB_REF#refs/heads/}"
+            source_sha="$(git rev-parse "refs/remotes/origin/${branch}^{commit}")"
+            ref_type="branch"
+          else
+            source_sha="$(git rev-parse "${GITHUB_REF}^{commit}")"
+            ref_type="tag"
+          fi
+          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
+          echo "source_ref_type=${ref_type}" >> "${GITHUB_OUTPUT}"
+
+      - name: Trigger private DVT CI/CD
+        if: steps.classify.outputs.should_trigger == 'true'
+        shell: bash
+        env:
+          GITLAB_BASE_URL: ${{ vars.GITLAB_BASE_URL }}
+          GITLAB_CICD_PROJECT_ID: ${{ vars.GITLAB_CICD_PROJECT_ID }}
+          GITLAB_CICD_REF: ${{ vars.GITLAB_CICD_REF }}
+          GITLAB_CICD_TRIGGER_TOKEN: ${{ secrets.GITLAB_CICD_TRIGGER_TOKEN }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          SOURCE_REF_TYPE: ${{ steps.source.outputs.source_ref_type }}
+          EVENT_KIND: ${{ steps.classify.outputs.event_kind }}
+          RELEASE_TAG: ${{ steps.classify.outputs.release_tag }}
+        run: |
+          set -Eeuo pipefail
+          : "${GITLAB_BASE_URL:?Configure GITLAB_BASE_URL}"
+          : "${GITLAB_CICD_PROJECT_ID:?Configure GITLAB_CICD_PROJECT_ID}"
+          : "${GITLAB_CICD_TRIGGER_TOKEN:?Configure GITLAB_CICD_TRIGGER_TOKEN}"
+          cicd_ref="${GITLAB_CICD_REF:-main}"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --form-string "token=${GITLAB_CICD_TRIGGER_TOKEN}" \
+            --form-string "ref=${cicd_ref}" \
+            --form-string "inputs[source_repository]=${GITHUB_REPOSITORY}" \
+            --form-string "inputs[source_sha]=${SOURCE_SHA}" \
+            --form-string "inputs[source_ref]=${GITHUB_REF}" \
+            --form-string "inputs[source_ref_type]=${SOURCE_REF_TYPE}" \
+            --form-string "inputs[event_kind]=${EVENT_KIND}" \
+            --form-string "inputs[release_tag]=${RELEASE_TAG}" \
+            --form-string "inputs[github_repository]=${GITHUB_REPOSITORY}" \
+            --form-string "inputs[github_run_id]=${GITHUB_RUN_ID}" \
+            "${GITLAB_BASE_URL%/}/api/v4/projects/${GITLAB_CICD_PROJECT_ID}/trigger/pipeline" \
+            >/dev/null

@@ -1,0 +1,6 @@
+mcp==2.0.0
+httpx>=0.28,<1
+pydantic>=2.12,<3
+prometheus-client>=0.23,<1
+uvicorn[standard]>=0.40,<1
+

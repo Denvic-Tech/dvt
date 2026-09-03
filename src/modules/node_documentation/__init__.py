@@ -1,0 +1,1 @@
+"""Node documentation bounded context."""

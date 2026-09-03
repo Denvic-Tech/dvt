@@ -1,0 +1,21 @@
+{
+  "allocate": {
+    "name": "AllocateListNode",
+    "inputs": {
+      "count": {
+        "__dvt_type": "const",
+        "value": 200000
+      }
+    }
+  },
+  "sum": {
+    "name": "SumListNode",
+    "inputs": {
+      "values": {
+        "__dvt_type": "link",
+        "node_id": "allocate",
+        "output_name": "items"
+      }
+    }
+  }
+}

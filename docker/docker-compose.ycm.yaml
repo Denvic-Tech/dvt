@@ -1,0 +1,210 @@
+services:
+  postgres:
+    image: cr.yandex/crp50rr10fi8v73bhsid/dvt/postgres:15.3-alpine
+    container_name: dvt-postgres
+    environment:
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+    volumes:
+      - ${DVT_LIB_DIR:-/var/lib/dvt}/data/pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+  valkey:
+    image: cr.yandex/crp50rr10fi8v73bhsid/dvt/valkey:7.2-alpine
+    container_name: dvt-valkey
+    command: valkey-server --save 20 1 --loglevel warning --requirepass ${DVT_VALKEY_PASSWORD:-valkeypass}
+    volumes:
+      - ${DVT_LIB_DIR:-/var/lib/dvt}/data/valkeydata:/data
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+  orchestrator:
+    image: cr.yandex/crp50rr10fi8v73bhsid/dvt/orchestrator:1.1.1
+    container_name: dvt-orchestrator
+    environment:
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      MIGRATION_WAIT_TIMEOUT_SEC: ${DVT_MIGRATION_WAIT_TIMEOUT_SEC:-300}
+
+      TASK_ORCHESTRATOR_HOST: ${DVT_TASK_ORCHESTRATOR_INTERNAL_HOST:-0.0.0.0}
+      TASK_ORCHESTRATOR_PORT: ${DVT_TASK_ORCHESTRATOR_INTERNAL_PORT:-8250}
+
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+      CELERY_VISIBILITY_TIMEOUT_SEC: ${DVT_CELERY_VISIBILITY_TIMEOUT_SEC:-28800}
+
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_HOST:-gateway}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+  task-worker:
+    image: cr.yandex/crp50rr10fi8v73bhsid/dvt/task-worker:1.1.1
+    environment:
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      MIGRATION_WAIT_TIMEOUT_SEC: ${DVT_MIGRATION_WAIT_TIMEOUT_SEC:-300}
+
+      GATEWAY_HOST: ${DVT_GATEWAY_HOST:-gateway}
+      GATEWAY_PORT: ${DVT_GATEWAY_PORT:-8000}
+
+      TASK_WORKER_HOST: ${DVT_TASK_WORKER_INTERNAL_HOST:-0.0.0.0}
+      TASK_WORKER_PORT: ${DVT_TASK_WORKER_INTERNAL_PORT:-8000}
+
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_HOST:-gateway}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+
+      FERNET_KEY: ${DVT_FERNET_KEY}
+
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+      CELERY_VISIBILITY_TIMEOUT_SEC: ${DVT_CELERY_VISIBILITY_TIMEOUT_SEC:-28800}
+    volumes:
+      - ./hwid:/app/hwid
+    depends_on:
+      - valkey
+      - orchestrator
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+  project-scheduler:
+    image: cr.distribution.denvic.tech/dvt/project-scheduler:1.1.1  # TODO: такой версии у шедулера нет, добавил чтобы не забыть про него
+    container_name: dvt-project-scheduler
+    environment:
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      MIGRATION_WAIT_TIMEOUT_SEC: ${DVT_MIGRATION_WAIT_TIMEOUT_SEC:-300}
+
+      ORCHESTRATOR_HOST: ${DVT_ORCHESTRATOR_HOST:-orchestrator}
+      ORCHESTRATOR_PORT: ${DVT_ORCHESTRATOR_PORT:-8250}
+
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_INTERNAL_HOST:-0.0.0.0}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+
+      FERNET_KEY: ${DVT_FERNET_KEY}
+
+      PROJECT_SCHEDULER_HOST: 0.0.0.0
+      PROJECT_SCHEDULER_PORT: 8000
+    depends_on:
+      postgres:
+        condition: service_started
+      valkey:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+  gateway:
+    image: cr.yandex/crp50rr10fi8v73bhsid/dvt/gateway:1.1.1
+    container_name: dvt-gateway
+    environment:
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+      CELERY_VISIBILITY_TIMEOUT_SEC: ${DVT_CELERY_VISIBILITY_TIMEOUT_SEC:-28800}
+
+      GATEWAY_HOST: ${DVT_GATEWAY_INTERNAL_HOST:-0.0.0.0}
+      GATEWAY_PORT: ${DVT_GATEWAY_INTERNAL_PORT:-8000}
+
+      TASK_ORCHESTRATOR_HOST: ${DVT_TASK_ORCHESTRATOR_HOST:-orchestrator}
+      TASK_ORCHESTRATOR_PORT: ${DVT_TASK_ORCHESTRATOR_PORT:-8250}
+
+      TASK_WORKER_HOST: ${DVT_TASK_WORKER_HOST:-task-worker}
+      TASK_WORKER_PORT: ${DVT_TASK_WORKER_PORT:-8000}
+
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_INTERNAL_HOST:-0.0.0.0}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+
+      FERNET_KEY: ${DVT_FERNET_KEY}
+
+      GATEWAY_ORIGINS: ${DVT_PUBLIC_URL}
+      GATEWAY_COOKIE_SECURE: ${DVT_COOKIE_SECURE:-false}
+
+    healthcheck:
+      test: [ "CMD", "python3", "/app/scripts/health/check_gateway_health.py" ]
+      interval: 5s
+      timeout: 60s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - ./hwid:/app/hwid
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+  ui:
+    image: cr.yandex/crp50rr10fi8v73bhsid/dvt/ui:1.1.1
+    container_name: dvt-ui
+    depends_on:
+      - gateway
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:80/" ]
+      interval: 7s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - dvt-net
+
+  proxy:
+    image: cr.yandex/crp50rr10fi8v73bhsid/dvt/proxy:1.1.1
+    container_name: dvt-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DVT_PUBLIC_URL: ${DVT_PUBLIC_URL:-http://localhost}
+      GATEWAY_HOST: ${DVT_GATEWAY_HOST:-gateway}
+      GATEWAY_PORT: ${DVT_GATEWAY_PORT:-8000}
+      UI_HOST: ${DVT_UI_HOST:-ui}
+      UI_PORT: ${DVT_UI_PORT:-80}
+    depends_on:
+      gateway:
+        condition: service_healthy
+      ui:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dvt-net
+
+networks:
+  dvt-net:
+    external: true

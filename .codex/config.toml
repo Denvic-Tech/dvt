@@ -1,0 +1,38 @@
+[features]
+hooks = true
+
+[mcp_servers.pycharm]
+command = "npx"
+args = [
+	"mcp-remote",
+	"http://localhost:64342/sse",
+	"--header",
+	"IJ_MCP_SERVER_PROJECT_PATH: ${PROJECT_PATH}"
+]
+startup_timeout_sec = 20
+tool_timeout_sec = 45
+enabled = true
+
+[mcp_servers.pycharm.tools.search_in_files_by_text]
+approval_mode = "approve"
+
+[mcp_servers.pycharm.tools.find_files_by_name_keyword]
+approval_mode = "approve"
+
+[mcp_servers.pycharm.tools.get_file_text_by_path]
+approval_mode = "approve"
+
+[mcp_servers.pycharm.tools.find_files_by_glob]
+approval_mode = "approve"
+
+[mcp_servers.pycharm.tools.search_in_files_by_regex]
+approval_mode = "approve"
+
+[mcp_servers.pycharm.tools.get_file_problems]
+approval_mode = "approve"
+
+[mcp_servers.pycharm.tools.reformat_file]
+approval_mode = "approve"
+
+[mcp_servers.pycharm.tools.list_directory_tree]
+approval_mode = "approve"

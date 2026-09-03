@@ -1,0 +1,1619 @@
+{
+  "data": {
+    "name": "ClickHouseWriteDfBenchmarkNode",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": {
+          "value": 1000000
+        }
+      },
+      "partitions": {
+        "__dvt_type": "const",
+        "value": {
+          "value": 10
+        }
+      }
+    }
+  },
+  "drop_001": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "dataframe"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_002": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_001",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_003": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_002",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_004": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_003",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_005": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_004",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_006": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_005",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_007": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_006",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_008": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_007",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_009": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_008",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_010": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_009",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_011": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_010",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_012": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_011",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_013": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_012",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_014": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_013",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_015": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_014",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_016": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_015",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_017": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_016",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_018": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_017",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_019": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_018",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_020": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_019",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_021": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_020",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_022": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_021",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_023": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_022",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_024": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_023",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_025": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_024",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_026": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_025",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_027": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_026",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_028": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_027",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_029": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_028",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_030": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_029",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_031": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_030",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_032": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_031",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_033": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_032",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_034": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_033",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_035": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_034",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_036": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_035",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_037": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_036",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_038": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_037",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_039": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_038",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_040": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_039",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_041": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_040",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_042": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_041",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_043": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_042",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_044": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_043",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_045": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_044",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_046": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_045",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_047": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_046",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_048": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_047",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_049": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_048",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_050": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_049",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_051": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_050",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_052": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_051",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_053": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_052",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_054": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_053",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_055": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_054",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_056": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_055",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_057": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_056",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_058": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_057",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_059": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_058",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_060": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_059",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_061": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_060",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_062": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_061",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_063": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_062",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_064": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_063",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_065": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_064",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_066": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_065",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_067": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_066",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_068": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_067",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_069": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_068",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_070": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_069",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_071": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_070",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_072": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_071",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_073": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_072",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_074": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_073",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_075": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_074",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_076": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_075",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_077": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_076",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_078": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_077",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_079": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_078",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_080": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_079",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_081": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_080",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_082": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_081",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_083": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_082",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_084": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_083",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_085": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_084",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_086": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_085",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_087": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_086",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_088": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_087",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_089": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_088",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_090": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_089",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_091": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_090",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_092": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_091",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_093": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_092",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_094": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_093",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_095": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_094",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_096": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_095",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_097": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_096",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_098": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_097",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_099": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_098",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  },
+  "drop_100": {
+    "name": "DataFrameDropColumns",
+    "inputs": {
+      "dataframe": {
+        "__dvt_type": "link",
+        "node_id": "drop_099",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": {
+          "value": []
+        }
+      }
+    }
+  }
+}
