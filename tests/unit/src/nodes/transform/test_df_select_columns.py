@@ -2,7 +2,7 @@ import pandas as pd
 from dask import dataframe as dd
 
 from core.utils import get_useful_indexes
-from src.nodes.transform import DataFrameSelectColumns
+from src.nodes.transform.df_select_columns import DataFrameSelectColumns
 
 
 def test_select_business_index_keeps_legacy_index_projection_semantics():

@@ -38,7 +38,7 @@ class TestReadQueueTopic:
             session.refresh(topic)
             yield engine, topic
 
-    @patch("src.nodes.extract.read_queue_topic.RedisTopicManager")
+    @patch("src.nodes.extract.read_queue_topic.node.RedisTopicManager")
     @pytest.mark.asyncio
     async def test_read_queue_topic_success(self, MockRedisManager, mock_db_session):
         """Тестирует успешное чтение данных и преобразование в Dask DataFrame"""
@@ -110,7 +110,7 @@ class TestReadQueueTopic:
         assert "user_id" in col_names
         assert "action" in col_names
 
-    @patch("src.nodes.extract.read_queue_topic.RedisTopicManager")
+    @patch("src.nodes.extract.read_queue_topic.node.RedisTopicManager")
     @pytest.mark.asyncio
     async def test_read_with_custom_stream_key(self, MockRedisManager, mock_db_session):
         """Тестирует чтение с кастомным ключом стрима"""
@@ -160,7 +160,7 @@ class TestReadQueueTopic:
         with pytest.raises(ValueError, match="Топик.*не найден"):
             await node.execute(PipelineExecutionMode.FULL)
 
-    @patch("src.nodes.extract.read_queue_topic.RedisTopicManager")
+    @patch("src.nodes.extract.read_queue_topic.node.RedisTopicManager")
     @pytest.mark.asyncio
     async def test_read_queue_topic_deletion_logic(self, MockRedisManager, mock_db_session):
         """Проверяет, что прочитанные ID отправляются на удаление в Redis при delete_after_read=True"""

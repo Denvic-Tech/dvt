@@ -112,6 +112,14 @@ For working with the repository file system, the agent must use the `filesystem`
 - Compatibility shims допустимы только вне bounded context модуля, чтобы поддержать legacy callers. Shim не должен затаскивать infra/framework зависимости в `domain` или `flow`.
 - Если корректная реализация требует нарушить эти границы или делает принадлежность к слою неоднозначной, агент должен остановиться и запросить решение пользователя вместо самостоятельного допущения.
 
+## Node Package Contract
+- Каждый built-in DVT node живет в отдельном package `src/nodes/<category>/<node_package>/`: один package = одна регистрируемая node.
+- `node.yaml` обязателен и является единственным filesystem marker для discovery; V1 содержит `schema_version: 1`.
+- Package `__init__.py` обязан экспортировать `NODE_CLASS`, указывающий на concrete `BaseNode` subclass из этого package.
+- Category `__init__.py` не должны импортировать nodes или выполнять eager registration; category barrels запрещены.
+- Общие helper-ы одной категории размещаются в `_shared/`; private directories с `_` не участвуют в discovery.
+- Colocated documentation optional: `README.md` — canonical English, `README.ru.md` — Russian translation.
+
 ## Project Skill (`dvt-project-ops`)
 Use `.codex/skills/dvt-project-ops` for DVT-specific local development operations that require knowledge of repository internals: Docker service status/restart, cross-service log and task diagnostics, safe DB connection test fixtures, and changelog appends.
 

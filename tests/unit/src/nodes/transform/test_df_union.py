@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from dask import dataframe as dd
 
-from src.nodes.transform import DataFrameUnion
+from src.nodes.transform.df_union import DataFrameUnion
 
 class TestDataFrameUnion:
     @pytest.mark.asyncio

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src.node_dsl.exceptions import NodeValidationError
-from src.nodes.transform import DataFrameGroupByAgg
+from src.nodes.transform.df_group_by_agg import DataFrameGroupByAgg
 
 
 def test_groupby_agg_keeps_null_groups_in_group_keys() -> None:

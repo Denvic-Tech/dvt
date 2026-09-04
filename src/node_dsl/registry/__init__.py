@@ -19,6 +19,24 @@ def get_all_nodes(*args, **kwargs):
     return get_all(*args, **kwargs)
 
 
+def add_node_package(*args, **kwargs):
+    from .packages import add
+
+    return add(*args, **kwargs)
+
+
+def get_node_package(*args, **kwargs):
+    from .packages import get
+
+    return get(*args, **kwargs)
+
+
+def get_all_node_packages(*args, **kwargs):
+    from .packages import get_all
+
+    return get_all(*args, **kwargs)
+
+
 def add_definition(*args, **kwargs):
     from .definitions import add
 
@@ -80,17 +98,20 @@ async def run_hooks_async(*args, **kwargs):
 
 
 __all__ = [
-    "add_node",
-    "get_node",
-    "get_all_nodes",
     "add_definition",
-    "build_definition",
-    "get_definition",
-    "get_all_definitions",
     "add_hook",
+    "add_node",
+    "add_node_package",
+    "build_definition",
     "build_hooks",
-    "get_hooks",
+    "get_all_definitions",
     "get_all_hooks",
+    "get_all_node_packages",
+    "get_all_nodes",
+    "get_definition",
+    "get_hooks",
+    "get_node",
+    "get_node_package",
     "run_hooks",
     "run_hooks_async",
 ]

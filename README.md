@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![GitHub](https://img.shields.io/badge/source-GitHub-181717?logo=github)](https://github.com/Denvic-Tech/dvt)
 
-[Getting started](#getting-started) · [Features](#features) · [Architecture](#architecture) · [Development](docs/DEVELOPMENT.md) · [License](#license)
+[Getting started](#getting-started) · [Features](#features) · [Architecture](#architecture) · [Development](docs/DEVELOPMENT.ru.md) · [License](#license)
 
 </div>
 
@@ -126,7 +126,7 @@ Default development endpoints include:
 | Project Scheduler API docs | `http://localhost:8002/docs` |
 | Reverse proxy | `http://localhost:80` |
 
-For Python environment setup, individual service startup, migrations, testing, Docker workflows, UI submodule handling, and troubleshooting, see the **[Development Guide](docs/DEVELOPMENT.md)**.
+For Python environment setup, individual service startup, migrations, testing, Docker workflows, UI submodule handling, and troubleshooting, see the **[Development Guide](docs/DEVELOPMENT.ru.md)**.
 
 ## Architecture
 
@@ -156,7 +156,7 @@ flowchart LR
 - **PostgreSQL** — authoritative storage for projects, graphs, tasks, schedules, and lifecycle state.
 - **Valkey / Celery** — task transport, worker communication, and execution telemetry.
 
-More implementation details are available in the **[Development Guide](docs/DEVELOPMENT.md)**.
+More implementation details are available in the **[Development Guide](docs/DEVELOPMENT.ru.md)**.
 
 ## Repository layout
 
@@ -189,7 +189,7 @@ Contributions are welcome.
 
 Before making changes:
 
-1. Read the **[Development Guide](docs/DEVELOPMENT.md)** for environment setup, architecture, and test workflows.
+1. Read the **[Development Guide](docs/DEVELOPMENT.ru.md)** for environment setup, architecture, and test workflows.
 2. Keep changes focused and add tests for behavior you introduce or modify.
 3. Run the relevant full unit and integration suites before opening a pull request.
 4. Use the public GitHub repository as the source of truth for contributions.

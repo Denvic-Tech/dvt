@@ -100,11 +100,11 @@ def test_write_dataframe_to_db_v4_resolves_sql_connection_record(monkeypatch) ->
         return Result()
 
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v4.resolve_sql_engine",
+        "src.nodes.write.write_df_to_db_v4.node.resolve_sql_engine",
         lambda connection: engine,
     )
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v4.write_dataframe",
+        "src.nodes.write.write_df_to_db_v4.node.write_dataframe",
         fake_write_dataframe,
     )
 
@@ -135,11 +135,11 @@ def test_write_dataframe_to_db_v4_resolves_sql_connection_record(monkeypatch) ->
 async def test_write_dataframe_to_db_v4_process_disposes_node_owned_engine(monkeypatch) -> None:
     owned_engine = _FakeEngine()
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v4.resolve_sql_engine",
+        "src.nodes.write.write_df_to_db_v4.node.resolve_sql_engine",
         lambda connection: owned_engine,
     )
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v4.write_dataframe",
+        "src.nodes.write.write_df_to_db_v4.node.write_dataframe",
         lambda df, used_engine, request: type(
             "Result",
             (),

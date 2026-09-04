@@ -29,7 +29,6 @@ class PROJECT:
     INSTALLATION_DIR = ROOT_DIR / "installation"
     INSTALLATION_IDENTITY_FILE = INSTALLATION_DIR / "instance_id"
     DATA_DIR = ROOT_DIR / "data"
-    NODE_DOCUMENTATION_DIR = ROOT_DIR / "docs" / "nodes"
     SRC_DIR = ROOT_DIR / "src"
     TESTS_DIR = ROOT_DIR / "tests"
     LOCALES_DIR = ROOT_DIR / "locales"

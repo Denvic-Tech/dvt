@@ -3,7 +3,7 @@ from dask import dataframe as dd
 
 from core.metadata import get_df_metadata
 from core.utils import get_useful_indexes
-from src.nodes.transform import DataFrameRenameColumns
+from src.nodes.transform.df_rename_columns import DataFrameRenameColumns
 
 
 def _build_dual_role_ddf() -> dd.DataFrame:

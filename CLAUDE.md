@@ -201,9 +201,10 @@ Test organization:
 
 ### Creating New Nodes
 
-1. Create node class in appropriate category under `src/nodes/`
-2. Inherit from appropriate base class (e.g., `DFOutputBaseNode` for DataFrame output)
-3. Define metadata as class variables:
+1. Create `src/nodes/<category>/<node_package>/` with `__init__.py`, `node.py`, and `node.yaml` (`schema_version: 1`).
+2. Inherit from the appropriate base class (e.g., `DFOutputBaseNode` for DataFrame output) and keep one registered DVT node per package.
+3. Re-export the public class from the package `__init__.py` and assign it to `NODE_CLASS`; category `__init__.py` files must not eagerly import nodes.
+4. Define metadata as class variables (do not duplicate Node DSL metadata in `node.yaml`):
 ```python
 TITLE: ClassVar[str] = "My Node Title"
 CATEGORY: ClassVar[str] = "Data Sources"

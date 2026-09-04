@@ -1,6 +1,6 @@
 import pytest
 
-from src.nodes.write._target_path import normalize_relative_target_path
+from src.nodes.write._shared.target_path import normalize_relative_target_path
 from src.nodes.write.save_excel import SaveExcel
 
 
