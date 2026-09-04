@@ -53,10 +53,11 @@ class ExtensionMigrationManager:
         return schema_name
 
     def upgrade(self, extension: RegisteredExtension) -> None:
-        schema_name = self.ensure_schema(extension.name)
         migrations_dir = _resolve_migrations_dir(extension)
         if migrations_dir is None:
             return
+
+        schema_name = self.ensure_schema(extension.name)
 
         cfg = Config()
         cfg.set_main_option("script_location", str(self._script_location))
