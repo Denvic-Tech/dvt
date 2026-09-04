@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import inspect
 import sys
 import types
@@ -13,10 +11,17 @@ from src.extensions import get_all_extensions
 from src.extensions.registry import RegisteredExtension
 from src.logger import logger
 from src.node_dsl.base_node.base import BaseNode
+from src.node_dsl.discovery import (
+    NodePackageDescriptor,
+    discover_builtin_node_packages,
+    discover_extension_node_descriptors,
+    import_extension_node_modules,
+)
 from src.node_dsl.registry import (
     definitions as definitions_registry,
     hooks as hooks_registry,
     nodes as nodes_registry,
+    packages as packages_registry,
 )
 from src.node_dsl.registry._bootstrap import (
     mark_bootstrapped,
@@ -38,50 +43,18 @@ class _RegistrySnapshot:
     node_classes: dict
     node_definitions: dict
     hooks: dict
+    node_packages: dict
 
 
 def import_nodes(directory: Path, module_prefix: str | None = None) -> dict[str, types.ModuleType]:
-    """Import built-in nodes canonically and reload extension nodes in isolation."""
-    importlib.invalidate_caches()
-    imported_modules: dict[str, types.ModuleType] = {}
-    if not directory.is_dir():
-        raise ImportError(f"Node directory not found or is not a directory: {directory}")
-
-    paths = sorted(directory.rglob("*.py"), key=lambda item: item.as_posix().casefold())
-    for path in paths:
-        if path.name.startswith("_"):
-            continue
-
-        if module_prefix is None:
-            try:
-                relative_path = path.relative_to(config.PROJECT.ROOT_DIR)
-            except ValueError as exc:
-                raise ImportError(
-                    f"Built-in node module is outside the project root: '{path}'"
-                ) from exc
-            module_name = relative_path.with_suffix("").as_posix().replace("/", ".")
-            module = importlib.import_module(module_name)
-            imported_modules[module_name] = module
-            continue
-
-        relative_path = path.relative_to(directory)
-        module_stem = relative_path.with_suffix("").as_posix().replace("/", ".")
-        module_name = f"{module_prefix}.{module_stem}"
-
-        sys.modules.pop(module_name, None)
-        spec = importlib.util.spec_from_file_location(module_name, path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot create import spec for node module '{path}'")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        try:
-            spec.loader.exec_module(module)
-        except Exception:
-            sys.modules.pop(module_name, None)
-            raise
-        imported_modules[module_name] = module
-
-    return imported_modules
+    """Compatibility importer for extensions and older tooling."""
+    if module_prefix is None:
+        descriptors = discover_builtin_node_packages(directory)
+        return {
+            descriptor.package_module: sys.modules[descriptor.package_module]
+            for descriptor in descriptors
+        }
+    return import_extension_node_modules(directory, module_prefix=module_prefix)
 
 
 def init_nodes(
@@ -95,20 +68,52 @@ def init_nodes(
 
     with registry_transaction():
         nodes_dir = Path(config.PROJECT.NODES_DIR)
-        logger.info("Importing nodes from: {}", nodes_dir)
-        builtin_modules = import_nodes(nodes_dir)
-        builtin_classes = discover_node_classes(builtin_modules, extensions={})
+        logger.info("Discovering built-in node packages from: {}", nodes_dir)
+        builtin_descriptors = [
+            descriptor
+            for descriptor in discover_builtin_node_packages(nodes_dir)
+            if _is_node_enabled_by_config(descriptor.node_cls)
+        ]
+        builtin_classes = [descriptor.node_cls for descriptor in builtin_descriptors]
 
-        classes_by_extension: dict[str, list[type[BaseNode]]] = {}
+        descriptors_by_extension: dict[str, list[NodePackageDescriptor]] = {}
+        extension_failures: dict[str, str] = {}
         for extension_name, modules in sorted(extension_modules.items()):
             extension = extensions.get(extension_name)
-            extension_map = {extension_name: extension} if extension is not None else {}
-            classes_by_extension[extension_name] = discover_node_classes(
-                modules, extensions=extension_map
-            )
+            if extension is None:
+                extension_failures[extension_name] = (
+                    f"Extension '{extension_name}' node discovery failed: runtime metadata is missing"
+                )
+                continue
+            try:
+                descriptors = discover_extension_node_descriptors(
+                    modules,
+                    extension=extension,
+                )
+                descriptors_by_extension[extension_name] = [
+                    descriptor
+                    for descriptor in descriptors
+                    if _is_node_enabled_by_config(descriptor.node_cls)
+                ]
+            except Exception as exc:
+                extension_failures[extension_name] = (
+                    f"Extension '{extension_name}' node discovery failed: {exc}"
+                )
 
-        extension_failures = _find_node_name_conflicts(
-            builtin_classes, classes_by_extension
+        strict_discovery_failures = strict_extension_names.intersection(extension_failures)
+        if strict_discovery_failures:
+            details = "; ".join(
+                extension_failures[name] for name in sorted(strict_discovery_failures)
+            )
+            raise ValueError(details)
+
+        classes_by_extension = {
+            name: [descriptor.node_cls for descriptor in descriptors]
+            for name, descriptors in descriptors_by_extension.items()
+            if name not in extension_failures
+        }
+        extension_failures.update(
+            _find_node_name_conflicts(builtin_classes, classes_by_extension)
         )
         strict_failures = strict_extension_names.intersection(extension_failures)
         if strict_failures:
@@ -120,19 +125,17 @@ def init_nodes(
         original_snapshot = _snapshot_registries()
         try:
             _clear_registries()
-            register_node_classes(builtin_classes)
+            register_node_packages(builtin_descriptors)
 
-            for extension_name, classes in sorted(classes_by_extension.items()):
+            for extension_name, descriptors in sorted(descriptors_by_extension.items()):
                 if extension_name in extension_failures:
                     continue
                 extension_snapshot = _snapshot_registries()
                 try:
-                    register_node_classes(classes)
+                    register_node_packages(descriptors)
                 except Exception as exc:
                     _restore_registries(extension_snapshot)
-                    message = (
-                        f"Extension '{extension_name}' node registration failed: {exc}"
-                    )
+                    message = f"Extension '{extension_name}' node registration failed: {exc}"
                     extension_failures[extension_name] = message
                     if extension_name in strict_extension_names:
                         raise ValueError(message) from exc
@@ -142,10 +145,16 @@ def init_nodes(
 
             registered_nodes_count = len(nodes_registry.NODE_CLASSES)
             registered_definitions_count = len(definitions_registry.NODE_DEFINITIONS)
+            registered_packages_count = len(packages_registry.NODE_PACKAGES)
             if registered_nodes_count != registered_definitions_count:
                 raise RuntimeError(
                     f"Registered nodes count ({registered_nodes_count}) does not match "
                     f"registered definitions count ({registered_definitions_count})"
+                )
+            if registered_nodes_count != registered_packages_count:
+                raise RuntimeError(
+                    f"Registered nodes count ({registered_nodes_count}) does not match "
+                    f"registered package descriptors count ({registered_packages_count})"
                 )
         except Exception:
             _restore_registries(original_snapshot, restore_bootstrap_state=True)
@@ -178,10 +187,21 @@ def discover_node_classes(
     *,
     extensions: Mapping[str, RegisteredExtension] | None = None,
 ) -> list[type[BaseNode]]:
+    """Compatibility class-discovery API for imported extension modules."""
     imported_modules = imported_modules or {}
     extensions = extensions or {}
-    found: list[type[BaseNode]] = []
+    if len(extensions) == 1:
+        extension = next(iter(extensions.values()))
+        return [
+            descriptor.node_cls
+            for descriptor in discover_extension_node_descriptors(
+                imported_modules,
+                extension=extension,
+            )
+            if _is_node_enabled_by_config(descriptor.node_cls)
+        ]
 
+    found: list[type[BaseNode]] = []
     for module_name, module in sorted(imported_modules.items()):
         for _, node_cls in inspect.getmembers(module, inspect.isclass):
             if node_cls is BaseNode or node_cls.__module__ != module_name:
@@ -192,7 +212,6 @@ def discover_node_classes(
                 continue
             _bind_extension_metadata(node_cls, extensions=extensions)
             found.append(node_cls)
-
     return list(dict.fromkeys(found))
 
 
@@ -238,20 +257,49 @@ def _find_node_name_conflicts(
     }
 
 
-def register_node_classes(node_classes: list[type[BaseNode]]) -> None:
-    for node_cls in node_classes:
+def register_node_packages(descriptors: list[NodePackageDescriptor]) -> None:
+    for descriptor in descriptors:
+        node_cls = descriptor.node_cls
         node_name = node_cls.__name__
+        if node_name != descriptor.node_name:
+            raise ValueError(
+                f"Node package descriptor name '{descriptor.node_name}' does not match class "
+                f"name '{node_name}'"
+            )
         if node_name in nodes_registry.NODE_CLASSES:
             raise ValueError(f"Node class '{node_name}' is already registered.")
         nodes_registry.add(node_cls)
-        definitions_registry.build(node_cls)
+        definitions_registry.build(node_cls, python_module=descriptor.package_module)
         hooks_registry.build(node_cls)
+        packages_registry.add(descriptor)
+
+
+def register_node_classes(node_classes: list[type[BaseNode]]) -> None:
+    """Legacy compatibility helper; registry bootstrap uses descriptors instead."""
+    descriptors = [
+        NodePackageDescriptor(
+            node_name=node_cls.__name__,
+            node_cls=node_cls,
+            package_module=node_cls.__module__,
+            package_path=None,
+            manifest=None,
+            provider=(
+                "extension" if node_cls.__module__.startswith("dvt_extensions.") else "builtin"
+            ),
+            extension_name=getattr(node_cls, "EXTENSION_NAME", None),
+            extension_version=getattr(node_cls, "EXTENSION_VERSION", None),
+            legacy=True,
+        )
+        for node_cls in node_classes
+    ]
+    register_node_packages(descriptors)
 
 
 def _clear_registries() -> None:
     nodes_registry.clear()
     definitions_registry.clear()
     hooks_registry.clear()
+    packages_registry.clear()
 
 
 def _snapshot_registries() -> _RegistrySnapshot:
@@ -259,6 +307,7 @@ def _snapshot_registries() -> _RegistrySnapshot:
         node_classes=dict(nodes_registry.NODE_CLASSES),
         node_definitions=dict(definitions_registry.NODE_DEFINITIONS),
         hooks=dict(hooks_registry.HOOKS_REGISTRY),
+        node_packages=dict(packages_registry.NODE_PACKAGES),
     )
 
 
@@ -271,6 +320,8 @@ def _restore_registries(
     definitions_registry.NODE_DEFINITIONS.update(snapshot.node_definitions)
     hooks_registry.HOOKS_REGISTRY.clear()
     hooks_registry.HOOKS_REGISTRY.update(snapshot.hooks)
+    packages_registry.NODE_PACKAGES.clear()
+    packages_registry.NODE_PACKAGES.update(snapshot.node_packages)
     if restore_bootstrap_state:
         if snapshot.node_classes:
             mark_bootstrapped()

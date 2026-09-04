@@ -1,4 +1,4 @@
 from .gateways import DSLNodeRegistry
-from .repositories import FileSystemNodeDocumentationRepository
+from .repositories import NodePackageDocumentationRepository
 
-__all__ = ["DSLNodeRegistry", "FileSystemNodeDocumentationRepository"]
+__all__ = ["DSLNodeRegistry", "NodePackageDocumentationRepository"]

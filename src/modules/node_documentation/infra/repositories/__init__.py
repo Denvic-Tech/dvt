@@ -1,3 +1,3 @@
-from .node_documentation import FileSystemNodeDocumentationRepository
+from .node_documentation import NodePackageDocumentationRepository
 
-__all__ = ["FileSystemNodeDocumentationRepository"]
+__all__ = ["NodePackageDocumentationRepository"]

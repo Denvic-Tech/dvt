@@ -18,7 +18,11 @@ NODE_DEFINITIONS: dict[str, dict[str, "NodeDefinition"]] = defaultdict(dict)
 _REGISTRY_LOCK = threading.RLock()
 
 
-def _create_node_base_definition(node_cls: type["BaseNode"]) -> "NodeDefinition":
+def _create_node_base_definition(
+    node_cls: type["BaseNode"],
+    *,
+    python_module: str | None = None,
+) -> "NodeDefinition":
     """
     Создает базовое, нелокализованное определение ноды.
     Используется для инициализации реестра нод.
@@ -46,7 +50,7 @@ def _create_node_base_definition(node_cls: type["BaseNode"]) -> "NodeDefinition"
         emoji=node_cls.EMOJI,
         display_name=node_cls.TITLE or node_cls.__name__,
         description=(node_cls.DESCRIPTION or getattr(node_cls, "__doc__", "") or "").strip(),
-        python_module=node_cls.__module__,
+        python_module=python_module or node_cls.__module__,
         category=node_cls.CATEGORY,
         category_color=resolve_category_color(node_cls.CATEGORY),
         tags=node_cls.TAGS,
@@ -62,13 +66,20 @@ def _create_node_base_definition(node_cls: type["BaseNode"]) -> "NodeDefinition"
     )
 
 
-def build(node_cls: type["BaseNode"]) -> None:
+def build(
+    node_cls: type["BaseNode"],
+    *,
+    python_module: str | None = None,
+) -> None:
     with registry_transaction(), _REGISTRY_LOCK:
         if node_cls.__name__ in NODE_DEFINITIONS:
             raise ValueError(f"Node definitions for '{node_cls.__name__}' are already registered.")
 
         manager = get_localization_manager()
-        base_definition: NodeDefinition = _create_node_base_definition(node_cls)
+        base_definition: NodeDefinition = _create_node_base_definition(
+            node_cls,
+            python_module=python_module,
+        )
 
         NODE_DEFINITIONS[node_cls.__name__]["default"] = base_definition.model_copy(deep=True)
 

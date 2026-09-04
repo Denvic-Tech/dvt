@@ -19,7 +19,6 @@ def _app(jobs: InMemoryJobStore) -> FastAPI:
             status_service=MagicMock(),
             jobs=jobs,
             library=MagicMock(),
-            license_verifier=MagicMock(),
         )
     )
     return app

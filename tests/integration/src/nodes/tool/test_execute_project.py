@@ -10,7 +10,7 @@ from src.modules.task_execution.domain.types import TaskExecutionStatus, TaskSou
 from src.node_dsl import IO
 from src.node_dsl.core.input_values import NodeInputConstantValue, NodeInputLinkValue
 from src.node_dsl.variables import VariableOutput
-from src.nodes.tool import execute_project as execute_project_module
+from src.nodes.tool.execute_project import node as execute_project_module
 from src.pipeline.execution_mode import PipelineExecutionMode
 from src.pipeline.processor import PipelineProcessor
 from src.schemas.internal import NodeData, ProjectSettings, ProjectVariables, TaskInternal

@@ -3506,3 +3506,12 @@
 
 ### 2026-09-03 13:17:22
 - Обновлены canonical GitHub URL Backend и UI перед публикацией: Denvic-Tech/dvt и Denvic-Tech/dvt-ui.
+
+### 2026-09-04 14:31:10
+- Корневой README переработан для публичного GitHub: добавлены краткое описание DVT, основные возможности, быстрый запуск, архитектура, ссылки на разработку и лицензирование. Предыдущее подробное руководство перенесено в docs/DEVELOPMENT.md и адаптировано к новому расположению.
+
+### 2026-09-04 18:34:56
+- Исправлены регрессии unit-тестов: AI MCP маршруты теперь всегда присутствуют в Gateway/OpenAPI и блокируются runtime-проверкой при отключенной функции; удален устаревший license_verifier из тестов Installation Manager; миграции расширений не обращаются к БД при отсутствии migrations и изолированы mock-объектом в unit-тестах; удален неиспользуемый legacy WorkerIDManager и его тесты.
+
+### 2026-09-04 20:31:21
+- Переведена встроенная система нод на package-based архитектуру с node.yaml и NODE_CLASS, добавлен manifest-driven discovery с совместимостью legacy extensions, colocated документация нод и registry parity; обновлены developer docs и regression tests.

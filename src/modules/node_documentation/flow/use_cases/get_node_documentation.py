@@ -1,4 +1,8 @@
-from ...domain.entities import DEFAULT_FALLBACK_LOCALE, PublishedNodeDocumentation, normalize_requested_locale
+from ...domain.entities import (
+    DEFAULT_FALLBACK_LOCALE,
+    PublishedNodeDocumentation,
+    normalize_requested_locale,
+)
 from ...domain.exceptions import NodeDocumentationNotFound, UnknownNode
 from ...domain.gateways import NodeRegistry
 from ...domain.repositories import NodeDocumentationRepository
