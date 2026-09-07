@@ -1,13 +1,11 @@
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import sqlalchemy as sa
 from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-import config
 from src.enums import ExtensionDepsStatus
 from src.extensions.manifest import build_manifest_stub
 from src.logger import logger
@@ -15,8 +13,10 @@ from src.models.extension import ExtensionRecord
 from src.schemas.http.extension import ExtensionCreateSchema
 from src.types import ExtensionManifest
 
+import config
 
-class ExtensionDBManager:
+
+class ExtensionDBManager:  # TODO: move to module
     """Операции CRUD с расширениями в БД. Не работает с файловой системой."""
 
     def __init__(self, session: AsyncSession):
@@ -260,14 +260,27 @@ class ExtensionDBManager:
                     updated_at=now,
                 )
             else:
+                manifest_json = manifest.model_dump(mode="json")
+                runtime_changed = any(
+                    (
+                        extension.display_name != (manifest.display_name or extension.display_name),
+                        extension.description != (manifest.description or extension.description),
+                        extension.is_installed is not True,
+                        extension.current_version != manifest.version,
+                        extension.last_version != manifest.version,
+                        extension.install_path != str(root_dir),
+                        extension.manifest_json != manifest_json,
+                    )
+                )
                 extension.display_name = manifest.display_name or extension.display_name
                 extension.description = manifest.description or extension.description
                 extension.is_installed = True
                 extension.current_version = manifest.version
                 extension.last_version = manifest.version
                 extension.install_path = str(root_dir)
-                extension.manifest_json = manifest.model_dump(mode="json")
-                extension.updated_at = now
+                extension.manifest_json = manifest_json
+                if runtime_changed:
+                    extension.updated_at = now
 
             self.session.add(extension)
             known[extension.name] = extension

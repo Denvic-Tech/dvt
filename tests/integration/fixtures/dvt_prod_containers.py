@@ -184,6 +184,7 @@ def orchestrator_container(
         DockerContainer(integration_test_settings.dvt_image("orchestrator"))
         .with_network(dvt_network)
         .with_network_aliases("orchestrator")
+        .with_env("ENVIRONMENT", "prod")
         .with_env("POSTGRES_HOST", "postgres")
         .with_env("POSTGRES_PORT", "5432")
         .with_env("POSTGRES_USER", "postgres")
@@ -216,6 +217,7 @@ def task_worker_container(
         DockerContainer(integration_test_settings.dvt_image("task-worker"))
         .with_network(dvt_network)
         .with_network_aliases("task-worker")
+        .with_env("ENVIRONMENT", "prod")
         .with_env("POSTGRES_HOST", "postgres")
         .with_env("POSTGRES_PORT", "5432")
         .with_env("POSTGRES_USER", "postgres")
@@ -252,6 +254,7 @@ def project_scheduler_container(
         DockerContainer(integration_test_settings.dvt_image("project-scheduler"))
         .with_network(dvt_network)
         .with_network_aliases("project-scheduler")
+        .with_env("ENVIRONMENT", "prod")
         .with_env("POSTGRES_HOST", "postgres")
         .with_env("POSTGRES_PORT", "5432")
         .with_env("POSTGRES_USER", "postgres")
@@ -288,6 +291,7 @@ def gateway_container(
         DockerContainer(integration_test_settings.dvt_image("gateway"))
         .with_network(dvt_network)
         .with_network_aliases("gateway")
+        .with_env("ENVIRONMENT", "prod")
         .with_env("POSTGRES_HOST", "postgres")
         .with_env("POSTGRES_PORT", "5432")
         .with_env("POSTGRES_USER", "postgres")
@@ -309,6 +313,23 @@ def gateway_container(
         .with_env("LICENSE_CLIENT_TYPE", "dvt")
         .with_env("PROJECT_SCHEDULER_HOST", "project-scheduler")
         .with_env("PROJECT_SCHEDULER_PORT", "8000")
+        .with_env(
+            "JWT_ACCESS_TOKEN_SECRET_KEY",
+            integration_test_settings.jwt_access_token_secret_key,
+        )
+        .with_env(
+            "JWT_REFRESH_TOKEN_SECRET_KEY",
+            integration_test_settings.jwt_refresh_token_secret_key,
+        )
+        .with_env(
+            "JWT_ONETIME_TOKEN_SECRET_KEY",
+            integration_test_settings.jwt_onetime_token_secret_key,
+        )
+        .with_env(
+            "JWT_API_TOKEN_SECRET_KEY",
+            integration_test_settings.jwt_api_token_secret_key,
+        )
+        .with_env("CODE_HASH_SALT", integration_test_settings.code_hash_salt)
         .with_env("FERNET_KEY", integration_test_settings.fernet_key)
         .with_env("DEFAULT_PASSWORD", integration_test_settings.default_password)
         .with_env("DEFAULT_EMAIL", integration_test_settings.default_email)

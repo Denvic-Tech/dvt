@@ -13,6 +13,11 @@ DEFAULT_SUPERADMIN_PASSWORD = "INTEGRATIONSuperadmin#12345"
 DEFAULT_ORGANIZATION_NAME = "INTEGRATION organization"
 DEFAULT_LICENSE_KEY = "INTEGRATION-license"
 DEFAULT_GATEWAY_ORIGINS = "http://localhost:5173"
+DEFAULT_JWT_ACCESS_TOKEN_SECRET_KEY = "integration-jwt-access-secret-000000000001"
+DEFAULT_JWT_REFRESH_TOKEN_SECRET_KEY = "integration-jwt-refresh-secret-000000000002"
+DEFAULT_JWT_ONETIME_TOKEN_SECRET_KEY = "integration-jwt-onetime-secret-000000000003"
+DEFAULT_JWT_API_TOKEN_SECRET_KEY = "integration-jwt-api-secret-000000000000004"
+DEFAULT_CODE_HASH_SALT = "integration-code-hash-salt-000000000000005"
 DEFAULT_IMAGE_PREFIX = os.getenv("DVT_INTEGRATION_IMAGE_PREFIX", "dvt")
 DEFAULT_IMAGE_TAG = os.getenv("DVT_INTEGRATION_IMAGE_TAG", "latest")
 
@@ -28,6 +33,11 @@ class IntegrationTestSettings:
     default_organization_name: str = DEFAULT_ORGANIZATION_NAME
     default_license_key: str = DEFAULT_LICENSE_KEY
     gateway_origins: str = DEFAULT_GATEWAY_ORIGINS
+    jwt_access_token_secret_key: str = DEFAULT_JWT_ACCESS_TOKEN_SECRET_KEY
+    jwt_refresh_token_secret_key: str = DEFAULT_JWT_REFRESH_TOKEN_SECRET_KEY
+    jwt_onetime_token_secret_key: str = DEFAULT_JWT_ONETIME_TOKEN_SECRET_KEY
+    jwt_api_token_secret_key: str = DEFAULT_JWT_API_TOKEN_SECRET_KEY
+    code_hash_salt: str = DEFAULT_CODE_HASH_SALT
     dvt_image_prefix: str = DEFAULT_IMAGE_PREFIX
     dvt_image_tag: str = DEFAULT_IMAGE_TAG
 

@@ -169,8 +169,8 @@ async def test_spawned_child_lazy_extension_bootstrap_runs_once(monkeypatch) -> 
     monkeypatch.setattr(celery_app, "AsyncSessionLocal", lambda: _SessionContext())
     monkeypatch.setattr(celery_app, "get_extension_manager", _manager)
 
-    await celery_app._ensure_extension_runtime_for_task_process_async()
-    await celery_app._ensure_extension_runtime_for_task_process_async()
+    assert await celery_app._ensure_extension_runtime_for_task_process_async() is True
+    assert await celery_app._ensure_extension_runtime_for_task_process_async() is False
 
     assert calls == ["deps", "sync", "close"]
 
@@ -183,7 +183,7 @@ async def test_spawned_child_lazy_extension_bootstrap_runs_once(monkeypatch) -> 
         ((("extension-a", "1"),), (("extension-a", "2"),)),
     ],
 )
-async def test_persistent_child_reloads_once_for_extension_install_or_update(
+async def test_process_runtime_reloads_once_for_extension_install_or_update(
     monkeypatch,
     old_generation,
     new_generation,
@@ -218,12 +218,12 @@ async def test_persistent_child_reloads_once_for_extension_install_or_update(
     monkeypatch.setattr(celery_app, "AsyncSessionLocal", lambda: _SessionContext())
     monkeypatch.setattr(celery_app, "get_extension_manager", _manager)
 
-    await celery_app._ensure_extension_runtime_for_task_process_async(
+    assert await celery_app._ensure_extension_runtime_for_task_process_async(
         required_extension_names={"extension-a"}
-    )
-    await celery_app._ensure_extension_runtime_for_task_process_async(
+    ) is True
+    assert await celery_app._ensure_extension_runtime_for_task_process_async(
         required_extension_names={"extension-a"}
-    )
+    ) is False
 
     assert calls == ["deps", "registry.reload"]
     assert celery_app._extension_runtime_generation == new_generation
@@ -237,6 +237,7 @@ def test_recycled_spawned_child_starts_with_fresh_extension_bootstrap(monkeypatc
         def run(self, coro):
             self.calls += 1
             coro.close()
+            return False
 
     runner = _Runner()
     monkeypatch.setattr(celery_app, "_extension_runtime_initialized", False)
@@ -245,6 +246,157 @@ def test_recycled_spawned_child_starts_with_fresh_extension_bootstrap(monkeypatc
     celery_app.ensure_extension_runtime_for_task_process()
 
     assert runner.calls == 1
+
+
+def test_changed_prefork_child_requests_warm_parent_refresh(monkeypatch) -> None:
+    broadcasts: list[tuple[str, bool]] = []
+
+    class _Control:
+        def broadcast(self, command: str, *, reply: bool):
+            broadcasts.append((command, reply))
+
+    monkeypatch.setattr(celery_app, "_is_prefork_pool", lambda: True)
+    monkeypatch.setattr(celery_app, "_is_main_process", lambda: False)
+    monkeypatch.setattr(celery_app.celery_app, "control", _Control())
+
+    celery_app.request_parent_extension_runtime_refresh()
+
+    assert broadcasts == [("dvt_refresh_extension_runtime", False)]
+
+
+def test_parent_refresh_control_pauses_queues_and_schedules_drain(monkeypatch) -> None:
+    events: list[tuple] = []
+
+    class _Timer:
+        def call_after(self, delay, callback, args):
+            events.append(("schedule", delay, callback, args))
+
+    class _Consumer:
+        timer = _Timer()
+
+        def cancel_task_queue(self, queue_name):
+            events.append(("cancel", queue_name))
+
+        def add_task_queue(self, queue_name):
+            events.append(("add", queue_name))
+
+    consumer = _Consumer()
+    state = SimpleNamespace(consumer=consumer)
+    monkeypatch.setattr(celery_app, "_is_prefork_pool", lambda: True)
+    monkeypatch.setattr(celery_app, "_is_main_process", lambda: True)
+    monkeypatch.setattr(celery_app, "_extension_parent_refresh_in_progress", False)
+
+    result = celery_app._refresh_extension_runtime_control(state)
+
+    assert result == {"ok": "extension runtime refresh scheduled after current task drain"}
+    assert events[:2] == [
+        ("cancel", celery_app.config.CELERY.CELERY_TASKS_QUEUE),
+        ("cancel", celery_app.config.CELERY.CELERY_DEPS_QUEUE),
+    ]
+    assert events[2][0:2] == ("schedule", celery_app._EXTENSION_REFRESH_POLL_SEC)
+    assert events[2][2] is celery_app._finish_extension_parent_refresh
+    assert events[2][3] == (consumer,)
+    assert celery_app._extension_parent_refresh_in_progress is True
+
+
+def test_parent_refresh_waits_for_active_billiard_request(monkeypatch) -> None:
+    events: list[tuple] = []
+
+    class _Timer:
+        def call_after(self, delay, callback, args):
+            events.append(("schedule", delay, callback, args))
+
+    raw_pool = SimpleNamespace(_cache={"task": object()}, _processes=1, _pool=[])
+    pool = SimpleNamespace(_pool=raw_pool)
+    consumer = SimpleNamespace(pool=pool, timer=_Timer())
+
+    celery_app._finish_extension_parent_refresh(consumer)
+
+    assert events == [
+        (
+            "schedule",
+            celery_app._EXTENSION_REFRESH_POLL_SEC,
+            celery_app._finish_extension_parent_refresh,
+            (consumer,),
+        )
+    ]
+
+
+def test_parent_refresh_shrinks_idle_pool_before_import(monkeypatch) -> None:
+    events: list[tuple] = []
+
+    class _Timer:
+        def call_after(self, delay, callback, args):
+            events.append(("schedule", delay, callback, args))
+
+    class _Pool:
+        _pool = SimpleNamespace(_cache={}, _processes=1, _pool=[])
+
+        def shrink(self, count):
+            events.append(("shrink", count))
+            self._pool._processes -= count
+
+    class _Consumer:
+        pool = _Pool()
+        timer = _Timer()
+
+        def _update_prefetch_count(self, count):
+            events.append(("prefetch", count))
+
+    consumer = _Consumer()
+    celery_app._finish_extension_parent_refresh(consumer)
+
+    assert events[0:2] == [("shrink", 1), ("prefetch", -1)]
+    assert events[2][0:2] == ("schedule", celery_app._EXTENSION_REFRESH_POLL_SEC)
+
+
+def test_parent_refresh_updates_warm_runtime_then_restores_single_slot(monkeypatch) -> None:
+    events: list[tuple] = []
+
+    class _RawPool:
+        def __init__(self):
+            self._cache = {}
+            self._processes = 0
+            self._pool = []
+
+    class _Pool:
+        def __init__(self):
+            self._pool = _RawPool()
+
+        def grow(self, count):
+            events.append(("grow", count))
+            self._pool._processes += count
+
+    class _Consumer:
+        def __init__(self):
+            self.pool = _Pool()
+
+        def _update_prefetch_count(self, count):
+            events.append(("prefetch", count))
+
+        def add_task_queue(self, queue_name):
+            events.append(("add", queue_name))
+
+    class _Runner:
+        def run(self, coro):
+            coro.close()
+            events.append(("runtime.refresh", False))
+            return True
+
+    consumer = _Consumer()
+    monkeypatch.setattr(celery_app, "get_async_runner", lambda: _Runner())
+    monkeypatch.setattr(celery_app, "_extension_parent_refresh_in_progress", True)
+
+    celery_app._finish_extension_parent_refresh(consumer)
+
+    assert events == [
+        ("runtime.refresh", False),
+        ("grow", 1),
+        ("prefetch", 1),
+        ("add", celery_app.config.CELERY.CELERY_TASKS_QUEUE),
+        ("add", celery_app.config.CELERY.CELERY_DEPS_QUEUE),
+    ]
+    assert celery_app._extension_parent_refresh_in_progress is False
 
 
 def test_main_process_worker_lost_signal_finalizes_authoritative_execution(monkeypatch) -> None:
@@ -417,9 +569,9 @@ async def test_forked_child_ws_logging_timeout_is_best_effort_and_not_retried(mo
         timeout=0.2,
     )
 
-    # Task-scoped finalization removes the MP sink and resets sink state, but a
-    # persistent prefork child must not block on the same unavailable WS endpoint
-    # before every subsequent task.
+    # Task-scoped finalization removes the MP sink and resets sink state. A
+    # second initialization in the same process remains best-effort and must not
+    # repeatedly block on the same unavailable WS endpoint.
     await celery_app._finalize_task_process_logging_async()
     await celery_app._ensure_log_sinks_for_task_process_async()
 
