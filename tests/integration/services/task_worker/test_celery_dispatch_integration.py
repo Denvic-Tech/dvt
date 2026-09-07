@@ -317,6 +317,23 @@ def _read_worker_logs(worker_log_path: str | None) -> str:
         return fh.read()
 
 
+def _wait_worker_log_contains(
+    worker_log_path: str,
+    message: str,
+    *,
+    timeout_sec: float = 30.0,
+) -> None:
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        if message in _read_worker_logs(worker_log_path):
+            return
+        time.sleep(0.05)
+    raise AssertionError(
+        f"Worker log did not contain {message!r} within {timeout_sec:.1f}s. "
+        f"Logs:\n{_read_worker_logs(worker_log_path)}"
+    )
+
+
 def _wait_workers_ready(
     *,
     celery_client: Celery,
@@ -458,7 +475,7 @@ def test_two_task_workers_persist_actual_claiming_worker_id(postgres_container, 
                 "VALKEY_PASSWORD": "",
                 "CELERY_BROKER_URL": broker_url,
                 "CELERY_RESULT_BACKEND": broker_url,
-                "CELERY_WORKER_POOL": "prefork",
+                "CELERY_WORKER_POOL": "solo" if sys.platform.startswith("win") else "prefork",
                 "CELERY_WORKER_CONCURRENCY": "1",
                 "POSTGRES_HOST": test_url.host or "127.0.0.1",
                 "POSTGRES_PORT": str(test_url.port or 5432),
@@ -551,16 +568,13 @@ def test_two_task_workers_persist_actual_claiming_worker_id(postgres_container, 
         admin_engine.dispose()
 
 
-def test_persistent_prefork_child_stop_kill_and_single_slot_lifecycle(
+def test_recycled_prefork_child_stop_kill_and_single_slot_lifecycle(
     postgres_container,
     redis_container,
 ):
-    """Exercise real Celery processes rather than configuration-only assertions.
-
-    RSS is deliberately not asserted: allocator/Dask process RSS is not monotonic or
-    deterministic across platforms. PID reuse plus no task-scoped .partd leftovers
-    provide stable evidence that a persistent execution child is reused and cleaned.
-    """
+    """Exercise one-task prefork children plus STOP/KILL and warm runtime refresh."""
+    if sys.platform.startswith("win"):
+        pytest.skip("prefork child recycling requires the production-equivalent Linux runtime")
     repo_root = Path(__file__).resolve().parents[4]
     base_url = make_url(postgres_container.get_connection_url())
     admin_db_name = base_url.database
@@ -665,6 +679,7 @@ def test_persistent_prefork_child_stop_kill_and_single_slot_lifecycle(
                 "CELERY_RESULT_BACKEND": broker_url,
                 "CELERY_WORKER_POOL": "prefork",
                 "CELERY_WORKER_CONCURRENCY": "1",
+                "CELERY_WORKER_MAX_TASKS_PER_CHILD": "1",
                 "TASK_WORKER_MAX_CONCURRENT": "1",
                 "EXTENSIONS_ENABLED": "true",
                 "EXTENSIONS_AUTOLOAD": "true",
@@ -756,17 +771,17 @@ def test_persistent_prefork_child_stop_kill_and_single_slot_lifecycle(
                 time.sleep(0.05)
             raise AssertionError(f"No telemetry PID received for {task_id}")
 
-        # Persistent child: several real PipelineProcessor/Dask tasks reuse one PID.
-        persistent_pids: list[int] = []
+        # Every real PipelineProcessor/Dask task gets a fresh execution child.
+        recycled_pids: list[int] = []
         for suffix in ("a", "b", "c"):
-            task_id = f"persistent-{suffix}-{uuid4().hex[:6]}"
+            task_id = f"recycled-{suffix}-{uuid4().hex[:6]}"
             _dispatch_sleep(task_id, seconds=1)
             assert _wait_task_status(engine=test_engine, task_id=task_id) == TaskExecutionStatus.SUCCESS
-            persistent_pids.append(_wait_pid(task_id))
-        assert len(set(persistent_pids)) == 1
+            recycled_pids.append(_wait_pid(task_id))
+        assert len(set(recycled_pids)) == len(recycled_pids)
         assert not list(Path(worker_tmp).rglob("*.partd"))
 
-        # Real extension node execution uses the same persistent child/runtime.
+        # Extension tasks also use fresh children while inheriting the warm v1 runtime.
         extension_pids: list[int] = []
         for suffix in ("a", "b"):
             task_id = f"extension-v1-{suffix}-{uuid4().hex[:6]}"
@@ -775,11 +790,11 @@ def test_persistent_prefork_child_stop_kill_and_single_slot_lifecycle(
             assert _wait_task_status(engine=test_engine, task_id=task_id) == TaskExecutionStatus.SUCCESS
             extension_pids.append(_wait_pid(task_id))
             assert marker_path.read_text(encoding="utf-8") == "runtime-v1"
-        assert len(set(extension_pids)) == 1
-        assert extension_pids[0] == persistent_pids[-1]
+        assert len(set(extension_pids)) == len(extension_pids)
+        assert set(extension_pids).isdisjoint(recycled_pids)
 
-        # Simulate a completed extension update: shared files and PostgreSQL
-        # generation change, but no Celery child recycling.
+        # Simulate a completed extension update. The first child seeing v2 reloads
+        # itself, then asks MainProcess to drain/refill the pool around a warm refresh.
         time.sleep(1.1)
         _write_extension_marker_fixture(
             extensions_root=extensions_root,
@@ -802,7 +817,30 @@ def test_persistent_prefork_child_stop_kill_and_single_slot_lifecycle(
         _dispatch_extension_marker(updated_task_id, updated_marker_path)
         assert _wait_task_status(engine=test_engine, task_id=updated_task_id) == TaskExecutionStatus.SUCCESS
         assert updated_marker_path.read_text(encoding="utf-8") == "runtime-v2-updated"
-        assert _wait_pid(updated_task_id) == extension_pids[-1]
+        updated_pid = _wait_pid(updated_task_id)
+        assert updated_pid not in extension_pids
+
+        _wait_worker_log_contains(
+            worker_log_path,
+            "Task worker warm extension runtime refreshed",
+            timeout_sec=30.0,
+        )
+        warm_refresh_log_offset = Path(worker_log_path).stat().st_size
+
+        inherited_v2_task_id = f"extension-v2-inherited-{uuid4().hex[:6]}"
+        inherited_v2_marker_path = Path(worker_tmp) / f"{inherited_v2_task_id}.txt"
+        _dispatch_extension_marker(inherited_v2_task_id, inherited_v2_marker_path)
+        assert (
+            _wait_task_status(engine=test_engine, task_id=inherited_v2_task_id)
+            == TaskExecutionStatus.SUCCESS
+        )
+        assert inherited_v2_marker_path.read_text(encoding="utf-8") == "runtime-v2-updated"
+        assert _wait_pid(inherited_v2_task_id) != updated_pid
+        time.sleep(0.3)
+        with Path(worker_log_path).open(encoding="utf-8", errors="replace") as log_file:
+            log_file.seek(warm_refresh_log_offset)
+            post_refresh_logs = log_file.read()
+        assert "Task worker warm extension runtime refreshed" not in post_refresh_logs
 
         # One container == one pipeline slot: second long task remains QUEUED.
         first = f"single-slot-a-{uuid4().hex[:6]}"

@@ -319,16 +319,25 @@ class TASK_WORKER:
     TASK_WORKER_MAX_CONCURRENT = os.getenv("TASK_WORKER_MAX_CONCURRENT", "1")
     TASK_WORKER_HEARTBEAT_INTERVAL = int(os.getenv("TASK_WORKER_HEARTBEAT_INTERVAL", "2"))
     CELERY_WORKER_CONCURRENCY = int(os.getenv("CELERY_WORKER_CONCURRENCY", TASK_WORKER_MAX_CONCURRENT))
+    CELERY_WORKER_POOL = os.getenv(
+        "CELERY_WORKER_POOL",
+        "solo" if os.name == "nt" else "prefork",
+    ).lower()
+    if CELERY_WORKER_POOL not in {"prefork", "solo"}:
+        raise ValueError("CELERY_WORKER_POOL must be either 'prefork' or 'solo'")
     TASK_EXECUTION_TELEMETRY_INTERVAL_SEC = float(
         os.getenv("TASK_EXECUTION_TELEMETRY_INTERVAL_SEC", "2")
     )
     TASK_CANCELLATION_POLL_INTERVAL_SEC = float(
         os.getenv("TASK_CANCELLATION_POLL_INTERVAL_SEC", "0.5")
     )
-    # Recycling is only a safety net; task-scoped cleanup is the normal lifecycle.
+    # Production prefork workers intentionally recycle the execution child after
+    # every Celery task. The warm MainProcess owns node/extension preload, so Linux
+    # fork keeps per-task startup cheap while process exit clears leaked resources.
     CELERY_WORKER_MAX_TASKS_PER_CHILD = (
-        int(os.environ["CELERY_WORKER_MAX_TASKS_PER_CHILD"])
-        if os.getenv("CELERY_WORKER_MAX_TASKS_PER_CHILD") else None
+        _get_positive_int_env("CELERY_WORKER_MAX_TASKS_PER_CHILD", 1)
+        if CELERY_WORKER_POOL == "prefork"
+        else None
     )
     CELERY_WORKER_MAX_MEMORY_PER_CHILD = (
         int(os.environ["CELERY_WORKER_MAX_MEMORY_PER_CHILD"])

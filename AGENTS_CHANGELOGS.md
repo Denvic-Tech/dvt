@@ -3515,3 +3515,6 @@
 
 ### 2026-09-04 20:31:21
 - Переведена встроенная система нод на package-based архитектуру с node.yaml и NODE_CLASS, добавлен manifest-driven discovery с совместимостью legacy extensions, colocated документация нод и registry parity; обновлены developer docs и regression tests.
+
+### 2026-09-07 20:04:21
+- Task Worker переведён на одноразовые Linux prefork child-процессы с warm preload и безопасным refresh runtime расширений; для Windows добавлен solo dev-режим, а integration/prod Compose-контракты исправлены для актуальных окружений и образов.

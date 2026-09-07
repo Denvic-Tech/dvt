@@ -33,7 +33,7 @@ services:
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
       TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
       TESTCONTAINERS_RYUK_DISABLED: "true"
-      MINIO_TEST_ENDPOINT: https://minio-test-db:9000
+      MINIO_TEST_ENDPOINT: http://minio-test-db:9000
       FTP_TEST_HOST: ftp_test_db
       FTP_TEST_PORT: "21"
     depends_on:
@@ -168,7 +168,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     healthcheck:
-      test: [ "CMD", "curl", "-k", "-f", "https://127.0.0.1:9000/minio/health/live" ]
+      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live" ]
       interval: 2s
       timeout: 5s
       retries: 10
