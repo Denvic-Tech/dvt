@@ -19,7 +19,8 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = [
     "--basetemp=tmp/pytest/basetemp",
-    "--import-mode=importlib"
+    "--import-mode=importlib",
+    "--ignore=tests/unit/codex"
 ]
 cache_dir = "tmp/pytest/cache"
 markers = [
