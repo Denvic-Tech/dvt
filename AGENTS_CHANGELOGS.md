@@ -3518,3 +3518,6 @@
 
 ### 2026-09-07 20:04:21
 - Task Worker переведён на одноразовые Linux prefork child-процессы с warm preload и безопасным refresh runtime расширений; для Windows добавлен solo dev-режим, а integration/prod Compose-контракты исправлены для актуальных окружений и образов.
+
+### 2026-09-08 12:47:35
+- Исправлена DataFrameGroupByAgg: параметр dropna добавлен в node contract и управляет исключением NULL-групп как для агрегаций, так и для GroupBy без агрегаций; добавлены regression-тесты обоих режимов.
