@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![GitHub](https://img.shields.io/badge/source-GitHub-181717?logo=github)](https://github.com/Denvic-Tech/dvt)
 
-[Getting started](#getting-started) · [Features](#features) · [Architecture](#architecture) · [Development](docs/DEVELOPMENT.ru.md) · [License](#license)
+[Getting started](#getting-started) · [Features](#features) · [Architecture](#architecture) · [Development](docs/DEVELOPMENT.ru.md) · [Русский](docs/README.ru.md) · [License](#license)
 
 </div>
 
@@ -24,6 +24,12 @@ DVT is an open-source visual ETL platform for creating and executing data pipeli
 Instead of wiring every workflow together in code, you build a pipeline in the web UI, connect data sources, transformations, and destinations, then run and monitor it through DVT's distributed execution backend.
 
 DVT is designed for self-hosted environments and extensibility: the platform provides a Node DSL, an extension system, APIs, scheduling, real-time execution events, and a worker-based runtime for scaling pipeline execution.
+
+## Documentation and external links
+
+- Main user documentation: https://docs.denvic.tech/dvt_docs/dvt_docs/
+- Developer website and technical support (extended plans): https://denvic.tech/products/dvt-visual-etl/
+- Support channel: https://t.me/extractor1CBI
 
 ## Features
 
