@@ -232,7 +232,7 @@ async def test_write_dataframe_to_db_v3_process_does_not_dispose_passed_engine(m
 
     monkeypatch.setattr(engine, "dispose", tracked_dispose)
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v3.write_dataframe",
+        "src.nodes.write.write_df_to_db_v3.node.write_dataframe",
         lambda df, used_engine, request: type(
             "Result",
             (),
@@ -263,11 +263,11 @@ async def test_write_dataframe_to_db_v3_process_does_not_dispose_passed_engine(m
 async def test_write_dataframe_to_db_v3_process_disposes_node_owned_engine_on_failure(monkeypatch) -> None:
     owned_engine = _FakeEngine()
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v3.resolve_sql_engine",
+        "src.nodes.write.write_df_to_db_v3.node.resolve_sql_engine",
         lambda connection: owned_engine,
     )
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v3.write_dataframe",
+        "src.nodes.write.write_df_to_db_v3.node.write_dataframe",
         lambda df, used_engine, request: (_ for _ in ()).throw(RuntimeError("write failed")),
     )
 
@@ -304,11 +304,11 @@ async def test_write_dataframe_to_db_v3_process_reuses_execution_engine_for_meta
         removed_keys.append(key)
 
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v3.resolve_sql_engine",
+        "src.nodes.write.write_df_to_db_v3.node.resolve_sql_engine",
         fake_resolve_sql_engine,
     )
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v3.write_dataframe",
+        "src.nodes.write.write_df_to_db_v3.node.write_dataframe",
         lambda df, used_engine, request: type(
             "Result",
             (),
@@ -316,7 +316,7 @@ async def test_write_dataframe_to_db_v3_process_reuses_execution_engine_for_meta
         )(),
     )
     monkeypatch.setattr(
-        "src.nodes.write.write_df_to_db_v3.create_sa_engine_fingerprint",
+        "src.nodes.write.write_df_to_db_v3.node.create_sa_engine_fingerprint",
         lambda used_engine: fingerprint_engines.append(used_engine) or "fingerprint-key",
     )
 

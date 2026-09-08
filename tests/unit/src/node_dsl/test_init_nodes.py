@@ -1,127 +1,158 @@
-from pathlib import Path
+﻿from types import SimpleNamespace
+
+import pytest
 
 from src.node_dsl import _init_nodes as init_nodes_module
-
-
-class _FakeNode:
-    __name__ = "FakeExtensionNode"
-    __module__ = "dvt_extensions.sample.nodes.fake"
-    EXTENSION_NAME = "sample"
-    EXTENSION_VERSION = "1.0.0"
-
-
-class _BuiltinNode:
-    __name__ = "BuiltinNode"
-    __module__ = "src.nodes.fake"
-    EXTENSION_NAME = None
-    EXTENSION_VERSION = None
-
-
-class _GoodExtensionNode:
-    __name__ = "GoodExtensionNode"
-
-
-class _BadExtensionNode:
-    __name__ = "BadExtensionNode"
-
-
-def test_is_node_class_active_skips_removed_extension(monkeypatch, tmp_path: Path) -> None:
-    node_file = tmp_path / "extensions" / "sample" / "nodes" / "fake.py"
-    node_file.parent.mkdir(parents=True)
-    node_file.write_text("", encoding="utf-8")
-
-    monkeypatch.setattr(
-        init_nodes_module,
-        "get_all_extensions",
-        dict,
-    )
-    monkeypatch.setattr(init_nodes_module.inspect, "getfile", lambda cls: str(node_file))
-
-    assert init_nodes_module._is_node_class_active(_FakeNode) is False
-
-
-def test_is_node_class_active_keeps_builtin_node(monkeypatch, tmp_path: Path) -> None:
-    node_file = tmp_path / "src" / "nodes" / "fake.py"
-    node_file.parent.mkdir(parents=True)
-    node_file.write_text("", encoding="utf-8")
-
-    monkeypatch.setattr(
-        init_nodes_module,
-        "get_all_extensions",
-        dict,
-    )
-    monkeypatch.setattr(init_nodes_module.inspect, "getfile", lambda cls: str(node_file))
-
-    assert init_nodes_module._is_node_class_active(_BuiltinNode) is True
+from src.node_dsl.base_node.base import BaseNode
+from src.node_dsl.discovery.types import NodePackageDescriptor
 
 
 def test_clear_registries_calls_all_registries(monkeypatch) -> None:
     calls: list[str] = []
-
     monkeypatch.setattr(init_nodes_module.nodes_registry, "clear", lambda: calls.append("nodes"))
     monkeypatch.setattr(init_nodes_module.definitions_registry, "clear", lambda: calls.append("definitions"))
     monkeypatch.setattr(init_nodes_module.hooks_registry, "clear", lambda: calls.append("hooks"))
+    monkeypatch.setattr(init_nodes_module.packages_registry, "clear", lambda: calls.append("packages"))
 
     init_nodes_module._clear_registries()
 
-    assert calls == ["nodes", "definitions", "hooks"]
+    assert calls == ["nodes", "definitions", "hooks", "packages"]
 
 
-def test_rebuild_imports_builtin_nodes_once(monkeypatch) -> None:
-    import_calls: list[Path] = []
-    original_snapshot = init_nodes_module._snapshot_registries()
-
-    try:
-        monkeypatch.setattr(
-            init_nodes_module,
-            "import_nodes",
-            lambda directory: import_calls.append(directory) or {"fake": object()},
-        )
-        monkeypatch.setattr(
-            init_nodes_module,
-            "discover_node_classes",
-            lambda *_args, **_kwargs: [_BuiltinNode],
-        )
-        monkeypatch.setattr(
-            init_nodes_module.definitions_registry,
-            "build",
-            lambda cls: init_nodes_module.definitions_registry.NODE_DEFINITIONS.__setitem__(
-                cls.__name__, {"default": object()}
-            ),
-        )
-        monkeypatch.setattr(
-            init_nodes_module.hooks_registry,
-            "build",
-            lambda cls: init_nodes_module.hooks_registry.HOOKS_REGISTRY.__setitem__(cls.__name__, {}),
-        )
-
-        init_nodes_module.rebuild_node_registries()
-
-        assert import_calls == [Path(init_nodes_module.config.PROJECT.NODES_DIR)]
-    finally:
-        init_nodes_module._restore_registries(
-            original_snapshot, restore_bootstrap_state=True
-        )
-
-
-def test_rebuild_preserves_canonical_builtin_class_identity() -> None:
+def test_rebuild_preserves_builtin_class_identity_and_public_module() -> None:
     from src.nodes.tool.execute_project import ExecuteProject
 
     original_snapshot = init_nodes_module._snapshot_registries()
-
     try:
         init_nodes_module.init_nodes()
-        first_registered_class = init_nodes_module.nodes_registry.NODE_CLASSES["ExecuteProject"]
-
+        first_registered = init_nodes_module.nodes_registry.NODE_CLASSES["ExecuteProject"]
         init_nodes_module.rebuild_node_registries()
-        second_registered_class = init_nodes_module.nodes_registry.NODE_CLASSES["ExecuteProject"]
+        second_registered = init_nodes_module.nodes_registry.NODE_CLASSES["ExecuteProject"]
+        definition = init_nodes_module.definitions_registry.NODE_DEFINITIONS["ExecuteProject"]["default"]
+        descriptor = init_nodes_module.packages_registry.NODE_PACKAGES["ExecuteProject"]
 
-        assert first_registered_class is ExecuteProject
-        assert second_registered_class is first_registered_class
-        assert second_registered_class.__module__ == "src.nodes.tool.execute_project"
+        assert first_registered is ExecuteProject
+        assert second_registered is first_registered
+        assert second_registered.__module__ == "src.nodes.tool.execute_project.node"
+        assert definition.python_module == "src.nodes.tool.execute_project"
+        assert descriptor.package_module == "src.nodes.tool.execute_project"
+    finally:
+        init_nodes_module._restore_registries(original_snapshot, restore_bootstrap_state=True)
+
+
+def test_registry_snapshot_restores_package_catalog() -> None:
+    original = init_nodes_module._snapshot_registries()
+    try:
+        init_nodes_module.init_nodes()
+        snapshot = init_nodes_module._snapshot_registries()
+        expected = dict(snapshot.node_packages)
+        init_nodes_module.packages_registry.NODE_PACKAGES.clear()
+        init_nodes_module._restore_registries(snapshot)
+        assert expected == init_nodes_module.packages_registry.NODE_PACKAGES
+    finally:
+        init_nodes_module._restore_registries(original, restore_bootstrap_state=True)
+
+
+def test_init_nodes_restores_previous_registry_after_fatal_registration_failure(monkeypatch) -> None:
+    original = init_nodes_module._snapshot_registries()
+    try:
+        init_nodes_module.init_nodes()
+        previous = init_nodes_module._snapshot_registries()
+
+        def fail(_descriptors):
+            init_nodes_module.nodes_registry.NODE_CLASSES.clear()
+            init_nodes_module.definitions_registry.NODE_DEFINITIONS.clear()
+            init_nodes_module.hooks_registry.HOOKS_REGISTRY.clear()
+            init_nodes_module.packages_registry.NODE_PACKAGES.clear()
+            raise RuntimeError("broken builtin")
+
+        monkeypatch.setattr(init_nodes_module, "register_node_packages", fail)
+        with pytest.raises(RuntimeError, match="broken builtin"):
+            init_nodes_module.init_nodes()
+
+        assert previous.node_classes == init_nodes_module.nodes_registry.NODE_CLASSES
+        assert previous.node_definitions == init_nodes_module.definitions_registry.NODE_DEFINITIONS
+        assert previous.hooks == init_nodes_module.hooks_registry.HOOKS_REGISTRY
+        assert previous.node_packages == init_nodes_module.packages_registry.NODE_PACKAGES
+    finally:
+        init_nodes_module._restore_registries(original, restore_bootstrap_state=True)
+
+
+def test_extension_registration_failure_rolls_back_all_extension_registries(monkeypatch) -> None:
+    class BuiltinTxNode(BaseNode):
+        def process(self) -> None:
+            return None
+
+    class BrokenExtensionTxNode(BaseNode):
+        def process(self) -> None:
+            return None
+
+    class GoodExtensionTxNode(BaseNode):
+        def process(self) -> None:
+            return None
+
+    def descriptor(
+        node_cls: type[BaseNode], *, extension_name: str | None = None
+    ) -> NodePackageDescriptor:
+        return NodePackageDescriptor(
+            node_name=node_cls.__name__,
+            node_cls=node_cls,
+            package_module=node_cls.__module__,
+            package_path=None,
+            manifest=None,
+            provider="builtin" if extension_name is None else "extension",
+            extension_name=extension_name,
+            extension_version=None if extension_name is None else "1.0.0",
+            legacy=extension_name is not None,
+        )
+
+    builtin = descriptor(BuiltinTxNode)
+    broken = descriptor(BrokenExtensionTxNode, extension_name="bad")
+    good = descriptor(GoodExtensionTxNode, extension_name="good")
+    original_snapshot = init_nodes_module._snapshot_registries()
+    original_build = init_nodes_module.definitions_registry.build
+
+    def discover_extension(_modules, *, extension):
+        return [broken] if extension.name == "bad" else [good]
+
+    def build_definition(node_cls, **kwargs):
+        if node_cls is BrokenExtensionTxNode:
+            raise RuntimeError("broken extension definition")
+        return original_build(node_cls, **kwargs)
+
+    monkeypatch.setattr(
+        init_nodes_module,
+        "discover_builtin_node_packages",
+        lambda _nodes_dir: [builtin],
+    )
+    monkeypatch.setattr(
+        init_nodes_module,
+        "discover_extension_node_descriptors",
+        discover_extension,
+    )
+    monkeypatch.setattr(init_nodes_module.definitions_registry, "build", build_definition)
+
+    try:
+        result = init_nodes_module.init_nodes(
+            extension_modules={"bad": {}, "good": {}},
+            extensions={
+                "bad": SimpleNamespace(name="bad"),
+                "good": SimpleNamespace(name="good"),
+            },
+        )
+
+        assert "bad" in result.extension_failures
+        expected_names = {"BuiltinTxNode", "GoodExtensionTxNode"}
+        assert set(init_nodes_module.nodes_registry.NODE_CLASSES) == expected_names
+        assert set(init_nodes_module.definitions_registry.NODE_DEFINITIONS) == expected_names
+        assert set(init_nodes_module.hooks_registry.HOOKS_REGISTRY) == expected_names
+        assert set(init_nodes_module.packages_registry.NODE_PACKAGES) == expected_names
+        assert "BrokenExtensionTxNode" not in init_nodes_module.nodes_registry.NODE_CLASSES
+        assert "BrokenExtensionTxNode" not in init_nodes_module.packages_registry.NODE_PACKAGES
     finally:
         init_nodes_module._restore_registries(
-            original_snapshot, restore_bootstrap_state=True
+            original_snapshot,
+            restore_bootstrap_state=True,
         )
 
 
@@ -143,89 +174,3 @@ def test_node_name_conflicts_reject_all_extension_owners() -> None:
     assert "conflicts with a builtin node" in failures["first"]
     assert "SharedNode" in failures["first"]
     assert "SharedNode" in failures["second"]
-
-
-def test_init_nodes_isolates_extension_registration_failure(monkeypatch) -> None:
-    original_snapshot = init_nodes_module._snapshot_registries()
-
-    monkeypatch.setattr(init_nodes_module, "import_nodes", lambda _directory: {"builtin": object()})
-
-    def discover(_modules, *, extensions):
-        if not extensions:
-            return [_BuiltinNode]
-        extension_name = next(iter(extensions))
-        return {
-            "bad": [_BadExtensionNode],
-            "good": [_GoodExtensionNode],
-        }[extension_name]
-
-    def register(classes) -> None:
-        for node_cls in classes:
-            node_name = node_cls.__name__
-            init_nodes_module.nodes_registry.NODE_CLASSES[node_name] = node_cls
-            init_nodes_module.definitions_registry.NODE_DEFINITIONS[node_name] = {
-                "default": object()
-            }
-            init_nodes_module.hooks_registry.HOOKS_REGISTRY[node_name] = {}
-            if node_cls is _BadExtensionNode:
-                raise ValueError("invalid extension node")
-
-    monkeypatch.setattr(init_nodes_module, "discover_node_classes", discover)
-    monkeypatch.setattr(init_nodes_module, "register_node_classes", register)
-
-    try:
-        result = init_nodes_module.init_nodes(
-            extension_modules={"bad": {}, "good": {}},
-            extensions={"bad": object(), "good": object()},
-        )
-
-        assert "bad" in result.extension_failures
-        assert _BadExtensionNode.__name__ not in init_nodes_module.nodes_registry.NODE_CLASSES
-        assert _GoodExtensionNode.__name__ in init_nodes_module.nodes_registry.NODE_CLASSES
-    finally:
-        init_nodes_module._restore_registries(
-            original_snapshot, restore_bootstrap_state=True
-        )
-
-
-def test_init_nodes_restores_previous_registry_after_fatal_failure(monkeypatch) -> None:
-    original_snapshot = init_nodes_module._snapshot_registries()
-    sentinel = type("PreviouslyRegisteredNode", (), {})
-    init_nodes_module.nodes_registry.NODE_CLASSES.clear()
-    init_nodes_module.nodes_registry.NODE_CLASSES["PreviouslyRegisteredNode"] = sentinel
-    init_nodes_module.definitions_registry.NODE_DEFINITIONS.clear()
-    init_nodes_module.definitions_registry.NODE_DEFINITIONS["PreviouslyRegisteredNode"] = {
-        "default": object()
-    }
-    init_nodes_module.hooks_registry.HOOKS_REGISTRY.clear()
-    init_nodes_module.hooks_registry.HOOKS_REGISTRY["PreviouslyRegisteredNode"] = {}
-
-    monkeypatch.setattr(init_nodes_module, "import_nodes", lambda _directory: {"builtin": object()})
-    monkeypatch.setattr(
-        init_nodes_module,
-        "discover_node_classes",
-        lambda *_args, **_kwargs: [_BuiltinNode],
-    )
-    monkeypatch.setattr(
-        init_nodes_module,
-        "register_node_classes",
-        lambda _classes: (_ for _ in ()).throw(RuntimeError("broken builtin")),
-    )
-
-    try:
-        try:
-            init_nodes_module.init_nodes()
-        except RuntimeError as exc:
-            assert str(exc) == "broken builtin"
-        else:
-            raise AssertionError("Expected fatal registry rebuild failure")
-
-        assert init_nodes_module.nodes_registry.NODE_CLASSES == {
-            "PreviouslyRegisteredNode": sentinel
-        }
-        assert "PreviouslyRegisteredNode" in init_nodes_module.definitions_registry.NODE_DEFINITIONS
-        assert "PreviouslyRegisteredNode" in init_nodes_module.hooks_registry.HOOKS_REGISTRY
-    finally:
-        init_nodes_module._restore_registries(
-            original_snapshot, restore_bootstrap_state=True
-        )

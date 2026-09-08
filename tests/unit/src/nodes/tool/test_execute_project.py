@@ -10,7 +10,7 @@ import pytest
 from src.modules.task_execution.domain.types import TaskExecutionStatus
 from src.node_dsl import IO, NodeValidationError
 from src.node_dsl.variables import VariableOutput
-from src.nodes.tool import execute_project as execute_project_module
+from src.nodes.tool.execute_project import node as execute_project_module
 from src.nodes.tool.execute_project import ExecuteProject
 from src.pipeline.execution_mode import PipelineExecutionMode
 

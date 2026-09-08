@@ -1,20 +1,27 @@
-from pathlib import Path
+from __future__ import annotations
 
-import config
+from collections.abc import Callable, Mapping
+from importlib import resources
+
 from src.logger import logger
+from src.node_dsl import get_all_node_packages
+from src.node_dsl.discovery.types import NodePackageDescriptor
 
-from ...domain.entities import PublishedNodeDocumentation, SUPPORTED_LOCALES
+from ...domain.entities import PublishedNodeDocumentation
 from ...domain.repositories import NodeDocumentationRepository
 
+_LOCALE_FILENAMES = {
+    "en": "README.md",
+    "ru": "README.ru.md",
+}
 
-class FileSystemNodeDocumentationRepository(NodeDocumentationRepository):
-    def __init__(self, root_dir: Path | None = None) -> None:
-        self.root_dir = Path(root_dir or config.PROJECT.NODE_DOCUMENTATION_DIR)
-        self._items = self._load_items()
-        self._documented_node_names = frozenset(
-            node_name
-            for node_name, _locale in self._items
-        )
+
+class NodePackageDocumentationRepository(NodeDocumentationRepository):
+    def __init__(
+        self,
+        package_catalog: Callable[[], Mapping[str, NodePackageDescriptor]] | None = None,
+    ) -> None:
+        self._package_catalog = package_catalog or get_all_node_packages
 
     async def get(
         self,
@@ -22,57 +29,64 @@ class FileSystemNodeDocumentationRepository(NodeDocumentationRepository):
         node_name: str,
         locale: str,
     ) -> PublishedNodeDocumentation | None:
-        return self._items.get((node_name, locale))
+        descriptor = self._package_catalog().get(node_name)
+        if descriptor is None or descriptor.legacy:
+            return None
+        filename = _LOCALE_FILENAMES.get(locale)
+        if filename is None:
+            return None
+        content = self._read_resource(descriptor, filename)
+        if content is None:
+            return None
+        return PublishedNodeDocumentation(
+            node_name=node_name,
+            locale=locale,
+            content=content,
+        )
 
     def get_documented_node_names(self) -> frozenset[str]:
-        return self._documented_node_names
+        return frozenset(
+            node_name
+            for node_name, descriptor in self._package_catalog().items()
+            if not descriptor.legacy
+            and any(
+                self._resource_exists(descriptor, filename)
+                for filename in _LOCALE_FILENAMES.values()
+            )
+        )
 
     def has_any(self, node_name: str) -> bool:
-        return node_name in self._documented_node_names
+        descriptor = self._package_catalog().get(node_name)
+        if descriptor is None or descriptor.legacy:
+            return False
+        return any(
+            self._resource_exists(descriptor, filename)
+            for filename in _LOCALE_FILENAMES.values()
+        )
 
-    def _load_items(self) -> dict[tuple[str, str], PublishedNodeDocumentation]:
-        if not self.root_dir.exists():
-            logger.debug(
-                "Node documentation directory does not exist: {}",
-                self.root_dir,
+    @staticmethod
+    def _resource_exists(descriptor: NodePackageDescriptor, filename: str) -> bool:
+        try:
+            return resources.files(descriptor.package_module).joinpath(filename).is_file()
+        except (ModuleNotFoundError, AttributeError, OSError):
+            logger.exception(
+                "Failed to inspect node documentation resource '{}' in package '{}'",
+                filename,
+                descriptor.package_module,
             )
-            return {}
+            return False
 
-        if not self.root_dir.is_dir():
-            logger.warning(
-                "Node documentation path is not a directory: {}",
-                self.root_dir,
+    @staticmethod
+    def _read_resource(descriptor: NodePackageDescriptor, filename: str) -> str | None:
+        try:
+            resource = resources.files(descriptor.package_module).joinpath(filename)
+            if not resource.is_file():
+                return None
+            return resource.read_text(encoding="utf-8")
+        except (ModuleNotFoundError, AttributeError, OSError):
+            logger.exception(
+                "Failed to read node documentation resource '{}' in package '{}'",
+                filename,
+                descriptor.package_module,
             )
-            return {}
-
-        items: dict[tuple[str, str], PublishedNodeDocumentation] = {}
-        for node_dir in sorted(self.root_dir.iterdir()):
-            if not node_dir.is_dir():
-                continue
-
-            for documentation_path in sorted(node_dir.glob("*.md")):
-                locale = documentation_path.stem.strip().lower()
-                if locale not in SUPPORTED_LOCALES:
-                    logger.warning(
-                        "Skip node documentation with unsupported locale '{}' at {}",
-                        locale,
-                        documentation_path,
-                    )
-                    continue
-
-                try:
-                    content = documentation_path.read_text(encoding="utf-8")
-                except OSError:
-                    logger.exception(
-                        "Failed to read node documentation from {}",
-                        documentation_path,
-                    )
-                    continue
-
-                items[(node_dir.name, locale)] = PublishedNodeDocumentation(
-                    node_name=node_dir.name,
-                    locale=locale,
-                    content=content,
-                )
-
-        return items
+            return None

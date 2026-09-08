@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from src.node_dsl import IO, NodeValidationError
-from src.nodes.transform import DataFrameSelectVariables
+from src.nodes.transform.df_select_variables import DataFrameSelectVariables
 from src.node_dsl.variables import UnresolvedValue, VariableOutput
 
 

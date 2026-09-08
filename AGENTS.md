@@ -25,7 +25,7 @@ The system is built to be scalable and modular, featuring a custom Node Domain-S
 - Project Scheduler remains the owner of scheduled retry policy; `task_execution` does not retry scheduled jobs itself.
 - `WORKER_LOST` recovery is PostgreSQL-driven for worker-owned `STARTED`/`RUNNING` executions. In-memory execution telemetry is only an auxiliary/cache signal; after an Orchestrator restart, live workers get one heartbeat timeout to re-register before absence is treated as worker loss.
 - Root task coalescing is based on persisted `(queued_at, task_id)` under project-scoped DB serialization: only the freshest `API`/`SCHEDULER` root execution stays runnable; `NODE` child executions are never superseded by this rule.
-- Extension execution readiness requires `is_installed && is_enabled && deps_status == READY`. Persistent Task Worker children compare an authoritative extension runtime generation before each claimed task and reload local dependencies/node registry only when that generation changes.
+- Extension execution readiness requires `is_installed && is_enabled && deps_status == READY`. Linux Task Workers preload built-in/extension registries in the warm prefork MainProcess and recycle the execution child after every Celery task. If a child observes a newer authoritative extension runtime generation, it reloads that generation for the current task and requests a safe parent refresh: task queues are drained, the pool is reduced to zero, the warm registry is refreshed, then the single execution slot is restored. Native Windows development defaults to the `solo` pool because Celery prefork/Windows spawn is not a supported production-equivalent runtime.
 - Synchronous nested waits reserve at most `alive_workers - 1` slots. Capacity reconciliation is atomic and deterministic; if alive capacity shrinks, newest reservations fail first so at least one worker slot can be released.
 - Termination-reason precedence belongs to `task_execution/domain`; system failures such as `OOM_GUARD`, `WORKER_LOST`, and nested-wait capacity loss must end as `ERROR`, while user STOP/HARD_STOP end as `CANCELLED` unless superseded by a stronger reason.
 
@@ -111,6 +111,14 @@ For working with the repository file system, the agent must use the `filesystem`
 - Нельзя нарушать границы DDD-lite ради скорости, совместимости миграции или временного упрощения.
 - Compatibility shims допустимы только вне bounded context модуля, чтобы поддержать legacy callers. Shim не должен затаскивать infra/framework зависимости в `domain` или `flow`.
 - Если корректная реализация требует нарушить эти границы или делает принадлежность к слою неоднозначной, агент должен остановиться и запросить решение пользователя вместо самостоятельного допущения.
+
+## Node Package Contract
+- Каждый built-in DVT node живет в отдельном package `src/nodes/<category>/<node_package>/`: один package = одна регистрируемая node.
+- `node.yaml` обязателен и является единственным filesystem marker для discovery; V1 содержит `schema_version: 1`.
+- Package `__init__.py` обязан экспортировать `NODE_CLASS`, указывающий на concrete `BaseNode` subclass из этого package.
+- Category `__init__.py` не должны импортировать nodes или выполнять eager registration; category barrels запрещены.
+- Общие helper-ы одной категории размещаются в `_shared/`; private directories с `_` не участвуют в discovery.
+- Colocated documentation optional: `README.md` — canonical English, `README.ru.md` — Russian translation.
 
 ## Project Skill (`dvt-project-ops`)
 Use `.codex/skills/dvt-project-ops` for DVT-specific local development operations that require knowledge of repository internals: Docker service status/restart, cross-service log and task diagnostics, safe DB connection test fixtures, and changelog appends.

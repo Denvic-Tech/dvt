@@ -1,0 +1,1 @@
+"""Data Mock node category."""

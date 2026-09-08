@@ -15,7 +15,7 @@ pytestmark = pytest.mark.docker_required
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_persistent_worker_reloads_registry_after_extension_install_and_update(
+async def test_process_runtime_reloads_registry_only_when_extension_generation_changes(
     test_db_engine,
     test_db_async_engine,
     monkeypatch,
@@ -73,7 +73,7 @@ async def test_persistent_worker_reloads_registry_after_extension_install_and_up
     assert visible_nodes[name] == "1.0.0"
     assert reload_count == 1
 
-    # No extension change: the next task reuses the persistent child's registry.
+    # No extension change inside the same process: no redundant runtime reload.
     await worker_runtime._ensure_extension_runtime_for_task_process_async(
         required_extension_names={name}
     )

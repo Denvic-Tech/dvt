@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header
 from pydantic import ValidationError
 
 from services.gateway.deps import clients as client_deps
+from services.gateway.deps.ai_mcp import require_ai_mcp_enabled
 from services.gateway.deps.db_catalog import RedisBytes
 
 from src.clients.orchestrator_client import GrpcOrchestratorClient
@@ -38,7 +39,11 @@ from .auth import MCPPrincipalDepends
 from .errors import AIMCPHTTPError
 from .schemas import AuthVerificationSchema, ToolCallSchema, ToolResultSchema
 
-router = APIRouter(prefix="/internal/ai-mcp/v1", include_in_schema=False)
+router = APIRouter(
+    prefix="/internal/ai-mcp/v1",
+    include_in_schema=False,
+    dependencies=[Depends(require_ai_mcp_enabled)],
+)
 
 ToolHandler = Callable[..., Awaitable[dict[str, Any]]]
 

@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 
-
 SUPPORTED_LOCALES = frozenset({"en", "ru"})
-DEFAULT_FALLBACK_LOCALE = "ru"
+DEFAULT_FALLBACK_LOCALE = "en"
 
 
 def normalize_requested_locale(locale: str) -> str:

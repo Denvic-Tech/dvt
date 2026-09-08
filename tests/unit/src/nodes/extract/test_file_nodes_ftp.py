@@ -99,8 +99,8 @@ def _patch_download_factory(monkeypatch, tmp_path, files: dict[str, bytes]):
         instances.append(instance)
         return instance
 
-    monkeypatch.setattr("src.nodes.extract.ftp_file.fsspec.filesystem", factory)
-    monkeypatch.setattr("src.nodes.extract.ftp_file.tempfile.tempdir", str(tmp_path))
+    monkeypatch.setattr("src.nodes.extract._shared.ftp_file.fsspec.filesystem", factory)
+    monkeypatch.setattr("src.nodes.extract._shared.ftp_file.tempfile.tempdir", str(tmp_path))
     return instances
 
 

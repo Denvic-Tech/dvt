@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src.node_dsl.exceptions import NodeValidationError
-from src.nodes.transform import DataFrameGroupByAgg
+from src.nodes.transform.df_group_by_agg import DataFrameGroupByAgg
 
 
 def test_groupby_agg_keeps_null_groups_in_group_keys() -> None:
@@ -37,6 +37,59 @@ def test_groupby_agg_keeps_null_groups_in_group_keys() -> None:
     null_row = result[result["group"].isna()].iloc[0]
     assert int(a_row["value_count"]) == 1
     assert int(null_row["value_count"]) == 1
+
+
+def test_groupby_agg_drops_null_groups_when_requested() -> None:
+    pdf = pd.DataFrame(
+        {
+            "group": ["A", None, None],
+            "value": [1, 1, None],
+        }
+    )
+    node = DataFrameGroupByAgg(
+        user_id="user",
+        project_id="project",
+        task_id="task",
+        node_id="node-groupby-agg-dropna",
+        df=dd.from_pandas(pdf, npartitions=2),
+        group_by_columns=["group"],
+        dropna=True,
+        new_cols=["value_count"],
+        source_cols=["value"],
+        agg_funcs=["count"],
+    )
+
+    node.process()
+    result = node.output.compute()
+
+    assert result["group"].tolist() == ["A"]
+    assert result["value_count"].tolist() == [1]
+
+
+def test_groupby_without_aggregations_respects_dropna() -> None:
+    pdf = pd.DataFrame(
+        {
+            "group": ["A", None, "A", "B"],
+            "value": [1, 2, 3, 4],
+        }
+    )
+    node = DataFrameGroupByAgg(
+        user_id="user",
+        project_id="project",
+        task_id="task",
+        node_id="node-groupby-dropna-no-agg",
+        df=dd.from_pandas(pdf, npartitions=2),
+        group_by_columns=["group"],
+        dropna=True,
+        new_cols=None,
+        source_cols=None,
+        agg_funcs=None,
+    )
+
+    node.process()
+    result = node.output.compute().sort_values("group").reset_index(drop=True)
+
+    assert result["group"].tolist() == ["A", "B"]
 
 
 def test_groupby_agg_handles_index_column_name_conflict() -> None:

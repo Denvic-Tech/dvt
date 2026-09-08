@@ -16,6 +16,7 @@ pystructor==0.2.0
 UsrAK==0.5.0
 denvic-db-connection==1.1.6
 Jinja2==3.1.6
+PyYAML==6.0.3
 
 loguru==0.7.3
 psutil==7.0.0

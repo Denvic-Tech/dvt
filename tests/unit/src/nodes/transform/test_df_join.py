@@ -1,7 +1,8 @@
 import pandas as pd
 from dask import dataframe as dd
 
-from src.nodes.transform import DataFrameJoin, DataFrameRenameColumns
+from src.nodes.transform.df_join import DataFrameJoin
+from src.nodes.transform.df_rename_columns import DataFrameRenameColumns
 
 
 class _FakeExpr:

@@ -1,4 +1,4 @@
-services:
+﻿services:
 
   prod-builder:
     image: dvt/prod-builder:latest
@@ -29,6 +29,7 @@ services:
         dvt_deps_image: "service:deps"
         dvt_prod_builder_image: "service:prod-builder"
         dvt_base_image: "service:base"
+        dvt_base_odbc_image: "service:base-odbc"
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-prod}
     volumes:
@@ -43,6 +44,7 @@ services:
         dvt_deps_image: "service:deps"
         dvt_prod_builder_image: "service:prod-builder"
         dvt_base_image: "service:base"
+        dvt_base_odbc_image: "service:base-odbc"
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-prod}
       JWT_ACCESS_TOKEN_SECRET_KEY: ${DVT_JWT_ACCESS_TOKEN_SECRET_KEY:-}

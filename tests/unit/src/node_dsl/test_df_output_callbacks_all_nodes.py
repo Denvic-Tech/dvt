@@ -1,15 +1,15 @@
-import importlib
-import inspect
-import pkgutil
-from pathlib import Path
 from typing import Any
 
 import dask.dataframe as dd
 import pandas as pd
 import pytest
 
-import src.nodes as nodes_pkg
-from src.node_dsl import DFOutputBaseNode, InputField, OutputField
+from src.node_dsl import (
+    DFOutputBaseNode,
+    InputField,
+    OutputField,
+    get_all_node_packages,
+)
 from src.node_dsl.node_typing import IO
 from src.pipeline.execution_mode import PipelineExecutionMode
 
@@ -33,39 +33,22 @@ class _AfterNeighborNode(DFOutputBaseNode):
 
 
 def _discover_df_output_node_classes() -> tuple[type[DFOutputBaseNode], ...]:
-    discovered: list[type[DFOutputBaseNode]] = []
-    import_errors: list[str] = []
-
-    for module_info in pkgutil.walk_packages(nodes_pkg.__path__, f"{nodes_pkg.__name__}."):
-        module_name = module_info.name
-        try:
-            module = importlib.import_module(module_name)
-        except Exception as exc:  # noqa: BLE001
-            import_errors.append(f"{module_name}: {type(exc).__name__}: {exc}")
-            continue
-
-        for _, node_cls in inspect.getmembers(module, inspect.isclass):
-            if node_cls.__module__ != module.__name__:
-                continue
-            if not issubclass(node_cls, DFOutputBaseNode) or node_cls is DFOutputBaseNode:
-                continue
-
-            class_path = Path(inspect.getfile(node_cls)).as_posix().lower()
-            if "/src/nodes/" not in class_path:
-                continue
-
-            discovered.append(node_cls)
-
-    if import_errors:
-        errors = "\n".join(sorted(import_errors))
-        raise AssertionError(f"Failed to import modules from src.nodes:\n{errors}")
-
-    unique = sorted(
-        {(cls.__module__, cls.__name__): cls for cls in discovered}.values(),
-        key=lambda cls: (cls.__module__, cls.__name__),
+    discovered = [
+        descriptor.node_cls
+        for descriptor in get_all_node_packages().values()
+        if issubclass(descriptor.node_cls, DFOutputBaseNode)
+        and descriptor.node_cls is not DFOutputBaseNode
+        and any(
+            field.resolved_type in {IO.DATAFRAME, IO.COLUMN}
+            for field in descriptor.node_cls.output_fields().values()
+        )
+    ]
+    return tuple(
+        sorted(
+            discovered,
+            key=lambda cls: (cls.__module__, cls.__name__),
+        )
     )
-    return tuple(unique)
-
 
 def _first_dask_output_name(node_cls: type[DFOutputBaseNode]) -> str:
     for field in node_cls.output_fields().values():

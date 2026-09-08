@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from core.types import Column, DataFrameMetadata, DataType
 
-import src.nodes.extract.read_query_from_db_v3 as read_query_module
+from src.nodes.extract.read_query_from_db_v3 import node as read_query_module
 from src.node_dsl import (
     ExecutionDateTimePrecision,
     ExecutionSettings,

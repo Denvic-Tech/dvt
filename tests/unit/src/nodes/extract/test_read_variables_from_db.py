@@ -4,7 +4,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import text
 
-import src.nodes.extract.read_variables_from_db as read_variables_module
+from src.nodes.extract.read_variables_from_db import node as read_variables_module
 from src.node_dsl import IO, NodeValidationError
 from src.nodes.extract.read_variables_from_db import ReadVariablesFromDB
 

@@ -14,7 +14,9 @@ from src.models.extension import ExtensionRecord
 
 
 def get_mock_extension_manager(session=None):
-    return ExtensionManager(session=session, distributor_client=None)
+    manager = ExtensionManager(session=session, distributor_client=None)
+    manager.migration_manager = Mock()
+    return manager
 
 def test_remove_install_root_retries_readonly_path(monkeypatch, tmp_path: Path) -> None:
     install_root = tmp_path / "sample-extension"
@@ -579,6 +581,7 @@ async def test_install_extension_uses_selected_version(monkeypatch, tmp_path: Pa
     assert manager.install_manager.install_from_url.await_args.args[0] == "https://example/1.0.0.zip"
     manager.db_manager.mark_installed.assert_awaited_once()
     assert manager.db_manager.mark_installed.await_args.kwargs["latest_version"] == "1.1.0"
+    manager.migration_manager.upgrade.assert_called_once()
     refresh_runtime.assert_awaited_once_with(
         strict_names=frozenset({"sample-extension"})
     )

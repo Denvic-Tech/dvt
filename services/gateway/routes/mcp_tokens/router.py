@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+
+from services.gateway.deps.ai_mcp import require_ai_mcp_enabled
 
 from src.db.fastapi.dependencies import AsyncSessionDepends
 from src.modules.ai_mcp_access.domain import (
@@ -24,7 +26,11 @@ from .schemas import (
     MCPTokenUpdateSchema,
 )
 
-router = APIRouter(prefix="/mcp-tokens", tags=["MCP Tokens"])
+router = APIRouter(
+    prefix="/mcp-tokens",
+    tags=["MCP Tokens"],
+    dependencies=[Depends(require_ai_mcp_enabled)],
+)
 
 
 def _scope(schema: MCPAccessScopeSchema) -> MCPAccessScope:

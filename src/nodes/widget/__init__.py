@@ -1,0 +1,1 @@
+"""Widget node category."""

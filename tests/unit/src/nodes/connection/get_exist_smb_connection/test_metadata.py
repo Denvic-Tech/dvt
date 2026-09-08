@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from db_connection.domain import ConnectionRecord
 
 from src.node_dsl import SMBConnectionRecord
-from src.nodes.connection import get_exist_smb_connection
+from src.nodes.connection.get_exist_smb_connection import node as get_exist_smb_connection
 from src.nodes.connection.get_exist_smb_connection import GetExistSMBConnection
 
 

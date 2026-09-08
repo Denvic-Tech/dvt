@@ -12,7 +12,7 @@ from core.types import (
     DBTableType,
 )
 
-import src.nodes.extract.read_table_from_db_v3 as read_table_module
+from src.nodes.extract.read_table_from_db_v3 import node as read_table_module
 from src.node_dsl import ExecutionDateTimePrecision, ExecutionSettings, get_definition
 from src.node_dsl.variables import make_unresolved_value
 from src.nodes.extract.read_table_from_db_v3 import ReadTableFromDBV3

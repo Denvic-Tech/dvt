@@ -7,7 +7,7 @@ from db_connection.domain import ConnectionRecord
 
 from src.modules.user.infra import db_models
 from src.node_dsl import SqlConnectionRecord
-from src.nodes.connection import get_exist_db_connection
+from src.nodes.connection.get_exist_db_connection import node as get_exist_db_connection
 from src.nodes.connection.get_exist_db_connection import GetExistDBConnection
 
 

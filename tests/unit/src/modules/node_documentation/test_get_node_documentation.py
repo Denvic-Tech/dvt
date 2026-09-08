@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from src.modules.node_documentation.domain.entities import PublishedNodeDocumentation
@@ -8,9 +6,8 @@ from src.modules.node_documentation.domain.exceptions import (
     UnknownNode,
 )
 from src.modules.node_documentation.flow.use_cases import GetNodeDocumentation
-from src.modules.node_documentation.infra.repositories import (
-    FileSystemNodeDocumentationRepository,
-)
+from src.modules.node_documentation.infra.repositories import NodePackageDocumentationRepository
+from src.node_dsl import get_all_node_packages
 
 
 class _NodeRegistryStub:
@@ -38,6 +35,23 @@ class _RepositoryStub:
 async def test_get_node_documentation_returns_exact_locale() -> None:
     documentation = PublishedNodeDocumentation(
         node_name="DataFrameJoin",
+        locale="ru",
+        content="# Объединение",
+    )
+    use_case = GetNodeDocumentation(
+        repository=_RepositoryStub({("DataFrameJoin", "ru"): documentation}),
+        registry=_NodeRegistryStub({"DataFrameJoin"}),
+    )
+
+    result = await use_case.execute(node_name="DataFrameJoin", locale="ru")
+
+    assert result == documentation
+
+
+@pytest.mark.asyncio
+async def test_get_node_documentation_falls_back_from_ru_to_english() -> None:
+    documentation = PublishedNodeDocumentation(
+        node_name="DataFrameJoin",
         locale="en",
         content="# Join",
     )
@@ -46,20 +60,20 @@ async def test_get_node_documentation_returns_exact_locale() -> None:
         registry=_NodeRegistryStub({"DataFrameJoin"}),
     )
 
-    result = await use_case.execute(node_name="DataFrameJoin", locale="en")
+    result = await use_case.execute(node_name="DataFrameJoin", locale="ru")
 
     assert result == documentation
 
 
 @pytest.mark.asyncio
-async def test_get_node_documentation_falls_back_to_ru() -> None:
+async def test_get_node_documentation_unsupported_locale_uses_english() -> None:
     documentation = PublishedNodeDocumentation(
         node_name="DataFrameJoin",
-        locale="ru",
-        content="# Объединение",
+        locale="en",
+        content="# Join",
     )
     use_case = GetNodeDocumentation(
-        repository=_RepositoryStub({("DataFrameJoin", "ru"): documentation}),
+        repository=_RepositoryStub({("DataFrameJoin", "en"): documentation}),
         registry=_NodeRegistryStub({"DataFrameJoin"}),
     )
 
@@ -83,76 +97,43 @@ async def test_get_node_documentation_raises_for_unknown_node() -> None:
 async def test_get_node_documentation_raises_when_documentation_missing() -> None:
     use_case = GetNodeDocumentation(
         repository=_RepositoryStub({}),
-        registry=_NodeRegistryStub({"DataFrameJoin"}),
+        registry=_NodeRegistryStub({"LoadCSV"}),
     )
 
     with pytest.raises(NodeDocumentationNotFound):
-        await use_case.execute(node_name="DataFrameJoin", locale="en")
+        await use_case.execute(node_name="LoadCSV", locale="en")
 
 
 @pytest.mark.asyncio
-async def test_filesystem_repository_reads_markdown(tmp_path: Path) -> None:
-    root_dir = tmp_path / "docs" / "nodes"
-    node_dir = root_dir / "DataFrameJoin"
-    node_dir.mkdir(parents=True)
-    (node_dir / "ru.md").write_text("# Join\n", encoding="utf-8")
+async def test_package_repository_reads_colocated_readmes() -> None:
+    repository = NodePackageDocumentationRepository()
 
-    repository = FileSystemNodeDocumentationRepository(root_dir=root_dir)
+    english = await repository.get(node_name="DataFrameJoin", locale="en")
+    russian = await repository.get(node_name="DataFrameJoin", locale="ru")
 
-    result = await repository.get(node_name="DataFrameJoin", locale="ru")
-
-    assert result == PublishedNodeDocumentation(
-        node_name="DataFrameJoin",
-        locale="ru",
-        content="# Join\n",
-    )
-    assert repository.get_documented_node_names() == frozenset({"DataFrameJoin"})
+    assert english is not None
+    assert english.locale == "en"
+    assert english.content.startswith("# DataFrame Join")
+    assert russian is not None
+    assert russian.locale == "ru"
+    assert russian.content.startswith("# Объединение DataFrame")
+    assert "DataFrameJoin" in repository.get_documented_node_names()
 
 
 @pytest.mark.asyncio
-async def test_filesystem_repository_returns_none_for_missing_file(tmp_path: Path) -> None:
-    repository = FileSystemNodeDocumentationRepository(
-        root_dir=tmp_path / "docs" / "nodes"
-    )
+async def test_package_repository_returns_none_for_missing_documentation() -> None:
+    repository = NodePackageDocumentationRepository()
 
-    result = await repository.get(node_name="DataFrameJoin", locale="en")
+    result = await repository.get(node_name="LoadCSV", locale="en")
 
     assert result is None
-    assert repository.get_documented_node_names() == frozenset()
+    assert repository.has_any("LoadCSV") is False
 
 
-@pytest.mark.asyncio
-async def test_filesystem_repository_keeps_preloaded_content_until_recreated(
-    tmp_path: Path,
-) -> None:
-    root_dir = tmp_path / "docs" / "nodes"
-    node_dir = root_dir / "DataFrameJoin"
-    node_dir.mkdir(parents=True)
-    documentation_path = node_dir / "ru.md"
-    documentation_path.write_text("# Version 1\n", encoding="utf-8")
+def test_package_repository_reads_current_catalog_without_stale_snapshot(monkeypatch) -> None:
+    catalog = get_all_node_packages()
+    repository = NodePackageDocumentationRepository(package_catalog=lambda: catalog)
 
-    repository = FileSystemNodeDocumentationRepository(root_dir=root_dir)
-    documentation_path.write_text("# Version 2\n", encoding="utf-8")
-
-    result = await repository.get(node_name="DataFrameJoin", locale="ru")
-
-    assert result == PublishedNodeDocumentation(
-        node_name="DataFrameJoin",
-        locale="ru",
-        content="# Version 1\n",
-    )
-
-
-@pytest.mark.asyncio
-async def test_filesystem_repository_ignores_unsupported_locales(tmp_path: Path) -> None:
-    root_dir = tmp_path / "docs" / "nodes"
-    node_dir = root_dir / "DataFrameJoin"
-    node_dir.mkdir(parents=True)
-    (node_dir / "de.md").write_text("# Deutsch\n", encoding="utf-8")
-
-    repository = FileSystemNodeDocumentationRepository(root_dir=root_dir)
-
-    result = await repository.get(node_name="DataFrameJoin", locale="de")
-
-    assert result is None
-    assert repository.get_documented_node_names() == frozenset()
+    assert repository.has_any("DataFrameJoin") is True
+    catalog.pop("DataFrameJoin")
+    assert repository.has_any("DataFrameJoin") is False

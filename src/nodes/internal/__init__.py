@@ -1,1 +1,1 @@
-from .service_output_node import ServiceOutputNode
+"""Internal node category."""

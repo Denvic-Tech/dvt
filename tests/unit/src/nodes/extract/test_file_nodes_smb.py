@@ -681,7 +681,7 @@ def test_load_excel_process_uses_fresh_ftp_fs_for_each_read(monkeypatch):
             {"id": pd.Series([2.5], dtype="Float64"), "name": pd.Series(["b"], dtype="string")}
         )
 
-    monkeypatch.setattr("src.nodes.extract.ftp_file.fsspec.filesystem", fake_filesystem)
+    monkeypatch.setattr("src.nodes.extract._shared.ftp_file.fsspec.filesystem", fake_filesystem)
     monkeypatch.setattr(pd, "read_excel", fake_read_excel)
 
     node.process()
@@ -727,9 +727,9 @@ def test_load_excel_infer_metadata_downloads_ftp_file_to_temp(monkeypatch, tmp_p
     ctx = _make_ftp_context("ftp://ftp.local:2121/reports/file.xlsx")
 
     monkeypatch.setattr(node, "_get_fs_context", lambda **_kwargs: ctx)
-    monkeypatch.setattr("src.nodes.extract.ftp_file.tempfile.tempdir", str(tmp_path))
+    monkeypatch.setattr("src.nodes.extract._shared.ftp_file.tempfile.tempdir", str(tmp_path))
     monkeypatch.setattr(
-        "src.nodes.extract.ftp_file.fsspec.filesystem",
+        "src.nodes.extract._shared.ftp_file.fsspec.filesystem",
         lambda protocol, **storage_options: _FakeFTPFS(fs_id="ftp-fs-1"),
     )
 
@@ -765,9 +765,9 @@ def test_load_excel_ftp_temp_file_is_removed_after_success(monkeypatch, tmp_path
     )
     ctx = _make_ftp_context("ftp://ftp.local:2121/reports/file.xlsx")
 
-    monkeypatch.setattr("src.nodes.extract.ftp_file.tempfile.tempdir", str(tmp_path))
+    monkeypatch.setattr("src.nodes.extract._shared.ftp_file.tempfile.tempdir", str(tmp_path))
     monkeypatch.setattr(
-        "src.nodes.extract.ftp_file.fsspec.filesystem",
+        "src.nodes.extract._shared.ftp_file.fsspec.filesystem",
         lambda protocol, **storage_options: _FakeFTPFS(fs_id="ftp-fs-1"),
     )
 
@@ -797,9 +797,9 @@ def test_load_excel_ftp_temp_file_is_removed_after_failure(monkeypatch, tmp_path
     )
     ctx = _make_ftp_context("ftp://ftp.local:2121/reports/file.xlsx")
 
-    monkeypatch.setattr("src.nodes.extract.ftp_file.tempfile.tempdir", str(tmp_path))
+    monkeypatch.setattr("src.nodes.extract._shared.ftp_file.tempfile.tempdir", str(tmp_path))
     monkeypatch.setattr(
-        "src.nodes.extract.ftp_file.fsspec.filesystem",
+        "src.nodes.extract._shared.ftp_file.fsspec.filesystem",
         lambda protocol, **storage_options: _FakeFTPFS(fs_id="ftp-fs-1"),
     )
 
@@ -847,9 +847,9 @@ def test_load_excel_read_timeout_raises_timeout_error(monkeypatch):
         def shutdown(self, wait, cancel_futures):
             self.shutdown_calls.append((wait, cancel_futures))
 
-    monkeypatch.setattr("src.nodes.extract.load_excel.ThreadPoolExecutor", _FakeExecutor)
+    monkeypatch.setattr("src.nodes.extract.load_excel.node.ThreadPoolExecutor", _FakeExecutor)
     monkeypatch.setattr(
-        "src.nodes.extract.load_excel.FuturesTimeoutError",
+        "src.nodes.extract.load_excel.node.FuturesTimeoutError",
         TimeoutError,
     )
 

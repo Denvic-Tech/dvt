@@ -27,6 +27,8 @@ from .routes import (
     websocket,
 )
 from .routes.installation import update
+from .routes.internal.ai_mcp.router import router as ai_mcp_internal_router
+from .routes.mcp_tokens import router as mcp_tokens_router
 
 router = APIRouter()
 
@@ -54,13 +56,8 @@ router.include_router(store.router)
 router.include_router(app_settings.router)
 router.include_router(setup.router)
 router.include_router(extensions.router)
-
-if app_config.AI_MCP.ENABLED:
-    from .routes.internal.ai_mcp.router import router as ai_mcp_internal_router
-    from .routes.mcp_tokens import router as mcp_tokens_router
-
-    router.include_router(mcp_tokens_router)
-    router.include_router(ai_mcp_internal_router)
+router.include_router(mcp_tokens_router)
+router.include_router(ai_mcp_internal_router)
 
 
 if app_config.COMMON.ENVIRONMENT == "dev":

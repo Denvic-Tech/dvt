@@ -15,6 +15,7 @@ from celery.signals import (
     worker_ready,
     worker_shutdown,
 )
+from celery.worker.control import control_command
 from kombu import Exchange, Queue
 from sqlmodel import Session, select
 
@@ -65,7 +66,7 @@ celery_app.conf.update(
     # Pipeline tasks can have external side effects.  A lost child must be
     # reconciled by PostgreSQL lifecycle state, never silently re-run by Celery.
     task_reject_on_worker_lost=False,
-    worker_pool="prefork",
+    worker_pool=config.TASK_WORKER.CELERY_WORKER_POOL,
     worker_concurrency=1,
     worker_disable_prefetch=True,
     worker_max_tasks_per_child=config.TASK_WORKER.CELERY_WORKER_MAX_TASKS_PER_CHILD,
@@ -102,6 +103,8 @@ _mp_log_queue: Any | None = None
 _mp_log_listener_thread: object | None = None
 _mp_log_stop_event: Any | None = None
 _CHILD_LOG_SINK_INIT_TIMEOUT_SEC = 3.0
+_EXTENSION_REFRESH_POLL_SEC = 0.1
+_extension_parent_refresh_in_progress = False
 
 
 def _is_prefork_pool() -> bool:
@@ -383,8 +386,10 @@ async def _read_extension_runtime_generation(
                 record.deps_status.value,
                 str(record.error_message or ""),
                 record.installed_at.isoformat() if record.installed_at is not None else "",
+                record.updated_at.isoformat() if record.updated_at is not None else "",
             )
             for record in records
+            if record.is_installed or record.install_path
         )
     )
 
@@ -426,19 +431,23 @@ async def _initialize_extension_runtime_before_pool() -> None:
 async def _ensure_extension_runtime_for_task_process_async(
     *,
     required_extension_names: set[str] | None = None,
-) -> None:
-    """Reload a persistent child only when the authoritative extension revision changes."""
+    install_dependencies: bool = True,
+) -> bool:
+    """Synchronize this process only when the authoritative extension generation changes."""
     global _extension_runtime_initialized, _extension_runtime_generation
 
     current_generation = await _read_extension_runtime_generation(
         required_extension_names=required_extension_names
     )
     if _extension_runtime_initialized and current_generation == _extension_runtime_generation:
-        return
+        return False
 
     # A READY status may have been produced by another homogeneous worker.
-    # Install locally as well before importing the shared-volume runtime.
-    await ensure_extension_deps_installed(raise_on_failure=True)
+    # A task child owns the local dependency execution barrier before importing
+    # the shared-volume runtime. Parent refreshes are requested only after a child
+    # has already crossed that barrier, so they can skip pip work safely.
+    if install_dependencies:
+        await ensure_extension_deps_installed(raise_on_failure=True)
     async with AsyncSessionLocal() as session:
         manager = await get_extension_manager(session=session)
         try:
@@ -452,16 +461,130 @@ async def _ensure_extension_runtime_for_task_process_async(
         required_extension_names=required_extension_names
     )
     _extension_runtime_initialized = True
+    return True
+
+
+def request_parent_extension_runtime_refresh() -> None:
+    """Ask prefork MainProcesses to refresh their warm node template best-effort."""
+    if not _is_prefork_pool() or _is_main_process():
+        return
+    try:
+        celery_app.control.broadcast("dvt_refresh_extension_runtime", reply=False)
+    except Exception as exc:
+        # The current child has already reloaded its own runtime, so failure to
+        # refresh the warm parent must not invalidate the task being executed.
+        logger.warning(f"Failed to request parent extension runtime refresh: {exc}")
 
 
 def ensure_extension_runtime_for_task_process(
     required_extension_names: set[str] | None = None,
 ) -> None:
-    get_async_runner().run(
+    changed = get_async_runner().run(
         _ensure_extension_runtime_for_task_process_async(
             required_extension_names=required_extension_names
         )
     )
+    if changed:
+        request_parent_extension_runtime_refresh()
+
+
+def _resume_extension_refresh_queues(consumer) -> None:
+    consumer.add_task_queue(config.CELERY.CELERY_TASKS_QUEUE)
+    consumer.add_task_queue(config.CELERY.CELERY_DEPS_QUEUE)
+
+
+def _finish_extension_parent_refresh(consumer) -> None:
+    global _extension_parent_refresh_in_progress
+
+    pool = consumer.pool
+    raw_pool = getattr(pool, "_pool", None)
+    if raw_pool is None:
+        _resume_extension_refresh_queues(consumer)
+        _extension_parent_refresh_in_progress = False
+        return
+
+    # Billiard removes the completed request from _cache only after the task
+    # result/ack path is settled in MainProcess. Do not shrink or import before
+    # that point, otherwise a generation refresh could race task finalization.
+    if getattr(raw_pool, "_cache", None):
+        consumer.timer.call_after(
+            _EXTENSION_REFRESH_POLL_SEC,
+            _finish_extension_parent_refresh,
+            (consumer,),
+        )
+        return
+
+    if getattr(raw_pool, "_processes", 0) > 0:
+        try:
+            pool.shrink(1)
+            consumer._update_prefetch_count(-1)
+        except ValueError:
+            consumer.timer.call_after(
+                _EXTENSION_REFRESH_POLL_SEC,
+                _finish_extension_parent_refresh,
+                (consumer,),
+            )
+            return
+        consumer.timer.call_after(
+            _EXTENSION_REFRESH_POLL_SEC,
+            _finish_extension_parent_refresh,
+            (consumer,),
+        )
+        return
+
+    if any(process.is_alive() for process in getattr(raw_pool, "_pool", ())):
+        consumer.timer.call_after(
+            _EXTENSION_REFRESH_POLL_SEC,
+            _finish_extension_parent_refresh,
+            (consumer,),
+        )
+        return
+
+    try:
+        changed = get_async_runner().run(
+            _ensure_extension_runtime_for_task_process_async(
+                install_dependencies=False,
+            )
+        )
+        if changed:
+            logger.info("Task worker warm extension runtime refreshed")
+    except Exception:
+        logger.exception("Failed to refresh Task Worker warm extension runtime")
+    finally:
+        try:
+            pool.grow(1)
+            consumer._update_prefetch_count(1)
+        finally:
+            _resume_extension_refresh_queues(consumer)
+            _extension_parent_refresh_in_progress = False
+
+
+@control_command(name="dvt_refresh_extension_runtime")
+def _refresh_extension_runtime_control(state, **_kwargs):
+    """Drain the prefork pool, refresh the warm parent, then resume one execution slot."""
+    global _extension_parent_refresh_in_progress
+
+    if not _is_prefork_pool() or not _is_main_process():
+        return {"ok": "extension runtime refresh is not required for this pool"}
+    if _extension_parent_refresh_in_progress:
+        return {"ok": "extension runtime refresh is already scheduled"}
+
+    consumer = state.consumer
+    _extension_parent_refresh_in_progress = True
+    try:
+        consumer.cancel_task_queue(config.CELERY.CELERY_TASKS_QUEUE)
+        consumer.cancel_task_queue(config.CELERY.CELERY_DEPS_QUEUE)
+        consumer.timer.call_after(
+            _EXTENSION_REFRESH_POLL_SEC,
+            _finish_extension_parent_refresh,
+            (consumer,),
+        )
+    except Exception:
+        _extension_parent_refresh_in_progress = False
+        _resume_extension_refresh_queues(consumer)
+        raise
+
+    return {"ok": "extension runtime refresh scheduled after current task drain"}
 
 
 async def _startup() -> None:

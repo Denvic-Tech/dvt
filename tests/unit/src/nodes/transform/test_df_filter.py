@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from src.node_dsl import IO
 from src.node_dsl.variables import VariableOutput
-from src.nodes.transform import DataFrameFilter
+from src.nodes.transform.df_filter import DataFrameFilter
 from src.types import EMPTY_STRING_VALUE, NULL_VALUE
 
 
