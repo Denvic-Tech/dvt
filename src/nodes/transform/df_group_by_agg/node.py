@@ -18,6 +18,13 @@ class DataFrameGroupByAgg(DFOutputBaseNode):
 
     df: dd.DataFrame = InputField()
     group_by_columns: List[IO.COLUMN_NAME] = InputField(default=[])
+    dropna: bool = InputField(
+        default=False,
+        description=(
+            "Exclude rows with null values in grouping keys when enabled. "
+            "By default null-key groups are preserved."
+        ),
+    )
 
     new_cols: Optional[List[str]] = InputField(
         description="List of new column names for the aggregated results."
@@ -172,7 +179,10 @@ class DataFrameGroupByAgg(DFOutputBaseNode):
             try:
                 # Простая группировка - возвращаем уникальные группы
                 df = self._reset_index_safely(self.df)
-                result = df[self.group_by_columns].drop_duplicates()
+                grouped_columns = df[self.group_by_columns]
+                if self.dropna:
+                    grouped_columns = grouped_columns.dropna(subset=self.group_by_columns)
+                result = grouped_columns.drop_duplicates()
                 self.output = result
                 logger.info(f"Successfully completed GroupBy (without aggregation).")
                 return
@@ -184,7 +194,7 @@ class DataFrameGroupByAgg(DFOutputBaseNode):
         logger.info(f"Grouping by {self.group_by_columns} and named-aggregating")
         try:
             df = self._reset_index_safely(self.df)
-            gb = df.groupby(self.group_by_columns, sort=False, dropna=False)
+            gb = df.groupby(self.group_by_columns, sort=False, dropna=self.dropna)
 
             parts = []
             for new_col, source_col, agg_func in zip(self.new_cols, self.source_cols, self.agg_funcs):
