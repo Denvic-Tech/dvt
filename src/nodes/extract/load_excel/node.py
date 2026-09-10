@@ -76,6 +76,13 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
     output: dd.DataFrame = OutputField()
 
     _SAMPLE_ROWS: int = 32
+    _SUPPORTED_DTYPES: tuple[str, ...] = ("string", "Float64", "Int64", "boolean")
+    _BOOLEAN_TRUE_TOKENS: frozenset[str] = frozenset(
+        {"true", "1", "yes", "y", "t", "да", "истина"}
+    )
+    _BOOLEAN_FALSE_TOKENS: frozenset[str] = frozenset(
+        {"false", "0", "no", "n", "f", "нет", "ложь"}
+    )
     _EXCEL_ERROR_VALUES: tuple[str, ...] = (
         "#NULL!",
         "#DIV/0!",
@@ -125,11 +132,17 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
             return self.usecols_range
         return None
 
-    def _read_excel_kwargs(self, *, nrows: int | None = None) -> dict[str, Any]:
+    def _read_excel_kwargs(
+        self, *, nrows: int | None = None, ignore_usecols: bool = False
+    ) -> dict[str, Any]:
         self._validate_numeric_separators()
+        self._validate_dtypes()
+        # Явные dtypes намеренно НЕ передаются в pandas.read_excel: приведение типов
+        # выполняется вручную в _normalize_dataframe_dtypes с правилом
+        # "значение не подходит под тип -> NA", чтобы одна плохая ячейка не роняла чтение.
         kwargs: dict[str, Any] = {
             "sheet_name": self._parse_sheet(),
-            "usecols": self._resolve_usecols(),
+            "usecols": None if ignore_usecols else self._resolve_usecols(),
             "index_col": None,
             "header": self.header_row,
             "engine": "openpyxl",
@@ -140,18 +153,20 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
         }
         if self.thousands is not None:
             kwargs["thousands"] = self.thousands
-        if self.dtypes:
-            for column_name, dtype_name in self.dtypes.items():
-                try:
-                    pandas_dtype(dtype_name)
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(
-                        f"Unsupported dtype '{dtype_name}' for Excel column '{column_name}'"
-                    ) from exc
-            kwargs["dtype"] = dict(self.dtypes)
         if nrows is not None:
             kwargs["nrows"] = nrows
         return kwargs
+
+    def _validate_dtypes(self) -> None:
+        if not self.dtypes:
+            return
+        for column_name, dtype_name in self.dtypes.items():
+            try:
+                pandas_dtype(dtype_name)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Unsupported dtype '{dtype_name}' for Excel column '{column_name}'"
+                ) from exc
 
     def _validate_numeric_separators(self) -> None:
         if not isinstance(self.decimal, str) or len(self.decimal) != 1:
@@ -181,8 +196,68 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
             and not is_bool_dtype(dtype)
         }
         if float_columns:
-            return df.astype(float_columns)
+            df = df.astype(float_columns)
+
+        # Явные типы столбцов: приводим каждое значение к целевому типу,
+        # всё что не подходит под тип -> NA/null.
+        for column_name, dtype_name in (self.dtypes or {}).items():
+            if column_name not in df.columns:
+                continue
+            df[column_name] = self._coerce_series_to_dtype(df[column_name], dtype_name)
+
         return df
+
+    def _to_numeric_series(self, series: pd.Series) -> pd.Series:
+        """Приводит серию к числам; нечисловые значения становятся NaN."""
+        if is_numeric_dtype(series) and not is_bool_dtype(series):
+            return pd.to_numeric(series, errors="coerce")
+
+        text = series.astype("string")
+        if self.thousands:
+            text = text.str.replace(self.thousands, "", regex=False)
+        if self.decimal and self.decimal != ".":
+            text = text.str.replace(self.decimal, ".", regex=False)
+        return pd.to_numeric(text, errors="coerce")
+
+    def _to_boolean_series(self, series: pd.Series) -> pd.Series:
+        """Приводит серию к nullable boolean; неоднозначные значения -> NA."""
+
+        def _convert(value: Any) -> Any:
+            if pd.isna(value):
+                return pd.NA
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                if value == 1:
+                    return True
+                if value == 0:
+                    return False
+                return pd.NA
+            token = str(value).strip().lower()
+            if token in self._BOOLEAN_TRUE_TOKENS:
+                return True
+            if token in self._BOOLEAN_FALSE_TOKENS:
+                return False
+            return pd.NA
+
+        return series.map(_convert).astype("boolean")
+
+    def _coerce_series_to_dtype(self, series: pd.Series, dtype_name: str) -> pd.Series:
+        """Безопасное приведение серии к dtype: несовпадающие значения -> NA."""
+        if dtype_name == "string":
+            return series.astype("string")
+        if dtype_name in {"Float64", "Float32", "Float16"}:
+            return self._to_numeric_series(series).astype(dtype_name)
+        if dtype_name in {"Int64", "Int32", "Int16", "Int8"}:
+            numeric = self._to_numeric_series(series).astype("float64")
+            # Дробные значения не подходят под целочисленный тип -> NA.
+            whole = numeric.notna() & (numeric == numeric.round())
+            return numeric.where(whole).astype(dtype_name)
+        if dtype_name == "boolean":
+            return self._to_boolean_series(series)
+        if "datetime64" in dtype_name:
+            return pd.to_datetime(series, errors="coerce")
+        return series.astype(pandas_dtype(dtype_name))
 
     def _run_with_timeout(
         self,
@@ -223,8 +298,9 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
         *,
         mode: str,
         nrows: int | None = None,
+        ignore_usecols: bool = False,
     ) -> pd.DataFrame:
-        kwargs = self._read_excel_kwargs(nrows=nrows)
+        kwargs = self._read_excel_kwargs(nrows=nrows, ignore_usecols=ignore_usecols)
 
         def _read_sync() -> pd.DataFrame:
             read_start = time.perf_counter()
@@ -295,12 +371,14 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
         first_file: str,
         *,
         mode: str,
+        ignore_usecols: bool = False,
     ) -> pd.DataFrame:
         return self._read_excel_via_fs(
             ctx,
             first_file,
             mode=mode,
             nrows=self._SAMPLE_ROWS,
+            ignore_usecols=ignore_usecols,
         )
 
     @staticmethod
@@ -415,8 +493,12 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
         logger.debug(f"[infer_metadata] using first file: {first_file}")
 
         try:
+            # Читаем полную шапку файла (игнорируя usecols), чтобы UI-селект
+            # видел ВСЕ колонки файла, а не только уже выбранные.
             with runtime.operation("reading Excel metadata sample", path=first_file):
-                sample = self._read_sample(ctx, first_file, mode="metadata")
+                sample = self._read_sample(
+                    ctx, first_file, mode="metadata", ignore_usecols=True
+                )
         except Exception as exc:
             logger.error(f"[infer_metadata] Failed to read sample from '{first_file}': {exc}")
             raise
