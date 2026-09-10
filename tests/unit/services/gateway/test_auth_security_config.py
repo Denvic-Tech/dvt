@@ -1,6 +1,7 @@
 import pytest
 
 import config
+from core.security import derive_legacy_auth_secret
 
 
 def _set_valid_auth_secrets(monkeypatch) -> None:
@@ -35,6 +36,26 @@ def test_security_validation_rejects_reused_auth_secrets_in_prod(monkeypatch) ->
 
     with pytest.raises(RuntimeError, match="must be unique"):
         config.SECURITY.validate()
+
+
+def test_missing_prod_auth_secret_is_derived_from_existing_fernet_key(monkeypatch) -> None:
+    fernet_key = "Y8RFpaIxSaAFNsB352tpLXl5znUw5anEKIZgclOezak="
+    monkeypatch.setattr(config.COMMON, "ENVIRONMENT", "prod")
+    monkeypatch.setenv("FERNET_KEY", fernet_key)
+    monkeypatch.delenv("JWT_ACCESS_TOKEN_SECRET_KEY", raising=False)
+
+    assert config._get_security_secret("JWT_ACCESS_TOKEN_SECRET_KEY", "dev-default") == (
+        derive_legacy_auth_secret(fernet_key, "JWT_ACCESS_TOKEN_SECRET_KEY")
+    )
+
+
+def test_explicit_prod_auth_secret_wins_over_fernet_compatibility_fallback(monkeypatch) -> None:
+    explicit = "explicit-secret-" + "x" * 32
+    monkeypatch.setattr(config.COMMON, "ENVIRONMENT", "prod")
+    monkeypatch.setenv("FERNET_KEY", "Y8RFpaIxSaAFNsB352tpLXl5znUw5anEKIZgclOezak=")
+    monkeypatch.setenv("JWT_ACCESS_TOKEN_SECRET_KEY", explicit)
+
+    assert config._get_security_secret("JWT_ACCESS_TOKEN_SECRET_KEY", "dev-default") == explicit
 
 
 def test_security_validation_allows_dev_only_defaults(monkeypatch) -> None:
