@@ -3533,3 +3533,6 @@
 
 ### 2026-09-09 21:52:10
 - Gateway lifespan переведен на общий AsyncSessionLocal с expire_on_commit=False; добавлен regression-тест, предотвращающий возврат прямых AsyncSession и MissingGreenlet при синхронизации расширений.
+
+### 2026-09-10 18:29:00
+- dvt_extension_api оформлен как отдельный editable-installable пакет dvt-extension-api для разработки расширений; добавлены packaging-тесты и инструкция по локальной установке.
