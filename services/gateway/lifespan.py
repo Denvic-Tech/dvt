@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import grpc
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from ws_forward.v1 import forward_pb2_grpc
 
@@ -20,6 +19,7 @@ from services.gateway.update_runtime import get_system_state_monitor
 
 from src.clients.denvic_extensions_distributor import DenvicExtensionsDistributor
 from src.db import async_engine, engine
+from src.db.session import AsyncSessionLocal
 from src.logger import DB_SINK, DB_SINK_HANDLER_ID, logger
 from src.managers.extension_manager import ExtensionManager
 
@@ -52,7 +52,7 @@ async def lifespan(_app: FastAPI):
     with Session(engine) as session:
         wait_for_db(session)
 
-    async with AsyncSession(async_engine) as session:
+    async with AsyncSessionLocal() as session:
         await app_settings_helpers.ensure_setting_value(
             "dcc.connector_id",
             lambda: str(uuid4()),
@@ -66,7 +66,7 @@ async def lifespan(_app: FastAPI):
     await ensure_extension_deps_installed()
     distributor_client = DenvicExtensionsDistributor(config.EXTENSIONS.DISTRIBUTOR_URL)
     try:
-        async with AsyncSession(async_engine) as session:
+        async with AsyncSessionLocal() as session:
             extension_manager = ExtensionManager(
                 session, distributor_client, gateway_runtime=True
             )

@@ -3527,3 +3527,6 @@
 
 ### 2026-09-08 13:22:30
 - Исправлено имя русского README на docs/README.ru.md и обновлена ссылка на него в корневом README.
+
+### 2026-09-09 21:52:10
+- Gateway lifespan переведен на общий AsyncSessionLocal с expire_on_commit=False; добавлен regression-тест, предотвращающий возврат прямых AsyncSession и MissingGreenlet при синхронизации расширений.
