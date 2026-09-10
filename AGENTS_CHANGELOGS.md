@@ -3528,5 +3528,8 @@
 ### 2026-09-08 13:22:30
 - Исправлено имя русского README на docs/README.ru.md и обновлена ссылка на него в корневом README.
 
+### 2026-09-09 17:04:14
+- Исправлен запуск integration tests с release candidate образами: явно переданный DOCKER_CONFIG теперь сохраняется для docker pull, локальный каталог используется только как fallback; добавлены unit-тесты поведения Docker config.
+
 ### 2026-09-09 21:52:10
 - Gateway lifespan переведен на общий AsyncSessionLocal с expire_on_commit=False; добавлен regression-тест, предотвращающий возврат прямых AsyncSession и MissingGreenlet при синхронизации расширений.

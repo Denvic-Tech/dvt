@@ -17,12 +17,12 @@ def _gateway_environment(path: str) -> dict[str, str]:
     return content["services"]["gateway"]["environment"]
 
 
-def test_published_compose_requires_unique_gateway_auth_secrets() -> None:
+def test_published_compose_allows_legacy_env_without_gateway_auth_secrets() -> None:
     environment = _gateway_environment("docker-compose.yaml")
 
     assert environment["ENVIRONMENT"] == "prod"
     for process_name, deployment_name in AUTH_ENV_MAPPING.items():
-        assert environment[process_name].startswith(f"${{{deployment_name}:?")
+        assert environment[process_name] == f"${{{deployment_name}:-}}"
 
 
 def test_dev_and_prod_override_forward_gateway_auth_secrets() -> None:

@@ -37,8 +37,16 @@ _RELEASE_TEST_SERVICES = (
     "gateway",
 )
 
+
+def resolve_docker_config_dir(environment: dict[str, str]) -> Path:
+    configured_dir = environment.get("DOCKER_CONFIG", "").strip()
+    if configured_dir:
+        return Path(configured_dir)
+    return Path(PROJECT_DIR) / "tmp" / "docker-config"
+
+
 env = os.environ.copy()
-docker_config_dir = Path(PROJECT_DIR) / "tmp" / "docker-config"
+docker_config_dir = resolve_docker_config_dir(env)
 docker_config_dir.mkdir(parents=True, exist_ok=True)
 env.update(
     {

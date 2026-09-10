@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from core.security import derive_legacy_auth_secret
+
 _TRUE_STATEMENT_TOKENS = ("true", "yes", "1", "on")
 
 
@@ -21,7 +23,13 @@ def _get_security_secret(name: str, dev_default: str) -> str:
     value = os.getenv(name, "").strip()
     if value:
         return value
-    return dev_default if COMMON.ENVIRONMENT == "dev" else ""
+    if COMMON.ENVIRONMENT == "dev":
+        return dev_default
+
+    legacy_master_secret = os.getenv("FERNET_KEY", "").strip()
+    if legacy_master_secret:
+        return derive_legacy_auth_secret(legacy_master_secret, name)
+    return ""
 
 
 class PROJECT:
