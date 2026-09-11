@@ -3536,3 +3536,12 @@
 
 ### 2026-09-10 18:29:00
 - dvt_extension_api оформлен как отдельный editable-installable пакет dvt-extension-api для разработки расширений; добавлены packaging-тесты и инструкция по локальной установке.
+
+### 2026-09-10 23:12:53
+- Добавлена офлайн-установка расширений из .dvtx/.zip: безопасный staging и rollback, preview/install Gateway API, локальный wheelhouse для Gateway и Task Worker, builder self-contained .dvtx под Linux x86_64/CPython 3.13 и тесты.
+
+### 2026-09-11 12:56:45
+- Extensions переработаны в DDD-lite bounded context src/modules/extension_management с разделением domain/flow/infra, application provider/use cases, canonical runtime/persistence/package infrastructure и legacy compatibility shims. Обновлены Gateway и Task Worker wiring, lifecycle ownership distributor client, domain manifest/policies и тестовая структура; DDD audit и Ruff проходят, полный unit suite зеленый, integration suite имеет только известные инфраструктурные MinIO/FTP failures.
+
+### 2026-09-11 14:16:47
+- Исправлен builder пакетов расширений: npm кроссплатформенно разрешается через PATH, frontend-зависимости детерминированно устанавливаются через npm ci при наличии package-lock.json (или npm install без lock-файла), а --output без суффикса .dvtx трактуется как директория с автоматически сформированным именем пакета. Добавлены regression-тесты; реальная сборка Bitrix24 Connector 0.10.0 на Windows успешно создает self-contained .dvtx с frontend и wheelhouse.

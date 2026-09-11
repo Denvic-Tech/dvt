@@ -3,8 +3,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from src.extensions import get_all_extensions
-from src.managers.extension_state_manager import ExtensionStateManager
+from src.modules.extension_management.infra.runtime.registry import get_all as get_all_extensions
+from src.modules.extension_management.infra.state_manager import ExtensionStateManager
 
 from .base import BaseNodeMixin
 
@@ -68,7 +68,7 @@ class ExtensionNodeMixin(BaseNodeMixin):
         if not module_name.startswith("dvt_extensions."):
             return None
 
-        from src.extensions.loader import extension_module_prefix
+        from src.modules.extension_management.infra.runtime.loader import extension_module_prefix
 
         extensions = get_all_extensions()
         for extension_name in extensions:

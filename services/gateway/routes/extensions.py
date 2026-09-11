@@ -1,18 +1,19 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.params import Query
 from fastapi.responses import FileResponse
 
 from services.gateway.deps.extensions import get_extension_manager
 
-from src.managers.extension_manager import ExtensionManager
-from src.managers.extension_state_manager import ExtensionStateManager
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.domain.entities import Extension
+from src.modules.extension_management.flow.providers import ExtensionManagementProvider
+from src.modules.extension_management.infra.state_manager import ExtensionStateManager
 from src.modules.user.infra.fastapi.dependencies import UserAccessOnly, UserSuperadminAccessOnly
 from src.schemas.http.common import CommonResponse
 from src.schemas.http.extension import (
     ExtensionFrontendReadSchema,
+    ExtensionPackagePreviewSchema,
     ExtensionReadSchema,
     ExtensionStateReadSchema,
     ExtensionStateUpdateSchema,
@@ -21,15 +22,31 @@ from src.schemas.http.extension import (
 
 r = router = APIRouter(prefix="/extensions", tags=["Extensions"])
 
-ExtensionManagerDep = Annotated[ExtensionManager, Depends(get_extension_manager)]
+ExtensionManagerDep = Annotated[ExtensionManagementProvider, Depends(get_extension_manager)]
 
 
-def _to_extension_read(item: ExtensionRecord) -> ExtensionReadSchema:
-    """Конвертирует ORM модель расширения в нормализованную схему ответа API."""
-    payload = item.model_dump()
-    payload["manifest_json"] = payload.get("manifest_json") or {}
-    payload["state_json"] = payload.get("state_json") or {}
-    return ExtensionReadSchema(**payload)
+def _to_extension_read(item: Extension) -> ExtensionReadSchema:
+    """Конвертирует domain extension в нормализованную схему ответа API."""
+    return ExtensionReadSchema(
+        id=item.id,
+        name=item.name,
+        display_name=item.display_name,
+        description=item.description,
+        repository_url=item.repository_url,
+        is_enabled=item.is_enabled,
+        is_installed=item.is_installed,
+        deps_status=item.deps_status.value,
+        current_version=item.current_version,
+        last_version=item.last_version,
+        install_path=item.install_path,
+        manifest_json=item.manifest_json or {},
+        state_json=item.state_json or {},
+        available_versions=item.available_versions,
+        error_message=item.error_message,
+        installed_at=item.installed_at,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
 
 
 @router.post("/sync", response_model=list[ExtensionReadSchema])
@@ -50,6 +67,41 @@ async def list_extensions(
     """Возвращает все записи о расширениях, известные системе."""
     items = await extension_manager.list_extensions()
     return [_to_extension_read(item=item) for item in items]
+
+
+@router.post("/packages/preview", response_model=ExtensionPackagePreviewSchema)
+async def preview_extension_package(
+    user: UserSuperadminAccessOnly,  # noqa: ARG001
+    extension_manager: ExtensionManagerDep,
+    file: Annotated[UploadFile, File(...)],
+) -> ExtensionPackagePreviewSchema:
+    """Загружает и валидирует локальный .dvtx/.zip без изменения runtime."""
+    try:
+        return await extension_manager.preview_uploaded_package(file.file, file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/packages/{package_id}/install", response_model=ExtensionReadSchema)
+async def install_extension_package(
+    package_id: str,
+    user: UserSuperadminAccessOnly,  # noqa: ARG001
+    extension_manager: ExtensionManagerDep,
+    allow_downgrade: Annotated[bool, Query()] = False,
+    allow_reinstall: Annotated[bool, Query()] = False,
+) -> ExtensionReadSchema:
+    """Устанавливает ранее загруженный package полностью из локального artifact."""
+    try:
+        extension = await extension_manager.install_uploaded_package(
+            package_id,
+            allow_downgrade=allow_downgrade,
+            allow_reinstall=allow_reinstall,
+        )
+        return _to_extension_read(item=extension)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/{extension_name}/frontend", response_model=ExtensionFrontendReadSchema)
@@ -105,12 +157,13 @@ async def uninstall_extension(
     extension_name: str,
     user: UserSuperadminAccessOnly,  # noqa: ARG001
     extension_manager: ExtensionManagerDep,
-    data: ExtensionUninstallSchema = ExtensionUninstallSchema(),
+    data: ExtensionUninstallSchema | None = None,
 ) -> ExtensionReadSchema:
     """Удаляет файлы установленного расширения, сохраняя запись в БД."""
+    uninstall_data = data or ExtensionUninstallSchema()
     try:
         extension = await extension_manager.uninstall_extension(
-            extension_name, drop_extension_data=data.drop_extension_data
+            extension_name, drop_extension_data=uninstall_data.drop_extension_data
         )
         return _to_extension_read(item=extension)
     except RuntimeError as exc:

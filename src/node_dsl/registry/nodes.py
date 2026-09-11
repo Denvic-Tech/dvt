@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 
 from src.db import engine
 from src.exceptions import NodeNotFoundError
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 
 from ._bootstrap import ensure_bootstrapped, registry_transaction, reset_bootstrap_state
 

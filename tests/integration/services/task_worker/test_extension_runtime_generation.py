@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import Session, select
 
 from services.task_worker import celery_app as worker_runtime
+
 from src.enums import ExtensionDepsStatus
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 
 pytestmark = pytest.mark.docker_required
 
@@ -53,6 +54,9 @@ async def test_process_runtime_reloads_registry_only_when_extension_generation_c
                     )
                 ).scalars().one()
             visible_nodes[name] = str(current.current_version)
+
+        async def close(self) -> None:
+            return None
 
     async def _manager(*, session):
         assert session is not None

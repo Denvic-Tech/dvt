@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from src.managers.extension_state_manager import ExtensionStateManager
+from src.modules.extension_management.infra.state_manager import ExtensionStateManager
 
 
 def get_extension_state(extension_name: str, key: str = "default") -> dict[str, Any]:

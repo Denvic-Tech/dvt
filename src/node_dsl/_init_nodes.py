@@ -7,9 +7,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from src.extensions import get_all_extensions
-from src.extensions.registry import RegisteredExtension
 from src.logger import logger
+from src.modules.extension_management.infra.runtime.registry import (
+    RegisteredExtension,
+    get_all as get_all_extensions,
+)
 from src.node_dsl.base_node.base import BaseNode
 from src.node_dsl.discovery import (
     NodePackageDescriptor,

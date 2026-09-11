@@ -5,7 +5,7 @@ import inspect
 from pathlib import Path
 from types import ModuleType
 
-from src.extensions.registry import RegisteredExtension
+from src.modules.extension_management.infra.runtime.registry import RegisteredExtension
 from src.node_dsl.base_node.base import BaseNode
 
 from .manifests import load_node_package_manifest

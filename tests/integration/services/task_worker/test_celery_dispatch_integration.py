@@ -25,7 +25,7 @@ from sqlmodel import Session, SQLModel, select
 
 from src.enums import DVTDefaultRoles, ExtensionDepsStatus
 from src.models import OrganizationRecord
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.project.infra.db_models import ProjectRecord
 from src.modules.task_execution.domain.types import TaskExecutionStatus
 from src.modules.task_execution.flow.use_cases import FinalizeReconciledExecutionUseCase

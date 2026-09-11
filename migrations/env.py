@@ -16,7 +16,6 @@ from migrations.revision_ids import next_sequential_revision_id
 from src.models import (
     AIAnalysisRequestRecord,  # noqa: F403
     LogRecord,  # noqa: F403
-    ExtensionRecord,  # noqa: F403
     OrganizationRecord,  # noqa: F403
     QueueTopicRecord,  # noqa: F403
     UsersTokenRecord,  # noqa: F403
@@ -38,6 +37,7 @@ from src.modules.project.infra.db_models import (
     ProjectScheduleRecord,  # noqa: F403
     ProjectScheduleRunRecord  # noqa: F403
 )
+from src.modules.extension_management.infra.db_models import ExtensionRecord  # noqa: F403
 
 
 def process_revision_directives(

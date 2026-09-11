@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.models import (
     AIAnalysisRequestRecord,  # noqa: F403
-    ExtensionRecord,  # noqa: F403
     LogRecord,  # noqa: F403
     OrganizationRecord,  # noqa: F403
     QueueTopicRecord,  # noqa: F403
@@ -27,6 +26,7 @@ from src.modules.app_settings.infra.db_models import (  # noqa: F403
     AppSettingValueRecord,
 )
 from src.modules.db_connection.infra.db_models import DVTStoredConnectionRecord  # noqa: F403
+from src.modules.extension_management.infra.db_models import ExtensionRecord  # noqa: F403
 from src.modules.file_storage.infra.db_models import DVTServiceFileObjectRecord  # noqa: F403
 from src.modules.pipeline_graph.infra.db_models import (  # noqa: F403
     GraphEdgeRecord,

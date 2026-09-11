@@ -38,7 +38,7 @@ from src.logger import (
 )
 from src.logger._multiprocessing.mp_child_sink import add_mp_queue_sink_child
 from src.logger._multiprocessing.mp_parent_listener import start_mp_log_listener
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.task_execution.domain.types import TaskTerminationReason
 from src.runtime.async_runtime import shared_ws_forward
 from src.utils.extensions import ensure_extension_deps_installed
@@ -416,9 +416,7 @@ async def _initialize_extension_runtime_before_pool() -> None:
             try:
                 await manager.sync_installed_extensions()
             finally:
-                distributor_client = getattr(manager, "distributor_client", None)
-                if distributor_client is not None:
-                    await distributor_client.aclose()
+                await manager.close()
         _extension_runtime_generation = await _read_extension_runtime_generation()
         _extension_runtime_initialized = True
         logger.debug("Task worker startup: extension runtime initialized before pool init")
@@ -453,9 +451,7 @@ async def _ensure_extension_runtime_for_task_process_async(
         try:
             await manager.sync_installed_extensions()
         finally:
-            distributor_client = getattr(manager, "distributor_client", None)
-            if distributor_client is not None:
-                await distributor_client.aclose()
+            await manager.close()
 
     _extension_runtime_generation = await _read_extension_runtime_generation(
         required_extension_names=required_extension_names

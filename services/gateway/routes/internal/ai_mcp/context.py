@@ -7,7 +7,7 @@ import sqlalchemy as sa
 from services.gateway.deps import get_node_documentation_repository
 
 from src.enums import ExtensionDepsStatus
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.node_documentation.domain.exceptions import (
     NodeDocumentationNotFound,
     UnknownNode,

@@ -4,9 +4,9 @@ import os
 from sqlmodel import select
 
 from src.db import AsyncSessionLocal
-from src.extensions.errors import stage_error
 from src.logger import logger
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.errors import stage_error
 from src.node_dsl.registry import definitions as definitions_registry
 from src.pipeline.types import Pipeline
 
@@ -59,8 +59,10 @@ async def ensure_extension_deps_installed(*, raise_on_failure: bool = False) -> 
     ``raise_on_failure`` используется execution barrier Task Worker: в этом режиме
     локальная установка обязана завершиться успешно до reload node registry.
     """
-    from src.managers.extension_db_manager import ExtensionDBManager
-    from src.managers.extension_dependency_manager import ExtensionDependencyManager
+    from src.modules.extension_management.infra.dependency_manager import (
+        ExtensionDependencyManager,
+    )
+    from src.modules.extension_management.infra.repositories.db import ExtensionDBManager
 
     async def persist_dependency_error(
         extension_name: str,
