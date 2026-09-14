@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
+import tempfile
+import tomllib
 from pathlib import Path
-
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 _TEST_COMPOSE_FILES = (
@@ -102,30 +104,98 @@ def parse_test_script_args(argv: list[str] | None = None) -> tuple[str | None, l
     return args.test_path, pytest_args, args.extension
 
 
+_EXTENSION_IDENTITY_SEPARATOR_RE = re.compile(r"[-_.\s]+")
+
+
+def create_isolated_extensions_dir(*, project_dir: Path, tests_type: str) -> Path:
+    """Create a per-run host directory used as the tester's /app/extensions bind mount."""
+    root = project_dir / "tmp" / "test-extensions"
+    root.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f"{tests_type}-", dir=root))
+
+
+def _normalize_extension_test_identity(value: str) -> str:
+    return _EXTENSION_IDENTITY_SEPARATOR_RE.sub("-", value.strip().lower()).strip("-")
+
+
+def _extension_test_names(entry: Path) -> tuple[set[str], set[str]]:
+    """Return canonical identities and broader lookup aliases for an extension test tree."""
+    identities = {entry.name}
+    aliases = {entry.name}
+    pyproject_path = entry / "pyproject.toml"
+    if pyproject_path.is_file():
+        try:
+            payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            payload = {}
+        project = payload.get("project")
+        if isinstance(project, dict) and isinstance(project.get("name"), str):
+            identities.add(project["name"])
+            aliases.add(project["name"])
+        tool = payload.get("tool")
+        dvt_extension = tool.get("dvt_extension") if isinstance(tool, dict) else None
+        if isinstance(dvt_extension, dict):
+            name = dvt_extension.get("name")
+            if isinstance(name, str) and name.strip():
+                identities.add(name)
+                aliases.add(name)
+            display_name = dvt_extension.get("display_name")
+            if isinstance(display_name, str) and display_name.strip():
+                aliases.add(display_name)
+
+    def normalize(values: set[str]) -> set[str]:
+        return {
+            normalized
+            for value in values
+            if (normalized := _normalize_extension_test_identity(value))
+        }
+
+    return normalize(identities), normalize(aliases)
+
+
+def _resolve_extensions_root(
+    *,
+    project_dir: Path,
+    extensions_data_dir: str | None,
+) -> Path:
+    if extensions_data_dir is None:
+        return Path(os.getenv("EXTENSIONS_VOLUME_PATH", project_dir / "extensions")).resolve()
+    path = Path(extensions_data_dir)
+    return path.resolve() if path.is_absolute() else (project_dir / path).resolve()
+
+
 def collect_extension_test_dirs(
     *,
     project_dir: Path,
     tests_type: str,
     extensions_data_dir: str | None = None,
 ) -> list[str]:
-    """Собирает пути к тестам расширений (например 'extensions/Name/tests/unit')."""
-    if extensions_data_dir is None:
-        extensions_root = Path(
-            os.getenv("EXTENSIONS_VOLUME_PATH", project_dir / 'extensions')
-        ).resolve()
-    else:
-        extensions_root = (project_dir / extensions_data_dir).resolve()
-
+    """Collect extension test paths and fail fast when the same extension is present twice."""
+    extensions_root = _resolve_extensions_root(
+        project_dir=project_dir,
+        extensions_data_dir=extensions_data_dir,
+    )
     if not extensions_root.is_dir():
         return []
 
     result: list[str] = []
+    identities: dict[str, Path] = {}
     for entry in sorted(extensions_root.iterdir()):
         if not entry.is_dir():
             continue
         candidate = entry / "tests" / tests_type
         if not candidate.is_dir():
             continue
+        entry_identities, _ = _extension_test_names(entry)
+        for identity in entry_identities:
+            previous = identities.get(identity)
+            if previous is not None and previous != entry:
+                raise ValueError(
+                    "Duplicate extension test identity "
+                    f"'{identity}' found in '{previous}' and '{entry}'. "
+                    "Use an isolated extensions directory or remove the legacy duplicate."
+                )
+            identities[identity] = entry
         result.append(f"extensions/{entry.name}/tests/{tests_type}")
     return result
 
@@ -137,19 +207,30 @@ def resolve_extension_test_target(
     tests_type: str,
     extensions_data_dir: str | None = None,
 ) -> str:
-    """Разрешает путь к тестам конкретного расширения."""
-    if extensions_data_dir is None:
-        extensions_root = Path(
-            os.getenv("EXTENSIONS_VOLUME_PATH", "./extensions")
-        ).resolve()
-    else:
-        extensions_root = (project_dir / extensions_data_dir).resolve()
+    """Resolve tests for one extension by directory, package, manifest, or display name."""
+    extensions_root = _resolve_extensions_root(
+        project_dir=project_dir,
+        extensions_data_dir=extensions_data_dir,
+    )
+    if not extensions_root.is_dir():
+        raise ValueError(f"Extensions directory not found: {extensions_root}")
 
-    for entry in extensions_root.iterdir():
+    requested_identity = _normalize_extension_test_identity(extension_name)
+    matches: list[Path] = []
+    for entry in sorted(extensions_root.iterdir()):
         if not entry.is_dir():
             continue
-        if entry.name.lower() != extension_name.lower():
-            continue
+        _, aliases = _extension_test_names(entry)
+        if requested_identity in aliases:
+            matches.append(entry)
+
+    if len(matches) > 1:
+        paths = ", ".join(str(entry) for entry in matches)
+        raise ValueError(
+            f"Extension name '{extension_name}' is ambiguous across test trees: {paths}"
+        )
+    if matches:
+        entry = matches[0]
         candidate = entry / "tests" / tests_type
         if not candidate.is_dir():
             raise ValueError(
@@ -158,7 +239,8 @@ def resolve_extension_test_target(
         return f"extensions/{entry.name}/tests/{tests_type}"
 
     available = [
-        e.name for e in sorted(extensions_root.iterdir())
+        e.name
+        for e in sorted(extensions_root.iterdir())
         if e.is_dir() and (e / "tests" / tests_type).is_dir()
     ]
     hint = f" Available: {', '.join(available)}" if available else ""
