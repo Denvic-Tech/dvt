@@ -3554,3 +3554,6 @@
 
 ### 2026-09-14 15:59:24
 - Добавлены regression-проверки обновления DVT 1.21→1.22: legacy repository identity объединяется с canonical catalog identity без дубликатов и без потери installed state.
+
+### 2026-09-14 19:05:23
+- Интеграционные MinIO и FTP переведены на session-scoped Testcontainers fixtures: roundtrip-тесты используют динамические endpoints, а Compose runner больше не поднимает отдельные minio_test_db и ftp_test_db сервисы.
