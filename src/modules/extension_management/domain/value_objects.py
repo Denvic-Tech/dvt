@@ -83,6 +83,7 @@ class ExtensionFrontendManifest:
 class ExtensionManifest:
     name: str
     version: str
+    package_name: str | None = None
     dvt_version: str | None = None
     display_name: str | None = None
     description: str = ""
@@ -136,6 +137,7 @@ class ExtensionManifest:
         return cls(
             name=str(payload.get("name") or ""),
             version=str(payload.get("version") or ""),
+            package_name=payload.get("package_name"),
             dvt_version=payload.get("dvt_version"),
             display_name=payload.get("display_name"),
             description=str(payload.get("description") or ""),
@@ -161,6 +163,7 @@ class ExtensionManifest:
         payload: dict[str, Any] = {
             "name": self.name,
             "version": self.version,
+            "package_name": self.package_name,
             "dvt_version": self.dvt_version,
             "display_name": self.display_name,
             "description": self.description,

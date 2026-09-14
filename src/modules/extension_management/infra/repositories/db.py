@@ -320,6 +320,7 @@ class ExtensionDBManager:
         return build_manifest_stub(
             name=name,
             version=manifest_payload.get("version", ""),
+            package_name=manifest_payload.get("package_name"),
             display_name=display_name,
             description=description,
             repository_url=repository_url,

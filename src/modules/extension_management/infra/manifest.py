@@ -7,6 +7,7 @@ def build_manifest_stub(
     *,
     name: str,
     version: str = "",
+    package_name: str | None = None,
     display_name: str | None = None,
     description: str = "",
     repository_url: str | None = None,
@@ -21,6 +22,7 @@ def build_manifest_stub(
     manifest = ExtensionManifest(
         name=name,
         version=version,
+        package_name=package_name,
         display_name=display_name,
         description=description,
         repository_url=repository_url,

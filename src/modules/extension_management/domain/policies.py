@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -8,6 +9,13 @@ from src.modules.extension_management.domain.types import (
     ExtensionDependencyStatus,
     ExtensionPackageOperation,
 )
+
+
+def normalize_extension_identity(value: str | None) -> str:
+    """Normalize human/catalog and package extension names to a comparable identity."""
+    if not value:
+        return ""
+    return re.sub(r"[\W_]+", "-", value.strip().casefold(), flags=re.UNICODE).strip("-")
 
 
 def resolve_package_operation(
@@ -115,5 +123,6 @@ __all__ = [
     "extension_readiness_reasons",
     "filter_compatible_versions",
     "is_dvt_version_compatible",
+    "normalize_extension_identity",
     "resolve_package_operation",
 ]

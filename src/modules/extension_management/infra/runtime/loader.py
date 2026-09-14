@@ -154,6 +154,7 @@ def load_manifest_payload(root_dir: Path) -> ExtensionManifest | None:
     manifest_payload = {
         "name": tool.get("name") or project.get("name") or "",
         "version": project.get("version") or "",
+        "package_name": project.get("name"),
         "description": project.get("description") or "",
         "repository_url": _get_project_url(
             urls, "Repository", "repository", "Source", "source"

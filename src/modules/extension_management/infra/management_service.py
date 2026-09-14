@@ -2,11 +2,13 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from src.logger import logger
 from src.modules.extension_management.domain.entities import ExtensionCreate
 from src.modules.extension_management.domain.policies import (
     filter_compatible_versions,
+    normalize_extension_identity,
     resolve_package_operation,
 )
 from src.modules.extension_management.domain.value_objects import (
@@ -165,13 +167,39 @@ class ExtensionManager:
             except Exception:
                 logger.warning(f"Failed to fetch manifest for extension '{name}' from distributor")
 
+            manifest = (
+                await self._load_manifest_from_repository(download_url)
+                if download_url
+                else None
+            )
+            canonical_name = manifest.name if manifest and manifest.name else name
             data = ExtensionCreate(
-                name=name,
-                display_name=item.get("name"),
-                description=item.get("description"),
+                name=canonical_name,
+                display_name=(manifest.display_name if manifest else None)
+                or item.get("name"),
+                description=(manifest.description if manifest else None)
+                or item.get("description"),
                 repository_url=download_url,
             )
-            extension = await self.upsert_extension(data)
+            extension = await self.db_manager.upsert_extension(data, manifest)
+            if canonical_name != name:
+                legacy = await self.get_extension(name)
+                if legacy is not None and legacy.id != extension.id:
+                    if legacy.is_installed:
+                        logger.warning(
+                            "Keeping installed legacy extension record '{}' while canonical "
+                            "catalog identity is '{}'; uninstall or migrate it before cleanup",
+                            name,
+                            canonical_name,
+                        )
+                    else:
+                        await self.db_manager.delete_extension_record(legacy)
+                        logger.info(
+                            "Removed legacy catalog extension record '{}' in favor of canonical "
+                            "manifest name '{}'",
+                            name,
+                            canonical_name,
+                        )
             extension.available_versions = [
                 v for v in version_strings if isinstance(v, str)
             ]
@@ -193,9 +221,12 @@ class ExtensionManager:
 
     async def install_extension(self, name: str, version: str | None = None) -> ExtensionRecord:
         extension = await self.get_extension_or_raise(name)
+        distributor_name = self._distributor_extension_name(extension)
 
         versions_payload = await self.distributor_client.list_extension_versions(
-            name, dvt_version=config.APP.VERSION or None, dvt_channel=config.APP.CHANNEL
+            distributor_name,
+            dvt_version=config.APP.VERSION or None,
+            dvt_channel=config.APP.CHANNEL,
         )
         all_versions: list[dict] = (
             versions_payload.get("versions") if isinstance(versions_payload, dict) else []
@@ -223,10 +254,11 @@ class ExtensionManager:
             raise ValueError(f"No download_url for '{name}' v{target.get('version')}")
 
         staged = await self.install_manager.stage_from_url(download_url)
-        if staged.manifest.name != name:
+        if staged.manifest.name != extension.name:
             self.install_manager.rollback_staged_package(staged)
             raise ValueError(
-                f"Downloaded package declares extension '{staged.manifest.name}', expected '{name}'"
+                f"Downloaded package declares extension '{staged.manifest.name}', "
+                f"expected '{extension.name}'"
             )
         return await self._install_staged_package(
             extension,
@@ -296,6 +328,7 @@ class ExtensionManager:
             )
 
         extension = await self.get_extension(manifest.name)
+        legacy_catalog_extension = await self._find_legacy_catalog_extension(manifest)
         current_version = extension.current_version if extension and extension.is_installed else None
         operation = self._package_operation(current_version, manifest.version)
         if operation == "downgrade" and not allow_downgrade:
@@ -309,9 +342,19 @@ class ExtensionManager:
                     name=manifest.name,
                     display_name=manifest.display_name,
                     description=manifest.description,
-                    repository_url=None,
+                    repository_url=(
+                        legacy_catalog_extension.repository_url
+                        if legacy_catalog_extension
+                        and not legacy_catalog_extension.is_installed
+                        else None
+                    ),
                 ),
                 manifest,
+            )
+
+        if legacy_catalog_extension and not legacy_catalog_extension.is_installed:
+            extension = await self._merge_legacy_catalog_extension(
+                extension, legacy_catalog_extension
             )
 
         return await self._install_staged_package(
@@ -466,9 +509,12 @@ class ExtensionManager:
         logger.debug(f"Reloading (upgrading) extension '{name}'")
 
         extension = await self.get_extension_or_raise(name)
+        distributor_name = self._distributor_extension_name(extension)
 
         versions_payload = await self.distributor_client.list_extension_versions(
-            name, dvt_version=config.APP.VERSION or None, dvt_channel=config.APP.CHANNEL
+            distributor_name,
+            dvt_version=config.APP.VERSION or None,
+            dvt_channel=config.APP.CHANNEL,
         )
         all_versions: list[dict] = versions_payload.get("versions") if isinstance(versions_payload, dict) else []
         compatible = self._filter_compatible_versions(all_versions)
@@ -539,6 +585,19 @@ class ExtensionManager:
                 logger.exception("Failed to parse extension manifest from '{}'", root_dir)
 
         result = await self.db_manager.sync_installed_extensions(discovered)
+        for info in discovered.values():
+            manifest = info["manifest"]
+            canonical = next((item for item in result if item.name == manifest.name), None)
+            legacy = await self._find_legacy_catalog_extension(manifest)
+            if (
+                canonical is not None
+                and legacy is not None
+                and legacy.id != canonical.id
+                and not legacy.is_installed
+            ):
+                await self._merge_legacy_catalog_extension(canonical, legacy)
+                result = await self.list_extensions()
+
         records_by_name = {item.name: item for item in result}
         for extension_name, exc in manifest_failures.items():
             record = records_by_name.get(extension_name)
@@ -699,6 +758,63 @@ class ExtensionManager:
             "gateway_validation": "Extension router validation failed",
         }
         return stage_error(stage_names.get(failure.stage, "Extension runtime failed"), failure.message)
+
+    async def _merge_legacy_catalog_extension(
+        self,
+        canonical: ExtensionRecord,
+        legacy: ExtensionRecord,
+    ) -> ExtensionRecord:
+        canonical.repository_url = canonical.repository_url or legacy.repository_url
+        canonical.available_versions = list(
+            legacy.available_versions or canonical.available_versions or []
+        )
+        session = self.db_manager.session
+        session.add(canonical)
+        await session.commit()
+        await session.refresh(canonical)
+        await self.db_manager.delete_extension_record(legacy)
+        logger.info(
+            "Merged legacy catalog extension record '{}' into canonical package '{}'",
+            legacy.name,
+            canonical.name,
+        )
+        return canonical
+
+    async def _find_legacy_catalog_extension(
+        self, manifest: ExtensionManifest
+    ) -> ExtensionRecord | None:
+        package_identity = normalize_extension_identity(manifest.package_name)
+        if not package_identity:
+            return None
+
+        for extension in await self.list_extensions():
+            if extension.name == manifest.name:
+                continue
+            if normalize_extension_identity(extension.name) == package_identity:
+                return extension
+        return None
+
+    @staticmethod
+    def _distributor_extension_name(extension: ExtensionRecord) -> str:
+        """Resolve the catalog key without treating it as the extension system name."""
+        repository_url = extension.repository_url
+        if not repository_url:
+            return extension.name
+
+        path_parts = [
+            unquote(part)
+            for part in urlsplit(repository_url).path.split("/")
+            if part
+        ]
+        try:
+            extensions_index = path_parts.index("extensions")
+            versions_index = path_parts.index("versions", extensions_index + 2)
+        except ValueError:
+            return extension.name
+
+        if versions_index != extensions_index + 2:
+            return extension.name
+        return path_parts[extensions_index + 1] or extension.name
 
     async def _load_manifest_from_repository(self, repository_url: str) -> ExtensionManifest | None:
         return await load_manifest_from_repository(repository_url)

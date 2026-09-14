@@ -788,7 +788,9 @@ async def test_sync_available_extensions_passes_dvt_channel(monkeypatch) -> None
         manifest_json={},
         state_json={},
     )
-    monkeypatch.setattr(manager, "upsert_extension", AsyncMock(return_value=fake_extension))
+    monkeypatch.setattr(
+        manager.db_manager, "upsert_extension", AsyncMock(return_value=fake_extension)
+    )
 
     await manager.sync_available_extensions()
 
@@ -799,3 +801,351 @@ async def test_sync_available_extensions_passes_dvt_channel(monkeypatch) -> None
         "test-ext", dvt_version="1.5.0", dvt_channel="prod"
     )
     manager.distributor_client.aclose.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_available_extensions_uses_manifest_name_and_removes_legacy_alias(
+    monkeypatch,
+) -> None:
+    session = _FakeAsyncSession()
+    manager = get_mock_extension_manager(session)
+    monkeypatch.setattr(extensions_module.config.APP, "VERSION", "1.22.0-rc1")
+    monkeypatch.setattr(extensions_module.config.APP, "CHANNEL", "dev")
+
+    download_url = (
+        "https://extensions.distribution.denvic.tech/extensions/"
+        "Bitrix24%20Connector/versions/0.9.11/download"
+    )
+    manifest = ExtensionManifest.model_validate(
+        {
+            "name": "bitrix24-connector",
+            "package_name": "bitrix24-connector",
+            "version": "0.9.11",
+            "display_name": "Bitrix 24 Connector",
+            "description": "Bitrix24 Nodes",
+        }
+    )
+    canonical = ExtensionRecord(
+        id="canonical-id",
+        name="bitrix24-connector",
+        display_name="Bitrix 24 Connector",
+        description="Bitrix24 Nodes",
+        repository_url=download_url,
+        is_enabled=True,
+        is_installed=True,
+        current_version="0.10.0",
+        manifest_json=manifest.model_dump(mode="json"),
+        state_json={},
+    )
+    legacy = ExtensionRecord(
+        id="legacy-id",
+        name="Bitrix24 Connector",
+        display_name="Bitrix24 Connector",
+        description="Bitrix24 Nodes",
+        repository_url=download_url,
+        is_enabled=True,
+        is_installed=False,
+        manifest_json={},
+        state_json={},
+    )
+    manager.distributor_client = SimpleNamespace(
+        list_extensions=AsyncMock(
+            return_value={
+                "extensions": [
+                    {
+                        "name": "Bitrix24 Connector",
+                        "description": "Bitrix24 Nodes",
+                        "versions": ["0.9.11"],
+                    }
+                ]
+            }
+        ),
+        list_extension_versions=AsyncMock(
+            return_value={
+                "versions": [
+                    {
+                        "version": "0.9.11",
+                        "dvt_version": ">=1.19.2",
+                        "download_url": download_url,
+                    }
+                ]
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        manager,
+        "_load_manifest_from_repository",
+        AsyncMock(return_value=manifest),
+    )
+    upsert_extension = AsyncMock(return_value=canonical)
+    delete_extension_record = AsyncMock()
+    monkeypatch.setattr(manager.db_manager, "upsert_extension", upsert_extension)
+    monkeypatch.setattr(
+        manager.db_manager, "delete_extension_record", delete_extension_record
+    )
+    monkeypatch.setattr(manager, "get_extension", AsyncMock(return_value=legacy))
+
+    result = await manager.sync_available_extensions()
+
+    data, passed_manifest = upsert_extension.await_args.args
+    assert data.name == "bitrix24-connector"
+    assert data.display_name == "Bitrix 24 Connector"
+    assert data.repository_url == download_url
+    assert passed_manifest is manifest
+    delete_extension_record.assert_awaited_once_with(legacy)
+    assert canonical.available_versions == ["0.9.11"]
+    assert result == [canonical]
+
+
+@pytest.mark.asyncio
+async def test_install_extension_uses_distributor_catalog_name_from_repository_url(
+    monkeypatch,
+) -> None:
+    manager = get_mock_extension_manager(_FakeAsyncSession())
+    extension = ExtensionRecord(
+        id="ext-id",
+        name="bitrix24-connector",
+        display_name="Bitrix 24 Connector",
+        description="Bitrix24 Nodes",
+        repository_url=(
+            "https://extensions.distribution.denvic.tech/extensions/"
+            "Bitrix24%20Connector/versions/0.9.11/download"
+        ),
+        is_enabled=True,
+        is_installed=False,
+        manifest_json={},
+        state_json={},
+    )
+    download_url = extension.repository_url
+    assert download_url is not None
+    staged = SimpleNamespace(
+        manifest=ExtensionManifest.model_validate(
+            {
+                "name": "bitrix24-connector",
+                "package_name": "bitrix24-connector",
+                "version": "0.9.11",
+                "display_name": "Bitrix 24 Connector",
+            }
+        )
+    )
+    monkeypatch.setattr(extensions_module.config.APP, "VERSION", "1.22.0-rc1")
+    monkeypatch.setattr(extensions_module.config.APP, "CHANNEL", "dev")
+    monkeypatch.setattr(
+        manager, "get_extension_or_raise", AsyncMock(return_value=extension)
+    )
+    manager.distributor_client = SimpleNamespace(
+        list_extension_versions=AsyncMock(
+            return_value={
+                "versions": [
+                    {
+                        "version": "0.9.11",
+                        "dvt_version": ">=1.19.2",
+                        "download_url": download_url,
+                    }
+                ]
+            }
+        )
+    )
+    manager.install_manager.stage_from_url = AsyncMock(return_value=staged)
+    install_staged = AsyncMock(return_value=extension)
+    monkeypatch.setattr(manager, "_install_staged_package", install_staged)
+
+    await manager.install_extension(extension.name)
+
+    manager.distributor_client.list_extension_versions.assert_awaited_once_with(
+        "Bitrix24 Connector",
+        dvt_version="1.22.0-rc1",
+        dvt_channel="dev",
+    )
+    install_staged.assert_awaited_once_with(
+        extension,
+        staged,
+        latest_version="0.9.11",
+        offline_only=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_install_uploaded_package_merges_uninstalled_legacy_catalog_record(
+    monkeypatch,
+) -> None:
+    session = _FakeAsyncSession()
+    manager = get_mock_extension_manager(session)
+    repository_url = (
+        "https://extensions.distribution.denvic.tech/extensions/"
+        "Bitrix24%20Connector/versions/0.9.11/download"
+    )
+    legacy = ExtensionRecord(
+        id="legacy-id",
+        name="Bitrix24 Connector",
+        display_name="Bitrix24 Connector",
+        description="Bitrix24 Nodes",
+        repository_url=repository_url,
+        is_enabled=True,
+        is_installed=False,
+        last_version="0.9.11",
+        available_versions=["0.9.11", "0.9.10"],
+        manifest_json={},
+        state_json={},
+    )
+    manifest = ExtensionManifest.model_validate(
+        {
+            "name": "bitrix24-connector",
+            "package_name": "bitrix24-connector",
+            "version": "0.10.0",
+            "display_name": "Bitrix 24 Connector",
+            "description": "Bitrix24 Nodes",
+        }
+    )
+    staged = SimpleNamespace(manifest=manifest, has_wheelhouse=False)
+    canonical = ExtensionRecord(
+        id="canonical-id",
+        name="bitrix24-connector",
+        display_name="Bitrix 24 Connector",
+        description="Bitrix24 Nodes",
+        repository_url=repository_url,
+        is_enabled=True,
+        is_installed=False,
+        manifest_json=manifest.model_dump(mode="json"),
+        state_json={},
+    )
+    manager.install_manager.get_staged_package = Mock(return_value=staged)
+    monkeypatch.setattr(extensions_module, "check_dvt_compatibility", lambda _manifest: True)
+    monkeypatch.setattr(manager, "get_extension", AsyncMock(return_value=None))
+    monkeypatch.setattr(manager, "list_extensions", AsyncMock(return_value=[legacy]))
+    upsert_extension = AsyncMock(return_value=canonical)
+    delete_extension_record = AsyncMock()
+    monkeypatch.setattr(manager.db_manager, "upsert_extension", upsert_extension)
+    monkeypatch.setattr(
+        manager.db_manager, "delete_extension_record", delete_extension_record
+    )
+    install_staged = AsyncMock(return_value=canonical)
+    monkeypatch.setattr(manager, "_install_staged_package", install_staged)
+
+    result = await manager.install_uploaded_package("package-id")
+
+    create_data, passed_manifest = upsert_extension.await_args.args
+    assert create_data.name == "bitrix24-connector"
+    assert create_data.repository_url == repository_url
+    assert passed_manifest is manifest
+    assert canonical.available_versions == ["0.9.11", "0.9.10"]
+    delete_extension_record.assert_awaited_once_with(legacy)
+    install_staged.assert_awaited_once_with(
+        canonical,
+        staged,
+        latest_version="0.10.0",
+        offline_only=True,
+    )
+    assert result is canonical
+
+
+@pytest.mark.asyncio
+async def test_sync_installed_extensions_merges_legacy_catalog_alias_on_startup(
+    monkeypatch, tmp_path: Path
+) -> None:
+    session = _FakeAsyncSession()
+    manager = get_mock_extension_manager(session)
+    root = tmp_path / "bitrix24-connector"
+    root.mkdir()
+    repository_url = (
+        "https://extensions.distribution.denvic.tech/extensions/"
+        "Bitrix24%20Connector/versions/0.9.11/download"
+    )
+    manifest = ExtensionManifest.model_validate(
+        {
+            "name": "bitrix24-connector",
+            "package_name": "bitrix24-connector",
+            "version": "0.10.0",
+            "display_name": "Bitrix 24 Connector",
+        }
+    )
+    canonical = ExtensionRecord(
+        id="canonical-id",
+        name=manifest.name,
+        display_name="Bitrix 24 Connector",
+        description="",
+        is_enabled=True,
+        is_installed=True,
+        current_version=manifest.version,
+        install_path=str(root),
+        manifest_json=manifest.model_dump(mode="json"),
+        state_json={},
+    )
+    legacy = ExtensionRecord(
+        id="legacy-id",
+        name="Bitrix24 Connector",
+        display_name="Bitrix24 Connector",
+        description="",
+        repository_url=repository_url,
+        is_enabled=True,
+        is_installed=False,
+        available_versions=["0.9.11"],
+        manifest_json={},
+        state_json={},
+    )
+    monkeypatch.setattr(extensions_module, "process_pending_deletions", lambda _fn: None)
+    monkeypatch.setattr(extensions_module, "iter_extension_roots", lambda: [root])
+    monkeypatch.setattr(extensions_module, "load_manifest", lambda *_args, **_kwargs: manifest)
+    monkeypatch.setattr(
+        manager.db_manager,
+        "sync_installed_extensions",
+        AsyncMock(return_value=[canonical, legacy]),
+    )
+    delete_extension_record = AsyncMock()
+    monkeypatch.setattr(
+        manager.db_manager, "delete_extension_record", delete_extension_record
+    )
+    monkeypatch.setattr(
+        manager,
+        "list_extensions",
+        AsyncMock(side_effect=[[canonical, legacy], [canonical], [canonical]]),
+    )
+    refresh_runtime = AsyncMock()
+    monkeypatch.setattr(manager, "_refresh_runtime", refresh_runtime)
+
+    result = await manager.sync_installed_extensions()
+
+    assert canonical.repository_url == repository_url
+    assert canonical.available_versions == ["0.9.11"]
+    delete_extension_record.assert_awaited_once_with(legacy)
+    refresh_runtime.assert_awaited_once_with(records=[canonical])
+    assert result == [canonical]
+
+
+@pytest.mark.asyncio
+async def test_find_legacy_catalog_extension_matches_project_package_name(monkeypatch) -> None:
+    manager = get_mock_extension_manager(_FakeAsyncSession())
+    legacy = ExtensionRecord(
+        name="Yandex Metrica Connector",
+        display_name="Yandex Metrica Connector",
+        description="",
+        is_installed=False,
+        manifest_json={},
+        state_json={},
+    )
+    manifest = ExtensionManifest.model_validate(
+        {
+            "name": "yandex_metrica",
+            "package_name": "yandex-metrica-connector",
+            "version": "0.1.0",
+            "display_name": "Yandex Metrica",
+        }
+    )
+    monkeypatch.setattr(manager, "list_extensions", AsyncMock(return_value=[legacy]))
+
+    matched = await manager._find_legacy_catalog_extension(manifest)
+
+    assert matched is legacy
+
+
+def test_distributor_extension_name_falls_back_for_non_catalog_url() -> None:
+    extension = ExtensionRecord(
+        name="custom-extension",
+        display_name="Custom Extension",
+        description="",
+        repository_url="https://example.com/custom-extension.dvtx",
+        manifest_json={},
+        state_json={},
+    )
+
+    assert ExtensionManager._distributor_extension_name(extension) == "custom-extension"
