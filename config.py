@@ -112,6 +112,17 @@ class EXTENSIONS:
     AUTOLOAD = os.getenv("EXTENSIONS_AUTOLOAD", "true").lower() in _TRUE_STATEMENT_TOKENS
     PENDING_DELETIONS_FILE = PROJECT.DATA_DIR / "extensions_pending_deletions.json"
     EXTENSIONS_DATA_DIR = os.getenv("EXTENSIONS_DATA_DIR", PROJECT.EXTENSIONS_DIR)
+    PACKAGE_MAX_SIZE_BYTES = _get_positive_int_env(
+        "EXTENSION_PACKAGE_MAX_SIZE_BYTES", 512 * 1024 * 1024
+    )
+    PACKAGE_MAX_UNCOMPRESSED_SIZE_BYTES = _get_positive_int_env(
+        "EXTENSION_PACKAGE_MAX_UNCOMPRESSED_SIZE_BYTES", 2 * 1024 * 1024 * 1024
+    )
+    PACKAGE_MAX_FILES = _get_positive_int_env("EXTENSION_PACKAGE_MAX_FILES", 20_000)
+    PACKAGE_MAX_COMPRESSION_RATIO = _get_positive_int_env(
+        "EXTENSION_PACKAGE_MAX_COMPRESSION_RATIO", 200
+    )
+    PACKAGE_STAGE_TTL_SEC = _get_positive_int_env("EXTENSION_PACKAGE_STAGE_TTL_SEC", 3600)
 
     if not DISTRIBUTOR_URL:
         DISTRIBUTOR_URL = __default_distributor_url

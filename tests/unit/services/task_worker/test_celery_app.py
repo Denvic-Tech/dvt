@@ -78,6 +78,9 @@ async def test_extension_runtime_syncs_and_closes_pre_fork_resources(monkeypatch
         async def sync_installed_extensions(self) -> None:
             events.append("extensions.sync")
 
+        async def close(self) -> None:
+            await self.distributor_client.aclose()
+
     class _FakeAsyncEngine:
         async def dispose(self) -> None:
             events.append("async_engine.dispose")
@@ -157,8 +160,12 @@ async def test_spawned_child_lazy_extension_bootstrap_runs_once(monkeypatch) -> 
 
     class _Manager:
         distributor_client = _Distributor()
+
         async def sync_installed_extensions(self):
             calls.append("sync")
+
+        async def close(self):
+            await self.distributor_client.aclose()
 
     async def _manager(*, session):
         assert session is not None
@@ -206,8 +213,12 @@ async def test_process_runtime_reloads_once_for_extension_install_or_update(
 
     class _Manager:
         distributor_client = None
+
         async def sync_installed_extensions(self):
             calls.append("registry.reload")
+
+        async def close(self):
+            return None
 
     async def _manager(*, session):
         assert session is not None

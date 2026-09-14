@@ -6,13 +6,13 @@ from sqlalchemy.pool import StaticPool
 
 from src.models import (
     AIAnalysisRequestRecord,  # noqa: F403
-    ExtensionRecord,  # noqa: F403
     LogRecord,  # noqa: F403
     OrganizationRecord,  # noqa: F403
     QueueTopicRecord,  # noqa: F403
     SQLModel,
     UsersTokenRecord,  # noqa: F403
 )
+from src.modules.extension_management.infra.db_models import ExtensionRecord  # noqa: F403
 from src.modules.app_settings.infra.db_models import (  # noqa: F403
     AppSettingChangeRecord,
     AppSettingValueRecord,

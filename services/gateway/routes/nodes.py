@@ -7,7 +7,7 @@ from services.gateway.deps import get_node_documentation_repository
 from services.gateway.utils.detect_locale import detect_locale
 
 from src.db.fastapi.dependencies import AsyncSessionDepends
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.node_documentation.domain.exceptions import (
     NodeDocumentationNotFound,
     UnknownNode,

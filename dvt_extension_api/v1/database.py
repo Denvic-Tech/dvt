@@ -6,7 +6,10 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.extensions.database import extension_async_session, extension_schema_name
+from src.modules.extension_management.infra.database import (
+    extension_async_session,
+    extension_schema_name,
+)
 
 
 def get_extension_schema_name(extension_name: str) -> str:

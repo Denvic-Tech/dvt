@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 
 
 def _deny_superadmin_access():
@@ -28,7 +28,7 @@ def _deny_superadmin_access():
 @pytest.mark.asyncio
 async def test_sync_extensions(gateway_client, router_prefix):
     with patch(
-        "src.managers.extension_manager.ExtensionManager.sync_available_extensions"
+        "src.modules.extension_management.flow.providers.ExtensionManagementProvider.sync_available_extensions"
     ) as mock_sync:
         mock_sync.return_value = []
         response = await gateway_client.post(f"{router_prefix}/extensions/sync")
@@ -56,7 +56,7 @@ async def test_list_extensions_serializes_record(gateway_client, router_prefix):
         updated_at=datetime.now(UTC),
     )
     with patch(
-        "src.managers.extension_manager.ExtensionManager.list_extensions",
+        "src.modules.extension_management.flow.providers.ExtensionManagementProvider.list_extensions",
         new=AsyncMock(return_value=[extension]),
     ):
         response = await gateway_client.get(f"{router_prefix}/extensions")
@@ -145,7 +145,7 @@ async def test_get_frontend_asset_unauthenticated(
 @pytest.mark.asyncio
 async def test_install_extension_not_found(gateway_client, router_prefix):
     with patch(
-        "src.managers.extension_manager.ExtensionManager.install_extension",
+        "src.modules.extension_management.flow.providers.ExtensionManagementProvider.install_extension",
         side_effect=ValueError("Extension 'unknown' not found."),
     ):
         response = await gateway_client.post(f"{router_prefix}/extensions/unknown/install")
@@ -183,7 +183,7 @@ async def test_enable_extension_not_superadmin(gateway_client, router_prefix):
 @pytest.mark.asyncio
 async def test_disable_extension_not_found(gateway_client, router_prefix):
     with patch(
-        "src.managers.extension_manager.ExtensionManager.set_enabled",
+        "src.modules.extension_management.flow.providers.ExtensionManagementProvider.set_enabled",
         side_effect=ValueError("Extension 'unknown' not found."),
     ):
         response = await gateway_client.post(f"{router_prefix}/extensions/unknown/disable")
@@ -200,7 +200,7 @@ async def test_disable_extension_not_superadmin(gateway_client, router_prefix):
 @pytest.mark.asyncio
 async def test_get_extension_state(gateway_client, router_prefix):
     with patch(
-        "src.managers.extension_state_manager.ExtensionStateManager.async_get_state"
+        "src.modules.extension_management.infra.state_manager.ExtensionStateManager.async_get_state"
     ) as mock_get_state:
         mock_get_state.return_value = {"last_run": "2025-01-01"}
         response = await gateway_client.get(f"{router_prefix}/extensions/test-ext/state")
@@ -214,7 +214,7 @@ async def test_get_extension_state(gateway_client, router_prefix):
 @pytest.mark.asyncio
 async def test_get_extension_state_with_key(gateway_client, router_prefix):
     with patch(
-        "src.managers.extension_state_manager.ExtensionStateManager.async_get_state"
+        "src.modules.extension_management.infra.state_manager.ExtensionStateManager.async_get_state"
     ) as mock_get_state:
         mock_get_state.return_value = {"cursor": 42}
         response = await gateway_client.get(
@@ -236,7 +236,7 @@ async def test_get_extension_state_regular_user(gateway_client, router_prefix, t
     app.dependency_overrides[get_user_access_only] = lambda: test_admin_user
 
     with patch(
-        "src.managers.extension_state_manager.ExtensionStateManager.async_get_state"
+        "src.modules.extension_management.infra.state_manager.ExtensionStateManager.async_get_state"
     ) as mock_get_state:
         mock_get_state.return_value = {}
         response = await gateway_client.get(f"{router_prefix}/extensions/test-ext/state")
@@ -246,7 +246,7 @@ async def test_get_extension_state_regular_user(gateway_client, router_prefix, t
 @pytest.mark.asyncio
 async def test_update_extension_state(gateway_client, router_prefix):
     with patch(
-        "src.managers.extension_state_manager.ExtensionStateManager.async_set_state"
+        "src.modules.extension_management.infra.state_manager.ExtensionStateManager.async_set_state"
     ) as mock_set_state:
         mock_set_state.return_value = {"saved": True}
         response = await gateway_client.put(
@@ -270,7 +270,7 @@ async def test_update_extension_state_regular_user(gateway_client, router_prefix
     app.dependency_overrides[get_user_access_only] = lambda: test_admin_user
 
     with patch(
-        "src.managers.extension_state_manager.ExtensionStateManager.async_set_state"
+        "src.modules.extension_management.infra.state_manager.ExtensionStateManager.async_set_state"
     ) as mock_set_state:
         mock_set_state.return_value = {"updated": True}
         response = await gateway_client.put(
@@ -283,7 +283,7 @@ async def test_update_extension_state_regular_user(gateway_client, router_prefix
 @pytest.mark.asyncio
 async def test_reload_installed_extensions(gateway_client, router_prefix):
     with patch(
-        "src.managers.extension_manager.ExtensionManager.sync_installed_extensions"
+        "src.modules.extension_management.flow.providers.ExtensionManagementProvider.sync_installed_extensions"
     ) as mock_reload:
         mock_reload.return_value = []
         response = await gateway_client.post(f"{router_prefix}/extensions/reload-installed")

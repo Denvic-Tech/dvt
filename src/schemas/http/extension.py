@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -87,3 +87,19 @@ class ExtensionFrontendReadSchema(BaseModel):
     bundle_url: str
     entry_file: str
     entrypoint: str | None = None
+
+
+class ExtensionPackagePreviewSchema(BaseModel):
+    package_id: str
+    filename: str
+    name: str
+    display_name: str
+    version: str
+    current_version: str | None = None
+    dvt_version: str | None = None
+    operation: str
+    compatible: bool
+    offline_ready: bool
+    has_wheelhouse: bool
+    bundled_wheels_count: int = 0
+    warnings: list[str] = Field(default_factory=list)

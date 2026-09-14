@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
 
-from src.extensions.registry import RegisteredExtension
+from src.modules.extension_management.infra.runtime.registry import RegisteredExtension
 from src.node_dsl.base_node.base import BaseNode
 
 from .packages import descriptor_from_extension_package_module

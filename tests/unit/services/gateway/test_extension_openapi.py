@@ -3,7 +3,8 @@ import copy
 from fastapi import FastAPI
 
 from services.gateway.main import _core_openapi_schema, app
-from src.extensions.gateway_runtime import (
+
+from src.modules.extension_management.infra.runtime.gateway_runtime import (
     ExtensionGatewayApp,
     get_extension_gateway_runtime,
 )

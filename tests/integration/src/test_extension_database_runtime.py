@@ -8,9 +8,12 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import Session
 
-from src.extensions.database import extension_async_session, extension_schema_name
-from src.extensions.loader import load_manifest
-from src.extensions.migrations import ExtensionMigrationManager
+from src.modules.extension_management.infra.database import (
+    extension_async_session,
+    extension_schema_name,
+)
+from src.modules.extension_management.infra.migrations import ExtensionMigrationManager
+from src.modules.extension_management.infra.runtime.loader import load_manifest
 
 
 def _write_extension(

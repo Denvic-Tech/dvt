@@ -42,11 +42,13 @@ async def test_lifespan_uses_shared_async_session_factory(monkeypatch) -> None:
     ensure_setting_value = AsyncMock()
     ensure_extension_deps_installed = AsyncMock()
     sync_installed_extensions = AsyncMock()
+    close_extension_management = AsyncMock()
     distributor_client = SimpleNamespace(aclose=AsyncMock())
-    extension_manager = SimpleNamespace(
-        sync_installed_extensions=sync_installed_extensions
+    extension_management = SimpleNamespace(
+        sync_installed_extensions=sync_installed_extensions,
+        close=close_extension_management,
     )
-    extension_manager_factory = Mock(return_value=extension_manager)
+    extension_management_factory = Mock(return_value=extension_management)
 
     monkeypatch.setattr(lifespan_module.config.AI_MCP, "validate", Mock())
     monkeypatch.setattr(
@@ -73,8 +75,8 @@ async def test_lifespan_uses_shared_async_session_factory(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         lifespan_module,
-        "ExtensionManager",
-        extension_manager_factory,
+        "build_extension_management_provider",
+        extension_management_factory,
     )
     monkeypatch.setattr(
         lifespan_module.asyncio,
@@ -90,10 +92,11 @@ async def test_lifespan_uses_shared_async_session_factory(monkeypatch) -> None:
     assert ensure_setting_value.await_args.kwargs["session"] is app_settings_session
     app_settings_session.commit.assert_awaited_once_with()
     ensure_extension_deps_installed.assert_awaited_once_with()
-    extension_manager_factory.assert_called_once_with(
+    extension_management_factory.assert_called_once_with(
         extension_session,
         distributor_client,
         gateway_runtime=True,
     )
     sync_installed_extensions.assert_awaited_once_with()
-    distributor_client.aclose.assert_awaited_once_with()
+    close_extension_management.assert_awaited_once_with()
+    distributor_client.aclose.assert_not_awaited()
