@@ -137,9 +137,11 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
     ) -> dict[str, Any]:
         self._validate_numeric_separators()
         self._validate_dtypes()
-        # Явные dtypes намеренно НЕ передаются в pandas.read_excel: приведение типов
-        # выполняется вручную в _normalize_dataframe_dtypes с правилом
-        # "значение не подходит под тип -> NA", чтобы одна плохая ячейка не роняла чтение.
+        # Числовые и boolean dtypes не передаем в pandas.read_excel: они приводятся
+        # вручную в _normalize_dataframe_dtypes с правилом "не подходит -> NA", чтобы
+        # одна плохая ячейка не роняла чтение. String dtypes передаем сразу, иначе
+        # pandas может применить thousands/decimal до нашей нормализации и потерять
+        # исходное строковое представление (например, "1 234" -> 1234).
         kwargs: dict[str, Any] = {
             "sheet_name": self._parse_sheet(),
             "usecols": None if ignore_usecols else self._resolve_usecols(),
@@ -153,6 +155,13 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
         }
         if self.thousands is not None:
             kwargs["thousands"] = self.thousands
+        string_dtypes = {
+            column_name: dtype_name
+            for column_name, dtype_name in (self.dtypes or {}).items()
+            if dtype_name == "string"
+        }
+        if string_dtypes:
+            kwargs["dtype"] = string_dtypes
         if nrows is not None:
             kwargs["nrows"] = nrows
         return kwargs
