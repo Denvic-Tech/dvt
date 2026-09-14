@@ -30,6 +30,7 @@ from .fixtures.config import (  # noqa: E402
 from .fixtures.containers import (  # noqa: E402
     clickhouse_container,  # noqa: F403
     # kafka_container,  # noqa: F403
+    ftp_container,  # noqa: F403
     minio_container,  # noqa: F403
     mongodb_container,  # noqa: F403
     mssql_container,  # noqa: F403

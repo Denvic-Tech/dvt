@@ -151,7 +151,6 @@ if __name__ == "__main__":
             PROJECT_DIR,
             "build",
             "tester_integration",
-            "ftp_test_db",
         ),
         env=env,
     )

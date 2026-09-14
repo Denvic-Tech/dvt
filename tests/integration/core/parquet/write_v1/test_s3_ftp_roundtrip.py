@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import posixpath
 import uuid
 
@@ -9,6 +8,8 @@ import fsspec
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
+from testcontainers.core.container import DockerContainer
+from testcontainers.minio import MinioContainer
 
 import core.parquet.write.writer as parquet_writer
 from core.parquet.write import ParquetWriteRequest, write_dataframe
@@ -20,21 +21,18 @@ from src.nodes.extract.load_parquet import LoadParquet
 pytestmark = pytest.mark.docker_required
 
 _BUCKET = "dvt-save-parquet-write-v1-tests"
+_FTP_USER = "ftpuser"
+_FTP_PASSWORD = "ftppassword"
 
 
-def _service_host() -> str:
-    return os.getenv("DVT_TEST_SERVICE_HOST") or (
-        "host.docker.internal"
-        if os.getenv("TESTCONTAINERS_HOST_OVERRIDE")
-        else "127.0.0.1"
+def _s3_fs(minio_container: MinioContainer):
+    endpoint = (
+        f"http://{minio_container.get_container_host_ip()}:"
+        f"{minio_container.get_exposed_port(minio_container.port)}"
     )
-
-
-def _s3_fs():
-    endpoint = os.getenv("MINIO_TEST_ENDPOINT", f"http://{_service_host()}:3900")
     options = {
-        "key": os.getenv("MINIO_ROOT_USER", "minioadmin"),
-        "secret": os.getenv("MINIO_ROOT_PASSWORD", "minioadmin"),
+        "key": minio_container.access_key,
+        "secret": minio_container.secret_key,
         "endpoint_url": endpoint,
         "client_kwargs": {"verify": False},
         "config_kwargs": {"s3": {"addressing_style": "path"}},
@@ -54,14 +52,12 @@ def _s3_ctx(fs, options: dict, key: str) -> FsCtx:
     )
 
 
-def _ftp_fs():
-    host = os.getenv("FTP_TEST_HOST", _service_host())
-    port = int(os.getenv("FTP_TEST_PORT", "9021"))
+def _ftp_fs(ftp_container: DockerContainer):
     options = {
-        "host": host,
-        "port": port,
-        "username": os.getenv("FTP_TEST_USER", "ftpuser"),
-        "password": os.getenv("FTP_TEST_PASSWORD", "ftppassword"),
+        "host": ftp_container.get_container_host_ip(),
+        "port": ftp_container.get_exposed_port(21),
+        "username": _FTP_USER,
+        "password": _FTP_PASSWORD,
         "timeout": 30,
     }
     return fsspec.filesystem("ftp", **options), options
@@ -103,8 +99,11 @@ def _assert_roundtrip(ddf: dd.DataFrame, expected: pd.DataFrame) -> None:
     pd.testing.assert_frame_equal(actual, expected, check_dtype=False)
 
 
-def test_write_v1_real_minio_s3_layout_modes_roundtrip_and_cleanup(monkeypatch) -> None:
-    fs, options = _s3_fs()
+def test_write_v1_real_minio_s3_layout_modes_roundtrip_and_cleanup(
+    monkeypatch,
+    minio_container: MinioContainer,
+) -> None:
+    fs, options = _s3_fs(minio_container)
     root = "write-v1-s3"
     if fs.exists(f"{_BUCKET}/{root}"):
         fs.rm(f"{_BUCKET}/{root}", recursive=True)
@@ -300,8 +299,11 @@ def test_write_v1_real_minio_s3_layout_modes_roundtrip_and_cleanup(monkeypatch) 
     monkeypatch.setattr(parquet_writer, "_write_one_file", original_write_one)
 
 
-def test_write_v1_real_ftp_layout_append_partition_load_and_lazy_graph(monkeypatch) -> None:
-    fs, options = _ftp_fs()
+def test_write_v1_real_ftp_layout_append_partition_load_and_lazy_graph(
+    monkeypatch,
+    ftp_container: DockerContainer,
+) -> None:
+    fs, options = _ftp_fs(ftp_container)
     root = "home/ftpuser/write-v1-ftp"
     if fs.exists(root):
         fs.rm(root, recursive=True)
