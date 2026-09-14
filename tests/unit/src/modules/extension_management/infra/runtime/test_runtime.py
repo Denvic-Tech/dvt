@@ -51,9 +51,13 @@ class RuntimeSampleNode(BaseNode):
     )
 
 
-def test_src_extensions_imports_in_clean_process() -> None:
+def test_extension_runtime_imports_in_clean_process() -> None:
     completed = subprocess.run(
-        [sys.executable, "-c", "import src.extensions"],
+        [
+            sys.executable,
+            "-c",
+            "import src.modules.extension_management.infra.runtime",
+        ],
         check=False,
         capture_output=True,
         text=True,
