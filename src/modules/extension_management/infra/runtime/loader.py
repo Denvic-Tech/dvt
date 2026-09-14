@@ -9,9 +9,13 @@ import tomllib
 import types
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from src.logger import logger
-from src.modules.extension_management.domain.policies import is_dvt_version_compatible
+from src.modules.extension_management.domain.policies import (
+    is_dvt_version_compatible,
+    normalize_extension_identity,
+)
 from src.modules.extension_management.domain.value_objects import ExtensionManifest
 from src.modules.extension_management.infra.packages.deletion_queue import (
     get_pending_deletion_paths,
@@ -135,6 +139,18 @@ def _get_project_url(urls: dict, *keys: str) -> str | None:
     return None
 
 
+def _repository_alias(repository_url: str | None) -> str | None:
+    if not repository_url:
+        return None
+    path = urlsplit(repository_url).path.rstrip("/")
+    if not path:
+        return None
+    name = unquote(path.rsplit("/", 1)[-1])
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name or None
+
+
 def load_manifest_payload(root_dir: Path) -> ExtensionManifest | None:
     manifest_path = root_dir / config.EXTENSIONS.MANIFEST_FILE
     if not manifest_path.exists():
@@ -151,14 +167,19 @@ def load_manifest_payload(root_dir: Path) -> ExtensionManifest | None:
     urls = project.get("urls") or {}
     if not isinstance(urls, dict):
         raise TypeError(f"[project.urls] must be a table in '{manifest_path}'")
+    repository_url = _get_project_url(urls, "Repository", "repository", "Source", "source")
+    legacy_names = [
+        value
+        for value in (tool.get("name"), _repository_alias(repository_url))
+        if isinstance(value, str) and value.strip()
+    ]
     manifest_payload = {
-        "name": tool.get("name") or project.get("name") or "",
+        "name": normalize_extension_identity(project.get("name")),
         "version": project.get("version") or "",
         "package_name": project.get("name"),
+        "legacy_names": legacy_names,
         "description": project.get("description") or "",
-        "repository_url": _get_project_url(
-            urls, "Repository", "repository", "Source", "source"
-        ),
+        "repository_url": repository_url,
         "homepage_url": _get_project_url(urls, "Homepage", "homepage", "Home", "home"),
         "display_name": tool.get("display_name"),
         "dvt_version": tool.get("dvt_version"),
@@ -176,7 +197,7 @@ def load_manifest(root_dir: Path, extension_name: str | None = None) -> Register
     if manifest is None:
         return None
 
-    effective_name = extension_name or root_dir.name
+    effective_name = extension_name or manifest.name
     manifest_payload = manifest.model_dump()
     manifest_payload["name"] = effective_name
     backend_payload = dict(manifest_payload.get("backend") or {})

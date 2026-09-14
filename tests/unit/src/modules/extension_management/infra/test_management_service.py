@@ -16,6 +16,7 @@ def get_mock_extension_manager(session=None):
     manager.migration_manager = Mock()
     return manager
 
+
 def test_remove_install_root_retries_readonly_path(monkeypatch, tmp_path: Path) -> None:
     install_root = tmp_path / "sample-extension"
     install_root.mkdir()
@@ -68,7 +69,13 @@ def test_build_manifest_json_preserves_known_manifest_fields() -> None:
             "version": "1.2.3",
             "requirements": ["numpy"],
             "state_schema": {"foo": "str"},
-            "nodes": [{"name": "SampleNode", "display_name": "Sample Node", "description": "Node description"}],
+            "nodes": [
+                {
+                    "name": "SampleNode",
+                    "display_name": "Sample Node",
+                    "description": "Node description",
+                }
+            ],
         },
     )
 
@@ -133,7 +140,11 @@ async def test_delete_extension_defers_locked_directory(monkeypatch, tmp_path: P
         pending_calls.append((name, path))
 
     monkeypatch.setattr(manager, "get_extension_or_raise", fake_get_extension_or_raise)
-    monkeypatch.setattr(manager.install_manager, "_remove_install_root", lambda path: (_ for _ in ()).throw(PermissionError()))
+    monkeypatch.setattr(
+        manager.install_manager,
+        "_remove_install_root",
+        lambda path: (_ for _ in ()).throw(PermissionError()),
+    )
     monkeypatch.setattr(install_module, "add_pending_deletion", fake_add_pending_deletion)
     refresh_runtime = AsyncMock()
     monkeypatch.setattr(manager, "_refresh_runtime", refresh_runtime)
@@ -147,7 +158,9 @@ async def test_delete_extension_defers_locked_directory(monkeypatch, tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_uninstall_extension_keeps_db_record_and_clears_installation(monkeypatch, tmp_path: Path) -> None:
+async def test_uninstall_extension_keeps_db_record_and_clears_installation(
+    monkeypatch, tmp_path: Path
+) -> None:
     install_root = tmp_path / "sample-extension"
     install_root.mkdir()
     extension = ExtensionRecord(
@@ -209,12 +222,8 @@ async def test_uninstall_drop_failure_keeps_runtime_files_and_install_record(
         state_json={},
     )
     manager = get_mock_extension_manager(_FakeAsyncSession())
-    monkeypatch.setattr(
-        manager, "get_extension_or_raise", AsyncMock(return_value=extension)
-    )
-    monkeypatch.setattr(
-        manager.db_manager, "set_runtime_error", AsyncMock(return_value=extension)
-    )
+    monkeypatch.setattr(manager, "get_extension_or_raise", AsyncMock(return_value=extension))
+    monkeypatch.setattr(manager.db_manager, "set_runtime_error", AsyncMock(return_value=extension))
     monkeypatch.setattr(
         manager.migration_manager,
         "drop_schema",
@@ -226,9 +235,7 @@ async def test_uninstall_drop_failure_keeps_runtime_files_and_install_record(
     monkeypatch.setattr(manager, "_refresh_runtime", refresh_runtime)
 
     with pytest.raises(RuntimeError, match="Extension data removal failed"):
-        await manager.uninstall_extension(
-            extension.name, drop_extension_data=True
-        )
+        await manager.uninstall_extension(extension.name, drop_extension_data=True)
 
     assert extension.is_installed is True
     assert extension.install_path == str(install_root)
@@ -268,9 +275,7 @@ async def test_refresh_runtime_excludes_disabled_extensions(monkeypatch, tmp_pat
 
     await manager._refresh_runtime(records=records)
 
-    assert [(item.name, item.root_dir) for item in captured_specs] == [
-        ("enabled", enabled_root)
-    ]
+    assert [(item.name, item.root_dir) for item in captured_specs] == [("enabled", enabled_root)]
 
 
 @pytest.mark.asyncio
@@ -317,12 +322,8 @@ async def test_gateway_refresh_reuses_preloaded_extension_module_generation(
 
     await manager._refresh_runtime(records=[record])
 
-    assert captured_kwargs["preloaded_extension_names"] == frozenset(
-        {"sample-extension"}
-    )
-    gateway_runtime.swap.assert_called_once_with(
-        {"sample-extension": gateway_app}
-    )
+    assert captured_kwargs["preloaded_extension_names"] == frozenset({"sample-extension"})
+    gateway_runtime.swap.assert_called_once_with({"sample-extension": gateway_app})
 
 
 @pytest.mark.asyncio
@@ -468,7 +469,11 @@ def test_filter_compatible_versions_filters_by_dvt_version(monkeypatch) -> None:
 
     versions = [
         {"version": "2.0.0", "dvt_version": ">=2.0.0", "download_url": "https://example/2.0.0.zip"},
-        {"version": "1.3.0", "dvt_version": ">=1.0.0,<2.0.0", "download_url": "https://example/1.3.0.zip"},
+        {
+            "version": "1.3.0",
+            "dvt_version": ">=1.0.0,<2.0.0",
+            "download_url": "https://example/1.3.0.zip",
+        },
         {"version": "1.2.0", "dvt_version": "*", "download_url": "https://example/1.2.0.zip"},
     ]
 
@@ -480,7 +485,13 @@ def test_filter_compatible_versions_filters_by_dvt_version(monkeypatch) -> None:
 def test_filter_compatible_versions_keeps_invalid_spec(monkeypatch) -> None:
     monkeypatch.setattr(extensions_module.config.APP, "VERSION", "1.4.0")
 
-    versions = [{"version": "1.0.0", "dvt_version": "not-a-spec", "download_url": "https://example/1.0.0.zip"}]
+    versions = [
+        {
+            "version": "1.0.0",
+            "dvt_version": "not-a-spec",
+            "download_url": "https://example/1.0.0.zip",
+        }
+    ]
 
     compatible = ExtensionManager._filter_compatible_versions(versions)
 
@@ -492,8 +503,16 @@ def test_filter_compatible_versions_prod_skips_prerelease_extension_versions(mon
     monkeypatch.setattr(extensions_module.config.APP, "CHANNEL", "prod")
 
     versions = [
-        {"version": "0.6.0rc3", "dvt_version": ">=1.15.0", "download_url": "https://example/0.6.0rc3.zip"},
-        {"version": "0.6.0", "dvt_version": ">=1.15.0", "download_url": "https://example/0.6.0.zip"},
+        {
+            "version": "0.6.0rc3",
+            "dvt_version": ">=1.15.0",
+            "download_url": "https://example/0.6.0rc3.zip",
+        },
+        {
+            "version": "0.6.0",
+            "dvt_version": ">=1.15.0",
+            "download_url": "https://example/0.6.0.zip",
+        },
     ]
 
     compatible = ExtensionManager._filter_compatible_versions(versions)
@@ -506,8 +525,16 @@ def test_filter_compatible_versions_dev_allows_prerelease_extension_versions(mon
     monkeypatch.setattr(extensions_module.config.APP, "CHANNEL", "dev")
 
     versions = [
-        {"version": "0.6.0rc3", "dvt_version": ">=1.15.0", "download_url": "https://example/0.6.0rc3.zip"},
-        {"version": "0.6.0", "dvt_version": ">=1.15.0", "download_url": "https://example/0.6.0.zip"},
+        {
+            "version": "0.6.0rc3",
+            "dvt_version": ">=1.15.0",
+            "download_url": "https://example/0.6.0rc3.zip",
+        },
+        {
+            "version": "0.6.0",
+            "dvt_version": ">=1.15.0",
+            "download_url": "https://example/0.6.0.zip",
+        },
     ]
 
     compatible = ExtensionManager._filter_compatible_versions(versions)
@@ -586,9 +613,7 @@ async def test_install_extension_uses_selected_version(monkeypatch, tmp_path: Pa
     manager.distributor_client.list_extension_versions.assert_awaited_once_with(
         "sample-extension", dvt_version="1.4.0", dvt_channel="dev"
     )
-    manager.install_manager.stage_from_url.assert_awaited_once_with(
-        "https://example/1.0.0.zip"
-    )
+    manager.install_manager.stage_from_url.assert_awaited_once_with("https://example/1.0.0.zip")
     install_staged.assert_awaited_once_with(
         extension,
         staged,
@@ -618,12 +643,8 @@ async def test_failed_install_deactivates_previous_runtime(monkeypatch, tmp_path
 
     monkeypatch.setattr(extensions_module.config.APP, "VERSION", "1.4.0")
     monkeypatch.setattr(extensions_module.config.APP, "CHANNEL", "dev")
-    monkeypatch.setattr(
-        extensions_module.config.EXTENSIONS, "EXTENSIONS_DATA_DIR", str(tmp_path)
-    )
-    monkeypatch.setattr(
-        manager, "get_extension_or_raise", AsyncMock(return_value=extension)
-    )
+    monkeypatch.setattr(extensions_module.config.EXTENSIONS, "EXTENSIONS_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(manager, "get_extension_or_raise", AsyncMock(return_value=extension))
     manager.distributor_client = SimpleNamespace(
         list_extension_versions=AsyncMock(
             return_value={
@@ -648,12 +669,8 @@ async def test_failed_install_deactivates_previous_runtime(monkeypatch, tmp_path
         return item
 
     monkeypatch.setattr(manager.db_manager, "mark_uninstalled", mark_uninstalled)
-    monkeypatch.setattr(
-        manager.db_manager, "set_runtime_error", AsyncMock(return_value=extension)
-    )
-    monkeypatch.setattr(
-        manager, "list_extensions", AsyncMock(return_value=[extension, other])
-    )
+    monkeypatch.setattr(manager.db_manager, "set_runtime_error", AsyncMock(return_value=extension))
+    monkeypatch.setattr(manager, "list_extensions", AsyncMock(return_value=[extension, other]))
     refresh_runtime = AsyncMock()
     monkeypatch.setattr(manager, "_refresh_runtime", refresh_runtime)
 
@@ -700,9 +717,7 @@ async def test_reload_migration_failure_deactivates_existing_runtime(
         "upgrade",
         lambda _manifest: (_ for _ in ()).throw(RuntimeError("broken migration")),
     )
-    monkeypatch.setattr(
-        manager.db_manager, "set_runtime_error", AsyncMock(return_value=extension)
-    )
+    monkeypatch.setattr(manager.db_manager, "set_runtime_error", AsyncMock(return_value=extension))
     monkeypatch.setattr(manager, "list_extensions", AsyncMock(return_value=[extension]))
     refresh_runtime = AsyncMock()
     monkeypatch.setattr(manager, "_refresh_runtime", refresh_runtime)
@@ -767,14 +782,10 @@ async def test_sync_available_extensions_passes_dvt_channel(monkeypatch) -> None
     manager.distributor_client = SimpleNamespace(
         list_extensions=AsyncMock(
             return_value={
-                "extensions": [
-                    {"name": "test-ext", "versions": ["1.0.0"], "description": "desc"}
-                ]
+                "extensions": [{"name": "test-ext", "versions": ["1.0.0"], "description": "desc"}]
             }
         ),
-        list_extension_versions=AsyncMock(
-            return_value={"versions": []}
-        ),
+        list_extension_versions=AsyncMock(return_value={"versions": []}),
         aclose=AsyncMock(),
     )
 
@@ -788,18 +799,16 @@ async def test_sync_available_extensions_passes_dvt_channel(monkeypatch) -> None
         manifest_json={},
         state_json={},
     )
-    monkeypatch.setattr(
-        manager.db_manager, "upsert_extension", AsyncMock(return_value=fake_extension)
-    )
+    reconcile = AsyncMock(return_value=fake_extension)
+    monkeypatch.setattr(manager.db_manager, "reconcile_extension_identity", reconcile)
 
     await manager.sync_available_extensions()
 
     manager.distributor_client.list_extensions.assert_awaited_once_with(
         dvt_version="1.5.0", dvt_channel="prod"
     )
-    manager.distributor_client.list_extension_versions.assert_awaited_once_with(
-        "test-ext", dvt_version="1.5.0", dvt_channel="prod"
-    )
+    manager.distributor_client.list_extension_versions.assert_not_awaited()
+    reconcile.assert_awaited_once()
     manager.distributor_client.aclose.assert_not_awaited()
 
 
@@ -837,7 +846,7 @@ async def test_sync_available_extensions_uses_manifest_name_and_removes_legacy_a
         manifest_json=manifest.model_dump(mode="json"),
         state_json={},
     )
-    legacy = ExtensionRecord(
+    _legacy = ExtensionRecord(
         id="legacy-id",
         name="Bitrix24 Connector",
         display_name="Bitrix24 Connector",
@@ -853,8 +862,11 @@ async def test_sync_available_extensions_uses_manifest_name_and_removes_legacy_a
             return_value={
                 "extensions": [
                     {
-                        "name": "Bitrix24 Connector",
+                        "name": "bitrix24-connector",
+                        "display_name": "Bitrix 24 Connector",
                         "description": "Bitrix24 Nodes",
+                        "repository_url": "https://git.example/bitrix24-connector",
+                        "legacy_aliases": ["Bitrix24 Connector"],
                         "versions": ["0.9.11"],
                     }
                 ]
@@ -872,28 +884,18 @@ async def test_sync_available_extensions_uses_manifest_name_and_removes_legacy_a
             }
         ),
     )
-    monkeypatch.setattr(
-        manager,
-        "_load_manifest_from_repository",
-        AsyncMock(return_value=manifest),
-    )
-    upsert_extension = AsyncMock(return_value=canonical)
-    delete_extension_record = AsyncMock()
-    monkeypatch.setattr(manager.db_manager, "upsert_extension", upsert_extension)
-    monkeypatch.setattr(
-        manager.db_manager, "delete_extension_record", delete_extension_record
-    )
-    monkeypatch.setattr(manager, "get_extension", AsyncMock(return_value=legacy))
+    reconcile = AsyncMock(return_value=canonical)
+    monkeypatch.setattr(manager.db_manager, "reconcile_extension_identity", reconcile)
 
     result = await manager.sync_available_extensions()
 
-    data, passed_manifest = upsert_extension.await_args.args
+    data, passed_manifest = reconcile.await_args.args[:2]
     assert data.name == "bitrix24-connector"
     assert data.display_name == "Bitrix 24 Connector"
-    assert data.repository_url == download_url
-    assert passed_manifest is manifest
-    delete_extension_record.assert_awaited_once_with(legacy)
-    assert canonical.available_versions == ["0.9.11"]
+    assert passed_manifest.name == "bitrix24-connector"
+    assert passed_manifest.legacy_names == ("Bitrix24 Connector",)
+    assert reconcile.await_args.kwargs["available_versions"] == ["0.9.11"]
+    manager.distributor_client.list_extension_versions.assert_not_awaited()
     assert result == [canonical]
 
 
@@ -930,9 +932,7 @@ async def test_install_extension_uses_distributor_catalog_name_from_repository_u
     )
     monkeypatch.setattr(extensions_module.config.APP, "VERSION", "1.22.0-rc1")
     monkeypatch.setattr(extensions_module.config.APP, "CHANNEL", "dev")
-    monkeypatch.setattr(
-        manager, "get_extension_or_raise", AsyncMock(return_value=extension)
-    )
+    monkeypatch.setattr(manager, "get_extension_or_raise", AsyncMock(return_value=extension))
     manager.distributor_client = SimpleNamespace(
         list_extension_versions=AsyncMock(
             return_value={
@@ -953,7 +953,7 @@ async def test_install_extension_uses_distributor_catalog_name_from_repository_u
     await manager.install_extension(extension.name)
 
     manager.distributor_client.list_extension_versions.assert_awaited_once_with(
-        "Bitrix24 Connector",
+        "bitrix24-connector",
         dvt_version="1.22.0-rc1",
         dvt_channel="dev",
     )
@@ -1013,23 +1013,17 @@ async def test_install_uploaded_package_merges_uninstalled_legacy_catalog_record
     monkeypatch.setattr(extensions_module, "check_dvt_compatibility", lambda _manifest: True)
     monkeypatch.setattr(manager, "get_extension", AsyncMock(return_value=None))
     monkeypatch.setattr(manager, "list_extensions", AsyncMock(return_value=[legacy]))
-    upsert_extension = AsyncMock(return_value=canonical)
-    delete_extension_record = AsyncMock()
-    monkeypatch.setattr(manager.db_manager, "upsert_extension", upsert_extension)
-    monkeypatch.setattr(
-        manager.db_manager, "delete_extension_record", delete_extension_record
-    )
+    reconcile = AsyncMock(return_value=canonical)
+    monkeypatch.setattr(manager.db_manager, "reconcile_extension_identity", reconcile)
     install_staged = AsyncMock(return_value=canonical)
     monkeypatch.setattr(manager, "_install_staged_package", install_staged)
 
     result = await manager.install_uploaded_package("package-id")
 
-    create_data, passed_manifest = upsert_extension.await_args.args
+    reconcile.assert_awaited_once()
+    create_data, passed_manifest = reconcile.await_args.args[:2]
     assert create_data.name == "bitrix24-connector"
-    assert create_data.repository_url == repository_url
     assert passed_manifest is manifest
-    assert canonical.available_versions == ["0.9.11", "0.9.10"]
-    delete_extension_record.assert_awaited_once_with(legacy)
     install_staged.assert_awaited_once_with(
         canonical,
         staged,
@@ -1085,35 +1079,33 @@ async def test_sync_installed_extensions_merges_legacy_catalog_alias_on_startup(
     )
     monkeypatch.setattr(extensions_module, "process_pending_deletions", lambda _fn: None)
     monkeypatch.setattr(extensions_module, "iter_extension_roots", lambda: [root])
-    monkeypatch.setattr(extensions_module, "load_manifest", lambda *_args, **_kwargs: manifest)
+    monkeypatch.setattr(
+        extensions_module, "load_manifest_payload", lambda *_args, **_kwargs: manifest
+    )
     monkeypatch.setattr(
         manager.db_manager,
         "sync_installed_extensions",
         AsyncMock(return_value=[canonical, legacy]),
     )
-    delete_extension_record = AsyncMock()
-    monkeypatch.setattr(
-        manager.db_manager, "delete_extension_record", delete_extension_record
-    )
+    reconcile = AsyncMock(return_value=canonical)
+    monkeypatch.setattr(manager.db_manager, "reconcile_extension_identity", reconcile)
     monkeypatch.setattr(
         manager,
         "list_extensions",
-        AsyncMock(side_effect=[[canonical, legacy], [canonical], [canonical]]),
+        AsyncMock(side_effect=[[canonical], [canonical]]),
     )
     refresh_runtime = AsyncMock()
     monkeypatch.setattr(manager, "_refresh_runtime", refresh_runtime)
 
     result = await manager.sync_installed_extensions()
 
-    assert canonical.repository_url == repository_url
-    assert canonical.available_versions == ["0.9.11"]
-    delete_extension_record.assert_awaited_once_with(legacy)
+    reconcile.assert_awaited_once()
     refresh_runtime.assert_awaited_once_with(records=[canonical])
     assert result == [canonical]
 
 
 @pytest.mark.asyncio
-async def test_find_legacy_catalog_extension_matches_project_package_name(monkeypatch) -> None:
+async def test_find_extension_for_manifest_matches_project_package_name(monkeypatch) -> None:
     manager = get_mock_extension_manager(_FakeAsyncSession())
     legacy = ExtensionRecord(
         name="Yandex Metrica Connector",
@@ -1127,13 +1119,14 @@ async def test_find_legacy_catalog_extension_matches_project_package_name(monkey
         {
             "name": "yandex_metrica",
             "package_name": "yandex-metrica-connector",
+            "legacy_names": ["Yandex Metrica Connector"],
             "version": "0.1.0",
             "display_name": "Yandex Metrica",
         }
     )
     monkeypatch.setattr(manager, "list_extensions", AsyncMock(return_value=[legacy]))
 
-    matched = await manager._find_legacy_catalog_extension(manifest)
+    matched = await manager._find_extension_for_manifest(manifest)
 
     assert matched is legacy
 

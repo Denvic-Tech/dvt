@@ -1,8 +1,8 @@
-import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from src.modules.extension_management.domain.types import (
@@ -12,10 +12,25 @@ from src.modules.extension_management.domain.types import (
 
 
 def normalize_extension_identity(value: str | None) -> str:
-    """Normalize human/catalog and package extension names to a comparable identity."""
+    """Normalize extension identity using Python package-name normalization (PEP 503)."""
     if not value:
         return ""
-    return re.sub(r"[\W_]+", "-", value.strip().casefold(), flags=re.UNICODE).strip("-")
+    return canonicalize_name(value.strip())
+
+
+def extension_identity_set(
+    *values: str | None,
+    aliases: Iterable[str] = (),
+) -> frozenset[str]:
+    """Build one comparable identity set from canonical values and legacy aliases."""
+    return frozenset(
+        identity
+        for identity in (
+            *(normalize_extension_identity(value) for value in values),
+            *(normalize_extension_identity(alias) for alias in aliases),
+        )
+        if identity
+    )
 
 
 def resolve_package_operation(

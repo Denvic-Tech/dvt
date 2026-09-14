@@ -84,6 +84,7 @@ class ExtensionManifest:
     name: str
     version: str
     package_name: str | None = None
+    legacy_names: tuple[str, ...] = ()
     dvt_version: str | None = None
     display_name: str | None = None
     description: str = ""
@@ -112,12 +113,13 @@ class ExtensionManifest:
             )
         object.__setattr__(
             self,
+            "legacy_names",
+            tuple(item for item in self.legacy_names if isinstance(item, str) and item.strip()),
+        )
+        object.__setattr__(
+            self,
             "requirements",
-            [
-                item
-                for item in self.requirements
-                if isinstance(item, str) and item.strip()
-            ],
+            [item for item in self.requirements if isinstance(item, str) and item.strip()],
         )
         object.__setattr__(self, "state_schema", dict(self.state_schema or {}))
         object.__setattr__(
@@ -138,6 +140,7 @@ class ExtensionManifest:
             name=str(payload.get("name") or ""),
             version=str(payload.get("version") or ""),
             package_name=payload.get("package_name"),
+            legacy_names=tuple(payload.get("legacy_names") or ()),
             dvt_version=payload.get("dvt_version"),
             display_name=payload.get("display_name"),
             description=str(payload.get("description") or ""),
@@ -164,6 +167,7 @@ class ExtensionManifest:
             "name": self.name,
             "version": self.version,
             "package_name": self.package_name,
+            "legacy_names": list(self.legacy_names),
             "dvt_version": self.dvt_version,
             "display_name": self.display_name,
             "description": self.description,
@@ -171,9 +175,7 @@ class ExtensionManifest:
             "homepage_url": self.homepage_url,
             "backend": backend.model_dump(exclude_none=exclude_none),
             "frontend": (
-                frontend.model_dump(exclude_none=exclude_none)
-                if frontend is not None
-                else None
+                frontend.model_dump(exclude_none=exclude_none) if frontend is not None else None
             ),
             "requirements": list(self.requirements),
             "state_schema": dict(self.state_schema),

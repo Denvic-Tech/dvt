@@ -9,6 +9,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.enums import ExtensionDepsStatus
 from src.logger import logger
 from src.modules.extension_management.domain.entities import ExtensionCreate
+from src.modules.extension_management.domain.policies import (
+    extension_identity_set,
+    normalize_extension_identity,
+)
 from src.modules.extension_management.domain.value_objects import ExtensionManifest
 from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.extension_management.infra.manifest import build_manifest_stub
@@ -21,14 +25,41 @@ class ExtensionDBManager:
         self.session = session
 
     async def list_extensions(self) -> list[ExtensionRecord]:
-        return (await self.session.execute(
-            sa.select(ExtensionRecord).order_by(ExtensionRecord.name)
-        )).scalars().all()
+        return (
+            (await self.session.execute(sa.select(ExtensionRecord).order_by(ExtensionRecord.name)))
+            .scalars()
+            .all()
+        )
 
     async def get_extension(self, name: str) -> ExtensionRecord | None:
-        return (await self.session.execute(
-            sa.select(ExtensionRecord).where(ExtensionRecord.name == name)
-        )).scalars().first()
+        exact = (
+            (
+                await self.session.execute(
+                    sa.select(ExtensionRecord).where(ExtensionRecord.name == name)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if exact is not None:
+            return exact
+
+        identity = normalize_extension_identity(name)
+        if not identity:
+            return None
+        records = (await self.session.execute(sa.select(ExtensionRecord))).scalars().all()
+        for extension in records:
+            payload = extension.manifest_json or {}
+            aliases = extension_identity_set(
+                extension.name,
+                payload.get("package_name"),
+                aliases=(
+                    alias for alias in payload.get("legacy_names", []) if isinstance(alias, str)
+                ),
+            )
+            if identity in aliases:
+                return extension
+        return None
 
     async def get_extension_or_raise(self, name: str) -> ExtensionRecord:
         extension = await self.get_extension(name)
@@ -46,9 +77,7 @@ class ExtensionDBManager:
         now = datetime.now(UTC)
         upd_data = {}
 
-        def _apply_update(
-            target: ExtensionRecord, update_data: dict | None = None
-        ) -> None:
+        def _apply_update(target: ExtensionRecord, update_data: dict | None = None) -> None:
             if update_data is None:
                 update_data = {}
 
@@ -82,9 +111,7 @@ class ExtensionDBManager:
             extension = ExtensionRecord(
                 name=data.name,
                 display_name=(
-                    data.display_name
-                    or (manifest.display_name if manifest else None)
-                    or data.name
+                    data.display_name or (manifest.display_name if manifest else None) or data.name
                 ),
                 description=data.description or (manifest.description if manifest else "") or "",
                 repository_url=data.repository_url,
@@ -98,7 +125,9 @@ class ExtensionDBManager:
                         or (manifest.display_name if manifest else None)
                         or data.name
                     ),
-                    description=data.description or (manifest.description if manifest else "") or "",
+                    description=data.description
+                    or (manifest.description if manifest else "")
+                    or "",
                     repository_url=data.repository_url,
                     existing_manifest=manifest.model_dump(mode="json") if manifest else None,
                 ),
@@ -136,6 +165,137 @@ class ExtensionDBManager:
 
         return merged_extension
 
+    async def reconcile_extension_identity(
+        self,
+        data: ExtensionCreate,
+        manifest: ExtensionManifest | None = None,
+        *,
+        aliases: tuple[str, ...] = (),
+        available_versions: list[str] | None = None,
+    ) -> ExtensionRecord:
+        """Atomically merge records that resolve to one canonical package identity."""
+        canonical = normalize_extension_identity(data.name)
+        identities = extension_identity_set(
+            data.name,
+            manifest.package_name if manifest else None,
+            aliases=(*aliases, *(manifest.legacy_names if manifest else ())),
+        )
+        records = (await self.session.execute(sa.select(ExtensionRecord))).scalars().all()
+        candidates: list[ExtensionRecord] = []
+        for item in records:
+            payload = item.manifest_json or {}
+            item_identities = extension_identity_set(
+                item.name,
+                payload.get("package_name"),
+                aliases=(
+                    alias for alias in payload.get("legacy_names", []) if isinstance(alias, str)
+                ),
+            )
+            if identities.intersection(item_identities):
+                candidates.append(item)
+        if not candidates:
+            created = await self.upsert_extension(
+                ExtensionCreate(
+                    name=canonical or data.name,
+                    display_name=data.display_name,
+                    description=data.description,
+                    repository_url=data.repository_url,
+                ),
+                manifest,
+            )
+            if available_versions is not None:
+                created.available_versions = list(available_versions)
+                self.session.add(created)
+                await self.session.commit()
+                await self.session.refresh(created)
+            return created
+
+        def rank(item: ExtensionRecord) -> tuple[int, int, int, int]:
+            return (
+                int(bool(item.is_installed)),
+                int(bool(item.install_path or item.state_json)),
+                int(normalize_extension_identity(item.name) == canonical),
+                int(bool(item.repository_url or item.available_versions)),
+            )
+
+        survivor = max(candidates, key=rank)
+        catalog = max(
+            candidates,
+            key=lambda item: (
+                int(bool(item.repository_url)),
+                int(bool(item.available_versions)),
+                int(bool(item.last_version)),
+                int(normalize_extension_identity(item.name) == canonical),
+            ),
+        )
+        survivor.display_name = (
+            data.display_name
+            or (manifest.display_name if manifest else None)
+            or survivor.display_name
+            or survivor.name
+        )
+        if data.description is not None:
+            survivor.description = data.description
+        elif manifest and manifest.description:
+            survivor.description = manifest.description
+        survivor.repository_url = (
+            data.repository_url
+            or survivor.repository_url
+            or (catalog.repository_url if catalog is not None else None)
+        )
+        if available_versions is not None:
+            survivor.available_versions = list(available_versions)
+            survivor.last_version = (
+                available_versions[0] if available_versions else survivor.last_version
+            )
+        elif catalog is not None and catalog is not survivor and catalog.available_versions:
+            survivor.available_versions = list(catalog.available_versions)
+            survivor.last_version = catalog.last_version or survivor.last_version
+
+        if survivor.manifest_json:
+            existing_manifest = dict(survivor.manifest_json)
+            if manifest and manifest.package_name:
+                existing_manifest["package_name"] = manifest.package_name
+        else:
+            existing_manifest = manifest.model_dump(mode="json") if manifest else None
+        if existing_manifest:
+            existing_manifest = dict(existing_manifest)
+            existing_manifest["legacy_names"] = sorted(
+                {
+                    *existing_manifest.get("legacy_names", []),
+                    *aliases,
+                    *(manifest.legacy_names if manifest else ()),
+                    *(item.name for item in candidates if item is not survivor),
+                }
+            )
+        survivor.manifest_json = self._build_manifest_json(
+            name=survivor.name,
+            display_name=survivor.display_name or survivor.name,
+            description=survivor.description,
+            repository_url=survivor.repository_url,
+            existing_manifest=existing_manifest,
+        )
+        survivor.updated_at = datetime.now(UTC)
+        self.session.add(survivor)
+        for duplicate in candidates:
+            if duplicate is survivor:
+                continue
+            if not survivor.is_installed and duplicate.is_installed:
+                survivor.is_installed = duplicate.is_installed
+                survivor.is_enabled = duplicate.is_enabled
+                survivor.deps_status = duplicate.deps_status
+                survivor.current_version = duplicate.current_version
+                survivor.install_path = duplicate.install_path
+                survivor.state_json = dict(duplicate.state_json or {})
+                survivor.error_message = duplicate.error_message
+                survivor.installed_at = duplicate.installed_at
+            elif duplicate.state_json and not survivor.state_json:
+                survivor.state_json = dict(duplicate.state_json)
+            await self.session.delete(duplicate)
+        await self.session.commit()
+        await self.session.refresh(survivor)
+        return survivor
+
     async def set_enabled(self, name: str, enabled: bool) -> ExtensionRecord:
         logger.debug(f"Setting extension '{name}' enabled={enabled}")
         extension = await self.get_extension_or_raise(name)
@@ -168,7 +328,9 @@ class ExtensionDBManager:
     ) -> ExtensionRecord:
         logger.debug(f"Marking extension '{extension.name}' as installed version='{version}'")
         now = datetime.now(UTC)
-        extension.display_name = display_name or manifest.display_name or extension.display_name or extension.name
+        extension.display_name = (
+            display_name or manifest.display_name or extension.display_name or extension.name
+        )
         extension.description = description or manifest.description or extension.description
         extension.current_version = version
         extension.last_version = latest_version or version
@@ -218,9 +380,7 @@ class ExtensionDBManager:
         await self.session.refresh(extension)
         return extension
 
-    async def sync_installed_extensions(
-        self, discovered: dict[str, dict]
-    ) -> list[ExtensionRecord]:
+    async def sync_installed_extensions(self, discovered: dict[str, dict]) -> list[ExtensionRecord]:
         """
         Синхронизирует найденные на диске расширения с БД.
         Принимает словарь {name: {root_dir, manifest}}, полученный от координатора.
@@ -236,15 +396,15 @@ class ExtensionDBManager:
             manifest = info["manifest"]
             root_dir = info["root_dir"]
 
-            extension = known.get(ext_name)
+            extension = self._find_known_extension_for_manifest(
+                known=known, manifest=manifest, root_dir=root_dir
+            )
             if extension is None:
-                extension = self._find_known_extension_for_manifest(
-                    known=known, manifest=manifest, root_dir=root_dir
-                )
+                extension = known.get(ext_name)
             if extension is None:
                 extension = ExtensionRecord(
-                    name=root_dir.name,
-                    display_name=manifest.display_name or root_dir.name,
+                    name=manifest.name,
+                    display_name=manifest.display_name or manifest.name,
                     description=manifest.description,
                     repository_url=None,
                     is_enabled=True,
@@ -261,6 +421,7 @@ class ExtensionDBManager:
                 )
             else:
                 manifest_json = manifest.model_dump(mode="json")
+                manifest_json["name"] = extension.name
                 runtime_changed = any(
                     (
                         extension.display_name != (manifest.display_name or extension.display_name),
@@ -321,6 +482,7 @@ class ExtensionDBManager:
             name=name,
             version=manifest_payload.get("version", ""),
             package_name=manifest_payload.get("package_name"),
+            legacy_names=manifest_payload.get("legacy_names"),
             display_name=display_name,
             description=description,
             repository_url=repository_url,
@@ -340,9 +502,34 @@ class ExtensionDBManager:
         manifest: ExtensionManifest,
         root_dir: Path,
     ) -> ExtensionRecord | None:
-        del manifest  # Matching is intentionally path-based; manifest name may differ from DB name.
         root_dir_str = str(root_dir)
         for extension in known.values():
             if extension.install_path == root_dir_str:
                 return extension
-        return None
+
+        identities = extension_identity_set(
+            manifest.name,
+            manifest.package_name,
+            aliases=manifest.legacy_names,
+        )
+        candidates: list[ExtensionRecord] = []
+        for extension in known.values():
+            payload = extension.manifest_json or {}
+            extension_identities = extension_identity_set(
+                extension.name,
+                payload.get("package_name"),
+                aliases=(
+                    alias for alias in payload.get("legacy_names", []) if isinstance(alias, str)
+                ),
+            )
+            if identities.intersection(extension_identities):
+                candidates.append(extension)
+        if not candidates:
+            return None
+        return max(
+            candidates,
+            key=lambda item: (
+                int(bool(item.is_installed)),
+                int(bool(item.install_path or item.state_json)),
+            ),
+        )
