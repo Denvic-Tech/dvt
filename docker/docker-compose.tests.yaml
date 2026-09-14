@@ -12,6 +12,7 @@ x-tester-service: &tester-service
     - .env
   environment:
     LOG_TO_DB: "false"
+    EXTENSIONS_VOLUME_PATH: /app/extensions
   profiles: [ "testing" ]
 
 services:
@@ -26,6 +27,7 @@ services:
     command: [ "pytest", "tests/integration" ]
     environment:
       LOG_TO_DB: "false"
+      EXTENSIONS_VOLUME_PATH: /app/extensions
       DVT_INTEGRATION_IMAGE_PREFIX: ${DVT_INTEGRATION_IMAGE_PREFIX:-dvt}
       DVT_INTEGRATION_IMAGE_TAG: ${DVT_INTEGRATION_IMAGE_TAG:-latest}
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -44,6 +46,7 @@ services:
     command: [ "pytest", "tests/e2e" ]
     environment:
       LOG_TO_DB: "false"
+      EXTENSIONS_VOLUME_PATH: /app/extensions
       DOCKER_HOST: unix:///var/run/docker.sock
       TC_MAX_TRIES: "600"
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock

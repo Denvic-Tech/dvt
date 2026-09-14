@@ -3557,3 +3557,6 @@
 
 ### 2026-09-14 19:05:23
 - Интеграционные MinIO и FTP переведены на session-scoped Testcontainers fixtures: roundtrip-тесты используют динамические endpoints, а Compose runner больше не поднимает отдельные minio_test_db и ftp_test_db сервисы.
+
+### 2026-09-14 20:55:01
+- Изолированы каталоги расширений для Docker test runners: установка расширений выполняется до discovery тестов, добавлены strict-режим установки и диагностика дубликатов identity.

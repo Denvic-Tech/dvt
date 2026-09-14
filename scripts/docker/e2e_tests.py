@@ -1,5 +1,6 @@
+import atexit
 import os
-import shlex
+import shutil
 import sys
 
 try:
@@ -7,9 +8,8 @@ try:
         PROJECT_DIR,
         build_app_compose_command,
         build_testing_compose_command,
-        collect_extension_test_dirs,
+        create_isolated_extensions_dir,
         parse_test_script_args,
-        resolve_extension_test_target,
         resolve_test_target,
         run_command,
     )
@@ -18,9 +18,8 @@ except ModuleNotFoundError:
         PROJECT_DIR,
         build_app_compose_command,
         build_testing_compose_command,
-        collect_extension_test_dirs,
+        create_isolated_extensions_dir,
         parse_test_script_args,
-        resolve_extension_test_target,
         resolve_test_target,
         run_command,
     )
@@ -40,37 +39,28 @@ if __name__ == "__main__":
 
     if test_path is not None:
         try:
-            test_targets = [
+            test_selection = [
+                "--core-target",
                 resolve_test_target(
                     project_dir=PROJECT_DIR,
                     tests_dir="tests/e2e",
                     test_path=test_path,
-                )
+                ),
             ]
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             sys.exit(2)
     elif extension_name is not None:
-        try:
-            test_targets = [
-                resolve_extension_test_target(
-                    project_dir=PROJECT_DIR,
-                    extension_name=extension_name,
-                    tests_type="e2e",
-                )
-            ]
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            sys.exit(2)
+        test_selection = ["--extension", extension_name]
     else:
-        test_targets = ["tests/e2e"]
-        extension_dirs = collect_extension_test_dirs(
-            project_dir=PROJECT_DIR,
-            tests_type="e2e",
-        )
-        if extension_dirs:
-            print(f"Найдены тесты расширений: {', '.join(extension_dirs)}")
-        test_targets.extend(extension_dirs)
+        test_selection = ["--core-with-extensions"]
+
+    extensions_dir = create_isolated_extensions_dir(
+        project_dir=PROJECT_DIR,
+        tests_type="e2e",
+    )
+    atexit.register(shutil.rmtree, extensions_dir, ignore_errors=True)
+    env["EXTENSIONS_VOLUME_PATH"] = str(extensions_dir)
 
     app_build_exit_code = run_command(
         build_app_compose_command(
@@ -93,22 +83,25 @@ if __name__ == "__main__":
     if tester_build_exit_code != 0:
         sys.exit(tester_build_exit_code)
 
-    pytest_args_str = shlex.join(pytest_args)
-    test_targets_str = shlex.join(test_targets)
     e2e_exit_code = run_command(
         build_testing_compose_command(
             PROJECT_DIR,
             "run",
             "--rm",
             "tester_e2e",
-            "bash",
-            "-c",
-            (
-                "python scripts/docker/install_extensions_locally.py --target-dir /app/extensions"
-                " && pytest -s -vv --log-cli-level=DEBUG"
-                " --log-cli-format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'"
-                f" {test_targets_str} {pytest_args_str}"
-            ),
+            "python",
+            "scripts/docker/run_tests_with_extensions.py",
+            "--tests-type",
+            "e2e",
+            "--extensions-dir",
+            "/app/extensions",
+            *test_selection,
+            "--",
+            "-s",
+            "-vv",
+            "--log-cli-level=DEBUG",
+            "--log-cli-format=%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            *pytest_args,
         ),
         env=env,
     )
