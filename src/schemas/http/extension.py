@@ -27,6 +27,8 @@ class ExtensionManifestFrontendSchema(BaseModel):
 class ExtensionManifestSchema(BaseModel):
     name: str = ""
     version: str = ""
+    package_name: str | None = None
+    legacy_names: list[str] = Field(default_factory=list)
     dvt_version: str | None = None
     display_name: str | None = None
     description: str = ""

@@ -3548,3 +3548,9 @@
 
 ### 2026-09-11 18:15:37
 - Исправлена идентификация расширений между каталогом и .dvtx: системное имя теперь берется из manifest, legacy-дубликаты каталога объединяются с канонической записью при установке и старте, а операции магазина сохраняют его catalog key.
+
+### 2026-09-14 15:28:07
+- Актуализировано управление расширениями: canonical identity теперь основана на [project].name с legacy aliases, catalog sync не скачивает архивы ради metadata, а catalog/.dvtx/startup flows безопасно объединяют дубликаты без потери state и installed identity.
+
+### 2026-09-14 15:59:24
+- Добавлены regression-проверки обновления DVT 1.21→1.22: legacy repository identity объединяется с canonical catalog identity без дубликатов и без потери installed state.

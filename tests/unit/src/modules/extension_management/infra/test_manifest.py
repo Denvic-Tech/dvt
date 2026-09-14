@@ -49,7 +49,7 @@ def test_load_manifest_uses_nodes_from_pyproject(tmp_path):
     ]
 
 
-def test_load_manifest_uses_extension_root_name_as_effective_name(tmp_path):
+def test_load_manifest_explicit_runtime_name_preserves_persistent_identity(tmp_path):
     extension_root = tmp_path / "custom_alias"
     extension_root.mkdir(parents=True)
     (extension_root / "pyproject.toml").write_text(
@@ -68,6 +68,34 @@ def test_load_manifest_uses_extension_root_name_as_effective_name(tmp_path):
 
     assert manifest is not None
     assert manifest.name == "custom_alias"
+    assert manifest.package_name == "git_manifest_name"
+
+
+def test_load_manifest_defaults_to_normalized_project_name_and_keeps_legacy_aliases(tmp_path):
+    extension_root = tmp_path / "repository-name"
+    extension_root.mkdir(parents=True)
+    (extension_root / "pyproject.toml").write_text(
+        """
+        [project]
+        name = "Foo.Bar"
+        version = "1.2.3"
+
+        [project.urls]
+        Repository = "https://git.example/group/repository-name.git"
+
+        [tool.dvt_extension]
+        name = "old_tool_name"
+        display_name = "Foo Bar"
+        """,
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(extension_root)
+
+    assert manifest is not None
+    assert manifest.name == "foo-bar"
+    assert manifest.package_name == "Foo.Bar"
+    assert set(manifest.legacy_names) == {"old_tool_name", "repository-name"}
 
 
 def test_load_manifest_keeps_legacy_conventional_backend_nodes(tmp_path):
