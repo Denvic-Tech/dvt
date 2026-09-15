@@ -279,6 +279,71 @@ async def test_refresh_runtime_excludes_disabled_extensions(monkeypatch, tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_refresh_runtime_retries_persisted_node_runtime_error_without_strict_mode(
+    monkeypatch, tmp_path: Path
+) -> None:
+    manager = get_mock_extension_manager(_FakeAsyncSession())
+    extension_root = tmp_path / "sample-extension"
+    extension_root.mkdir()
+    record = SimpleNamespace(
+        name="sample-extension",
+        install_path=str(extension_root),
+        is_installed=True,
+        is_enabled=True,
+        error_message=(
+            "Extension node backend validation failed: "
+            "Backend package 'backend_sample' conflicts with an existing Python package"
+        ),
+    )
+    captured_specs = []
+
+    def fake_load(specs, **_kwargs):
+        captured_specs.extend(specs)
+        return SimpleNamespace(failures={}, loaded={record.name: object()})
+
+    set_runtime_error = AsyncMock(return_value=record)
+    monkeypatch.setattr(extensions_module, "load_all_extension_runtimes", fake_load)
+    monkeypatch.setattr(manager.db_manager, "set_runtime_error", set_runtime_error)
+
+    await manager._refresh_runtime(records=[record])
+
+    assert [(item.name, item.root_dir) for item in captured_specs] == [
+        (record.name, extension_root)
+    ]
+    set_runtime_error.assert_awaited_once_with(record, None)
+
+
+@pytest.mark.asyncio
+async def test_refresh_runtime_does_not_retry_non_node_error_without_strict_mode(
+    monkeypatch, tmp_path: Path
+) -> None:
+    manager = get_mock_extension_manager(_FakeAsyncSession())
+    extension_root = tmp_path / "sample-extension"
+    extension_root.mkdir()
+    record = SimpleNamespace(
+        name="sample-extension",
+        install_path=str(extension_root),
+        is_installed=True,
+        is_enabled=True,
+        error_message="Extension migration failed: schema upgrade failed",
+    )
+    captured_specs = []
+
+    def fake_load(specs, **_kwargs):
+        captured_specs.extend(specs)
+        return SimpleNamespace(failures={}, loaded={})
+
+    set_runtime_error = AsyncMock(return_value=record)
+    monkeypatch.setattr(extensions_module, "load_all_extension_runtimes", fake_load)
+    monkeypatch.setattr(manager.db_manager, "set_runtime_error", set_runtime_error)
+
+    await manager._refresh_runtime(records=[record])
+
+    assert captured_specs == []
+    set_runtime_error.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_gateway_refresh_reuses_preloaded_extension_module_generation(
     monkeypatch, tmp_path: Path
 ) -> None:

@@ -213,3 +213,91 @@ def test_existing_python_package_rejects_extension_backend(
 
     assert report.loaded == {}
     assert report.failures["sample"].stage == "backend_package"
+
+
+def test_replaced_extension_root_drops_stale_backend_package(
+    monkeypatch, tmp_path: Path
+) -> None:
+    backend_name = "dvt_test_replaced_backend"
+    old_root = tmp_path / "old-extension-root"
+    new_root = tmp_path / "new-extension-root"
+    node_source = f"""
+import {backend_name}
+from src.node_dsl.base_node.base import BaseNode
+
+class RuntimeSampleNode(BaseNode):
+    def process(self):
+        return None
+"""
+    _write_extension(old_root, node_source=node_source, backend_name=backend_name)
+    _write_extension(new_root, node_source=node_source, backend_name=backend_name)
+    monkeypatch.setattr(runtime.config.APP, "VERSION", "")
+    monkeypatch.setattr(
+        "src.node_dsl._init_nodes.rebuild_node_registries",
+        lambda **_kwargs: SimpleNamespace(extension_failures={}),
+    )
+
+    first_report = runtime.load_all_extension_runtimes(
+        [ExtensionRuntimeSpec(name="sample", root_dir=old_root)]
+    )
+    old_backend_module = sys.modules[backend_name]
+    assert first_report.failures == {}
+    assert Path(old_backend_module.__file__).resolve().is_relative_to(old_root.resolve())
+
+    second_report = runtime.load_all_extension_runtimes(
+        [ExtensionRuntimeSpec(name="sample", root_dir=new_root)]
+    )
+
+    assert second_report.failures == {}
+    assert list(second_report.loaded) == ["sample"]
+    assert sys.modules[backend_name] is not old_backend_module
+    assert Path(sys.modules[backend_name].__file__).resolve().is_relative_to(new_root.resolve())
+
+    loader.purge_extension_modules(second_report.loaded["sample"])
+    registry.clear()
+
+
+def test_replaced_extension_root_restores_previous_modules_on_strict_failure(
+    monkeypatch, tmp_path: Path
+) -> None:
+    backend_name = "dvt_test_replaced_backend_rollback"
+    old_root = tmp_path / "old-extension-root"
+    new_root = tmp_path / "new-extension-root"
+    valid_node_source = f"""
+import {backend_name}
+from src.node_dsl.base_node.base import BaseNode
+
+class RuntimeSampleNode(BaseNode):
+    def process(self):
+        return None
+"""
+    _write_extension(old_root, node_source=valid_node_source, backend_name=backend_name)
+    _write_extension(
+        new_root,
+        node_source="this is not valid python !!!",
+        backend_name=backend_name,
+    )
+    monkeypatch.setattr(runtime.config.APP, "VERSION", "")
+    monkeypatch.setattr(
+        "src.node_dsl._init_nodes.rebuild_node_registries",
+        lambda **_kwargs: SimpleNamespace(extension_failures={}),
+    )
+
+    runtime.load_all_extension_runtimes(
+        [ExtensionRuntimeSpec(name="sample", root_dir=old_root)]
+    )
+    old_backend_module = sys.modules[backend_name]
+
+    with pytest.raises(ExtensionRuntimeLoadError):
+        runtime.load_all_extension_runtimes(
+            [ExtensionRuntimeSpec(name="sample", root_dir=new_root)],
+            strict_extension_names=frozenset({"sample"}),
+        )
+
+    assert sys.modules[backend_name] is old_backend_module
+    assert Path(old_backend_module.__file__).resolve().is_relative_to(old_root.resolve())
+
+    previous_extension = registry.get("sample")
+    assert previous_extension is not None
+    loader.purge_extension_modules(previous_extension)
+    registry.clear()

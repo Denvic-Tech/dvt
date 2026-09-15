@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from src.modules.extension_management.infra.runtime import loader, registry
 from src.modules.extension_management.infra.runtime.gateway_runtime import (
     ExtensionGatewayRuntime,
     _namespace_extension_components,
@@ -57,6 +58,43 @@ def _client(runtime: ExtensionGatewayRuntime, *, root_path: str = "") -> TestCli
     return TestClient(app)
 
 
+def _write_gateway_extension_with_absolute_backend_import(
+    root: Path, *, backend_name: str, response: str
+) -> None:
+    backend = root / backend_name
+    backend.mkdir(parents=True, exist_ok=True)
+    (backend / "__init__.py").write_text("", encoding="utf-8")
+    (backend / "helper.py").write_text(f"RESPONSE = {response!r}\n", encoding="utf-8")
+    (backend / "gateway.py").write_text(
+        f"""
+from fastapi import APIRouter
+from {backend_name}.helper import RESPONSE
+
+router = APIRouter()
+
+@router.get("/ping")
+async def ping():
+    return {{"message": RESPONSE}}
+""",
+        encoding="utf-8",
+    )
+    (root / "pyproject.toml").write_text(
+        f"""
+[project]
+name = "sample-extension"
+version = "1.0.0"
+
+[tool.dvt_extension]
+name = "sample-extension"
+display_name = "Sample Extension"
+
+[tool.dvt_extension.backend]
+gateway_entrypoint = "{backend_name}.gateway:router"
+""",
+        encoding="utf-8",
+    )
+
+
 def test_gateway_runtime_hot_add_remove_reload_and_openapi(tmp_path: Path) -> None:
     extension_root = tmp_path / "sample-extension"
     extension_root.mkdir()
@@ -91,6 +129,40 @@ def test_gateway_runtime_hot_add_remove_reload_and_openapi(tmp_path: Path) -> No
 
     runtime.remove("sample-extension")
     assert client.get("/extensions/sample-extension/api/ping").status_code == 404
+
+
+def test_gateway_runtime_root_transition_drops_stale_absolute_backend_import(
+    tmp_path: Path,
+) -> None:
+    backend_name = "dvt_test_gateway_backend_transition"
+    old_root = tmp_path / "old-extension-root"
+    new_root = tmp_path / "new-extension-root"
+    _write_gateway_extension_with_absolute_backend_import(
+        old_root, backend_name=backend_name, response="old"
+    )
+    _write_gateway_extension_with_absolute_backend_import(
+        new_root, backend_name=backend_name, response="new"
+    )
+
+    old_report = prepare_extension_gateway_runtime(
+        [ExtensionRuntimeSpec("sample-extension", old_root)]
+    )
+    assert old_report.failures == {}
+    registry.add(old_report.loaded["sample-extension"])
+
+    new_report = prepare_extension_gateway_runtime(
+        [ExtensionRuntimeSpec("sample-extension", new_root)]
+    )
+
+    assert new_report.failures == {}
+    runtime = ExtensionGatewayRuntime()
+    runtime.swap(new_report.apps)
+    assert _client(runtime).get("/extensions/sample-extension/api/ping").json() == {
+        "message": "new"
+    }
+
+    loader.purge_extension_modules(new_report.loaded["sample-extension"])
+    registry.clear()
 
 
 def test_gateway_runtime_shares_dependency_overrides_with_child_apps(tmp_path: Path) -> None:

@@ -3566,3 +3566,6 @@
 
 ### 2026-09-15 14:18:49
 - Исправлены Testcontainers-фикстуры MinIO и FTP: MinIO переведен на закрепленный актуальный образ с поддержкой новых S3 checksums, а FTP теперь использует разрешенный адрес Docker host и protocol-level readiness check с passive data connection.
+
+### 2026-09-15 17:27:53
+- Исправлена перезагрузка расширений при смене install root: stale Python-модули старой generation очищаются до backend validation, а сохраненные retryable ошибки node runtime повторно проверяются после рестарта. Добавлены регрессионные тесты для worker/gateway root transition, rollback и self-healing runtime error.

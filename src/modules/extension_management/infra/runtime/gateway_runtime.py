@@ -18,6 +18,7 @@ from starlette.responses import PlainTextResponse
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
+from src.modules.extension_management.infra.runtime import registry as extensions_registry
 from src.modules.extension_management.infra.runtime._runtime_lock import RUNTIME_LOCK
 from src.modules.extension_management.infra.runtime.loader import (
     _temporary_sys_path,
@@ -25,6 +26,7 @@ from src.modules.extension_management.infra.runtime.loader import (
     ensure_extension_root_namespace,
     load_manifest,
     purge_extension_modules,
+    purge_modules_from_root,
 )
 from src.modules.extension_management.infra.runtime.registry import RegisteredExtension
 from src.modules.extension_management.infra.runtime.runtime import (
@@ -165,6 +167,12 @@ def prepare_extension_gateway_runtime(
             report.loaded[spec.name] = extension
             if not extension.backend.gateway_entrypoint:
                 continue
+            previous_extension = extensions_registry.get(spec.name)
+            if previous_extension is not None and (
+                previous_extension.root_dir.resolve() != extension.root_dir.resolve()
+            ):
+                purge_modules_from_root(previous_extension.root_dir)
+                importlib.invalidate_caches()
             # The fresh generation is imported before the candidate is published.
             purge_extension_modules(extension)
             router = _load_router(extension)
