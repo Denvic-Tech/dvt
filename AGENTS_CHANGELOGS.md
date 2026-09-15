@@ -3563,3 +3563,6 @@
 
 ### 2026-09-15 12:57:49
 - Исправлена очистка временных расширений Docker-тестов: bind mount вынесен за пределы Git checkout, а содержимое удаляется внутри tester-контейнера с корректными правами, чтобы root-owned файлы не блокировали последующие GitLab Runner jobs.
+
+### 2026-09-15 14:18:49
+- Исправлены Testcontainers-фикстуры MinIO и FTP: MinIO переведен на закрепленный актуальный образ с поддержкой новых S3 checksums, а FTP теперь использует разрешенный адрес Docker host и protocol-level readiness check с passive data connection.
