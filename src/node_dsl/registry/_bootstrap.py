@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from contextlib import contextmanager
 
-from src.extensions._runtime_lock import RUNTIME_LOCK
+from src.modules.extension_management.infra.runtime._runtime_lock import RUNTIME_LOCK
 
 _REGISTRY_INIT_LOCK = RUNTIME_LOCK
 _REGISTRY_INITIALIZING = False

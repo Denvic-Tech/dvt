@@ -1,9 +1,9 @@
 import pytest
 from sqlmodel import Session, create_engine
 
-import src.node_dsl as node_dsl
+from src import node_dsl
 from src.exceptions import NodeNotFoundError
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.node_dsl.base_node import BaseNode
 from src.node_dsl.exceptions import NodeDSLException, NodeValidationError
 from src.node_dsl.field import InputField, OutputField

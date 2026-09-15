@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from core.security import derive_legacy_auth_secret
+
 _TRUE_STATEMENT_TOKENS = ("true", "yes", "1", "on")
 
 
@@ -21,7 +23,13 @@ def _get_security_secret(name: str, dev_default: str) -> str:
     value = os.getenv(name, "").strip()
     if value:
         return value
-    return dev_default if COMMON.ENVIRONMENT == "dev" else ""
+    if COMMON.ENVIRONMENT == "dev":
+        return dev_default
+
+    legacy_master_secret = os.getenv("FERNET_KEY", "").strip()
+    if legacy_master_secret:
+        return derive_legacy_auth_secret(legacy_master_secret, name)
+    return ""
 
 
 class PROJECT:
@@ -104,6 +112,17 @@ class EXTENSIONS:
     AUTOLOAD = os.getenv("EXTENSIONS_AUTOLOAD", "true").lower() in _TRUE_STATEMENT_TOKENS
     PENDING_DELETIONS_FILE = PROJECT.DATA_DIR / "extensions_pending_deletions.json"
     EXTENSIONS_DATA_DIR = os.getenv("EXTENSIONS_DATA_DIR", PROJECT.EXTENSIONS_DIR)
+    PACKAGE_MAX_SIZE_BYTES = _get_positive_int_env(
+        "EXTENSION_PACKAGE_MAX_SIZE_BYTES", 512 * 1024 * 1024
+    )
+    PACKAGE_MAX_UNCOMPRESSED_SIZE_BYTES = _get_positive_int_env(
+        "EXTENSION_PACKAGE_MAX_UNCOMPRESSED_SIZE_BYTES", 2 * 1024 * 1024 * 1024
+    )
+    PACKAGE_MAX_FILES = _get_positive_int_env("EXTENSION_PACKAGE_MAX_FILES", 20_000)
+    PACKAGE_MAX_COMPRESSION_RATIO = _get_positive_int_env(
+        "EXTENSION_PACKAGE_MAX_COMPRESSION_RATIO", 200
+    )
+    PACKAGE_STAGE_TTL_SEC = _get_positive_int_env("EXTENSION_PACKAGE_STAGE_TTL_SEC", 3600)
 
     if not DISTRIBUTOR_URL:
         DISTRIBUTOR_URL = __default_distributor_url

@@ -1,5 +1,6 @@
+import atexit
 import os
-import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -8,10 +9,9 @@ try:
         PROJECT_DIR,
         build_prod_compose_command,
         build_testing_compose_command,
-        collect_extension_test_dirs,
+        create_isolated_extensions_dir,
         ensure_external_docker_network,
         parse_test_script_args,
-        resolve_extension_test_target,
         resolve_test_target,
         run_command,
     )
@@ -20,10 +20,9 @@ except ModuleNotFoundError:
         PROJECT_DIR,
         build_prod_compose_command,
         build_testing_compose_command,
-        collect_extension_test_dirs,
+        create_isolated_extensions_dir,
         ensure_external_docker_network,
         parse_test_script_args,
-        resolve_extension_test_target,
         resolve_test_target,
         run_command,
     )
@@ -37,8 +36,16 @@ _RELEASE_TEST_SERVICES = (
     "gateway",
 )
 
+
+def resolve_docker_config_dir(environment: dict[str, str]) -> Path:
+    configured_dir = environment.get("DOCKER_CONFIG", "").strip()
+    if configured_dir:
+        return Path(configured_dir)
+    return Path(PROJECT_DIR) / "tmp" / "docker-config"
+
+
 env = os.environ.copy()
-docker_config_dir = Path(PROJECT_DIR) / "tmp" / "docker-config"
+docker_config_dir = resolve_docker_config_dir(env)
 docker_config_dir.mkdir(parents=True, exist_ok=True)
 env.update(
     {
@@ -53,37 +60,21 @@ if __name__ == "__main__":
 
     if test_path is not None:
         try:
-            test_targets = [
+            test_selection = [
+                "--core-target",
                 resolve_test_target(
                     project_dir=PROJECT_DIR,
                     tests_dir="tests/integration",
                     test_path=test_path,
-                )
+                ),
             ]
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             sys.exit(2)
     elif extension_name is not None:
-        try:
-            test_targets = [
-                resolve_extension_test_target(
-                    project_dir=PROJECT_DIR,
-                    extension_name=extension_name,
-                    tests_type="integration",
-                )
-            ]
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            sys.exit(2)
+        test_selection = ["--extension", extension_name]
     else:
-        test_targets = ["tests/integration"]
-        extension_dirs = collect_extension_test_dirs(
-            project_dir=PROJECT_DIR,
-            tests_type="integration",
-        )
-        if extension_dirs:
-            print(f"Найдены тесты расширений: {', '.join(extension_dirs)}")
-        test_targets.extend(extension_dirs)
+        test_selection = ["--core-with-extensions"]
 
     use_candidates = env.get("DVT_INTEGRATION_USE_CANDIDATES", "false").lower() == "true"
     require_candidate_digests = (
@@ -138,12 +129,18 @@ if __name__ == "__main__":
         if app_build_exit_code != 0:
             sys.exit(app_build_exit_code)
 
+    extensions_dir = create_isolated_extensions_dir(
+        project_dir=PROJECT_DIR,
+        tests_type="integration",
+    )
+    atexit.register(shutil.rmtree, extensions_dir, ignore_errors=True)
+    env["EXTENSIONS_VOLUME_PATH"] = str(extensions_dir)
+
     tester_build_exit_code = run_command(
         build_testing_compose_command(
             PROJECT_DIR,
             "build",
             "tester_integration",
-            "ftp_test_db",
         ),
         env=env,
     )
@@ -152,20 +149,23 @@ if __name__ == "__main__":
 
     ensure_external_docker_network("dvt-net", env=env)
 
-    pytest_args_str = shlex.join(pytest_args)
-    test_targets_str = shlex.join(test_targets)
     test_exit_code = run_command(
         build_testing_compose_command(
             PROJECT_DIR,
             "run",
             "--rm",
             "tester_integration",
-            "bash",
-            "-c",
-            (
-                "python scripts/docker/install_extensions_locally.py --target-dir /app/extensions"
-                f" && pytest -s -vv {test_targets_str} {pytest_args_str}"
-            ),
+            "python",
+            "scripts/docker/run_tests_with_extensions.py",
+            "--tests-type",
+            "integration",
+            "--extensions-dir",
+            "/app/extensions",
+            *test_selection,
+            "--",
+            "-s",
+            "-vv",
+            *pytest_args,
         ),
         env=env,
     )

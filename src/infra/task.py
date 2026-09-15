@@ -6,7 +6,7 @@ from src.db.fastapi.dependencies import AsyncSessionDepends
 from src.dto import (
     project as project_dto,
 )
-from src.managers.extension_dependency_manager import get_dependency_manager
+from src.modules.extension_management.infra.dependency_manager import get_dependency_manager
 from src.modules.project.infra.db_models import ProjectRecord
 from src.modules.task_execution.domain.types import TaskSource
 from src.modules.task_execution.facade import build_task_lifecycle_commands

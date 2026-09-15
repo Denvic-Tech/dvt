@@ -13,12 +13,11 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-from src.db import async_engine
 from src.exception_registry.handlers import exception_handler
-from src.extensions.gateway_runtime import get_extension_gateway_runtime
 from src.logger import logger
-from src.modules.db_connection import build_db_connection_extension
-from src.modules.user.infra.fastapi.dependencies import get_user_access_only
+from src.modules.extension_management.infra.runtime.gateway_runtime import (
+    get_extension_gateway_runtime,
+)
 from src.utils.openapi import rebuild_openapi
 from src.version import get_version_from_pyproject
 

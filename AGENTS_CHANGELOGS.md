@@ -3527,3 +3527,45 @@
 
 ### 2026-09-08 13:22:30
 - Исправлено имя русского README на docs/README.ru.md и обновлена ссылка на него в корневом README.
+
+### 2026-09-09 17:04:14
+- Исправлен запуск integration tests с release candidate образами: явно переданный DOCKER_CONFIG теперь сохраняется для docker pull, локальный каталог используется только как fallback; добавлены unit-тесты поведения Docker config.
+
+### 2026-09-09 21:52:10
+- Gateway lifespan переведен на общий AsyncSessionLocal с expire_on_commit=False; добавлен regression-тест, предотвращающий возврат прямых AsyncSession и MissingGreenlet при синхронизации расширений.
+
+### 2026-09-10 18:29:00
+- dvt_extension_api оформлен как отдельный editable-installable пакет dvt-extension-api для разработки расширений; добавлены packaging-тесты и инструкция по локальной установке.
+
+### 2026-09-10 23:12:53
+- Добавлена офлайн-установка расширений из .dvtx/.zip: безопасный staging и rollback, preview/install Gateway API, локальный wheelhouse для Gateway и Task Worker, builder self-contained .dvtx под Linux x86_64/CPython 3.13 и тесты.
+
+### 2026-09-11 12:56:45
+- Extensions переработаны в DDD-lite bounded context src/modules/extension_management с разделением domain/flow/infra, application provider/use cases, canonical runtime/persistence/package infrastructure и legacy compatibility shims. Обновлены Gateway и Task Worker wiring, lifecycle ownership distributor client, domain manifest/policies и тестовая структура; DDD audit и Ruff проходят, полный unit suite зеленый, integration suite имеет только известные инфраструктурные MinIO/FTP failures.
+
+### 2026-09-11 14:16:47
+- Исправлен builder пакетов расширений: npm кроссплатформенно разрешается через PATH, frontend-зависимости детерминированно устанавливаются через npm ci при наличии package-lock.json (или npm install без lock-файла), а --output без суффикса .dvtx трактуется как директория с автоматически сформированным именем пакета. Добавлены regression-тесты; реальная сборка Bitrix24 Connector 0.10.0 на Windows успешно создает self-contained .dvtx с frontend и wheelhouse.
+
+### 2026-09-11 18:15:37
+- Исправлена идентификация расширений между каталогом и .dvtx: системное имя теперь берется из manifest, legacy-дубликаты каталога объединяются с канонической записью при установке и старте, а операции магазина сохраняют его catalog key.
+
+### 2026-09-14 15:28:07
+- Актуализировано управление расширениями: canonical identity теперь основана на [project].name с legacy aliases, catalog sync не скачивает архивы ради metadata, а catalog/.dvtx/startup flows безопасно объединяют дубликаты без потери state и installed identity.
+
+### 2026-09-14 15:59:24
+- Добавлены regression-проверки обновления DVT 1.21→1.22: legacy repository identity объединяется с canonical catalog identity без дубликатов и без потери installed state.
+
+### 2026-09-14 19:05:23
+- Интеграционные MinIO и FTP переведены на session-scoped Testcontainers fixtures: roundtrip-тесты используют динамические endpoints, а Compose runner больше не поднимает отдельные minio_test_db и ftp_test_db сервисы.
+
+### 2026-09-14 20:55:01
+- Изолированы каталоги расширений для Docker test runners: установка расширений выполняется до discovery тестов, добавлены strict-режим установки и диагностика дубликатов identity.
+
+### 2026-09-15 12:57:49
+- Исправлена очистка временных расширений Docker-тестов: bind mount вынесен за пределы Git checkout, а содержимое удаляется внутри tester-контейнера с корректными правами, чтобы root-owned файлы не блокировали последующие GitLab Runner jobs.
+
+### 2026-09-15 14:18:49
+- Исправлены Testcontainers-фикстуры MinIO и FTP: MinIO переведен на закрепленный актуальный образ с поддержкой новых S3 checksums, а FTP теперь использует разрешенный адрес Docker host и protocol-level readiness check с passive data connection.
+
+### 2026-09-15 17:27:53
+- Исправлена перезагрузка расширений при смене install root: stale Python-модули старой generation очищаются до backend validation, а сохраненные retryable ошибки node runtime повторно проверяются после рестарта. Добавлены регрессионные тесты для worker/gateway root transition, rollback и self-healing runtime error.

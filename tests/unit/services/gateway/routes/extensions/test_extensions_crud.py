@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 
 
 @pytest.mark.asyncio
@@ -109,7 +109,7 @@ async def test_install_extension(
     )
     db_session.add(extension)
     db_session.commit()
-    with patch('src.managers.extension_manager.ExtensionManager.install_extension') as mock_install:
+    with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.install_extension') as mock_install:
         mock_install.return_value = ExtensionRecord(
             name="test-extension",
             display_name="Test Extension",
@@ -155,7 +155,7 @@ async def test_install_extension_with_version_query(
     )
     db_session.add(extension)
     db_session.commit()
-    with patch('src.managers.extension_manager.ExtensionManager.install_extension') as mock_install:
+    with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.install_extension') as mock_install:
         mock_install.return_value = ExtensionRecord(
             name="test-extension",
             display_name="Test Extension",
@@ -206,7 +206,7 @@ async def test_uninstall_extension(
     db_session.add(extension)
     db_session.commit()
 
-    with patch('src.managers.extension_manager.ExtensionManager.uninstall_extension') as mock_uninstall:
+    with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.uninstall_extension') as mock_uninstall:
         mock_uninstall.return_value = extension
 
         response = await gateway_client.delete(f"{router_prefix}/extensions/test-extension/uninstall")
@@ -237,7 +237,7 @@ async def test_reload_extension(
     db_session.add(extension)
     db_session.commit()
 
-    with patch('src.managers.extension_manager.ExtensionManager.reload_extension') as mock_reload:
+    with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.reload_extension') as mock_reload:
         mock_reload.return_value = extension
 
         response = await gateway_client.post(f"{router_prefix}/extensions/test-extension/reload")
@@ -268,7 +268,7 @@ async def test_enable_extension(
     db_session.add(extension)
     db_session.commit()
 
-    with patch('src.managers.extension_manager.ExtensionManager.set_enabled') as mock_enable:
+    with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.set_enabled') as mock_enable:
         extension.is_enabled = True
         mock_enable.return_value = extension
 
@@ -301,7 +301,7 @@ async def test_disable_extension(
     db_session.add(extension)
     db_session.commit()
 
-    with patch('src.managers.extension_manager.ExtensionManager.set_enabled') as mock_disable:
+    with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.set_enabled') as mock_disable:
         extension.is_enabled = False
         mock_disable.return_value = extension
 

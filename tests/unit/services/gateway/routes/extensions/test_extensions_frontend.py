@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src.models.extension import ExtensionRecord
+from src.modules.extension_management.infra.db_models import ExtensionRecord
 
 
 @pytest.mark.asyncio

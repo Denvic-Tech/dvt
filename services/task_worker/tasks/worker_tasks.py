@@ -20,8 +20,10 @@ from services.task_worker.telemetry import run_task_telemetry_loop
 from src.crud import project as project_crud
 from src.db import AsyncSessionLocal
 from src.logger import logger
-from src.managers.extension_dependency_manager import ExtensionDependencyManager
 from src.modules.app_settings.public import helpers as app_settings_helpers
+from src.modules.extension_management.infra.dependency_manager import (
+    ExtensionDependencyManager,
+)
 from src.modules.task_execution.domain.policies import terminal_status_for_termination_reason
 from src.modules.task_execution.domain.types import TaskTerminationReason
 from src.modules.task_execution.facade import build_task_execution_facade

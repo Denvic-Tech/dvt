@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+from core.security import derive_legacy_auth_secret
 from services.installation_manager.application.update import UpdateUseCase
 from services.installation_manager.domain.models import Job, JobKind, UpdateConfig
 from services.installation_manager.domain.services import AUTH_SECRET_FIELDS, parse_env_file
@@ -59,6 +60,32 @@ def test_update_env_disables_profile_and_preserves_secret() -> None:
     assert parsed["DVT_AI_MCP_INTERNAL_SECRET"] == "s" * 32
     assert parsed["COMPOSE_PROFILES"] == "debug"
     assert all(parsed[env_name] for _, env_name in AUTH_SECRET_FIELDS)
+
+
+def test_update_env_preserves_legacy_fernet_key_and_persists_derived_auth_secrets() -> None:
+    fernet_key = "Y8RFpaIxSaAFNsB352tpLXl5znUw5anEKIZgclOezak="
+    library = MagicMock()
+    library.read_env_text.return_value = "\n".join(
+        [
+            "DVT_VERSION=old",
+            f"DVT_FERNET_KEY={fernet_key}",
+            "",
+        ]
+    )
+    use_case = _use_case(library)
+
+    use_case._update_env(
+        Job(JobKind.UPDATE, []),
+        UpdateConfig(version="new", ai_mcp_enabled=False),
+    )
+
+    parsed = parse_env_file(library.write_env_text.call_args.args[0])
+    assert parsed["DVT_FERNET_KEY"] == fernet_key
+    for _, env_name in AUTH_SECRET_FIELDS:
+        assert parsed[env_name] == derive_legacy_auth_secret(
+            fernet_key,
+            env_name.removeprefix("DVT_"),
+        )
 
 
 def test_update_env_preserves_existing_auth_secrets() -> None:

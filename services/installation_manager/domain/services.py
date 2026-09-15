@@ -7,6 +7,8 @@ import os
 import re
 from collections.abc import Mapping
 
+from core.security import derive_legacy_auth_secret
+
 from .models import InstallConfig
 
 FERNET_RE = re.compile(r"^[A-Za-z0-9_-]{43}=$")
@@ -40,10 +42,20 @@ def generate_fernet_key() -> str:
 
 
 def resolve_auth_secrets(existing: Mapping[str, str]) -> dict[str, str]:
-    values = {
-        env_name: existing.get(env_name, "").strip() or generate_password()
-        for _, env_name in AUTH_SECRET_FIELDS
-    }
+    legacy_master_secret = existing.get("DVT_FERNET_KEY", "").strip()
+    values: dict[str, str] = {}
+    for _, env_name in AUTH_SECRET_FIELDS:
+        value = existing.get(env_name, "").strip()
+        if not value:
+            value = (
+                derive_legacy_auth_secret(
+                    legacy_master_secret,
+                    env_name.removeprefix("DVT_"),
+                )
+                if legacy_master_secret
+                else generate_password()
+            )
+        values[env_name] = value
     invalid = [
         name for name, value in values.items() if len(value) < AUTH_SECRET_MIN_LENGTH
     ]

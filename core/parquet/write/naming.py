@@ -38,6 +38,8 @@ class FilenameTemplate:
         resolved_template = (
             DEFAULT_ADVANCED_TEMPLATE if raw_template is None else raw_template
         )
+        if resolved_template.strip() in {".", ".."}:
+            raise ValueError("Parquet filename template cannot be '.' or '..'.")
         self.template = normalize_filename_template(resolved_template)
         self.tokens = frozenset(_TOKEN_RE.findall(self.template))
         unknown = sorted(self.tokens - self._KNOWN_TOKENS)

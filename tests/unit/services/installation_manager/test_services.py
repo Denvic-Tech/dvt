@@ -1,5 +1,6 @@
 import pytest
 
+from core.security import derive_legacy_auth_secret
 from services.installation_manager.domain.models import InstallConfig
 from services.installation_manager.domain.services import (
     AUTH_SECRET_FIELDS,
@@ -18,6 +19,17 @@ def test_auth_secrets_are_generated_independently() -> None:
 
     assert set(resolved) == {env_name for _, env_name in AUTH_SECRET_FIELDS}
     assert all(len(value) >= 32 for value in resolved.values())
+    assert len(set(resolved.values())) == len(AUTH_SECRET_FIELDS)
+
+
+def test_auth_secrets_are_derived_stably_from_legacy_fernet_key() -> None:
+    fernet_key = "Y8RFpaIxSaAFNsB352tpLXl5znUw5anEKIZgclOezak="
+    resolved = resolve_auth_secrets({"DVT_FERNET_KEY": fernet_key})
+
+    assert resolved == {
+        env_name: derive_legacy_auth_secret(fernet_key, env_name.removeprefix("DVT_"))
+        for _, env_name in AUTH_SECRET_FIELDS
+    }
     assert len(set(resolved.values())) == len(AUTH_SECRET_FIELDS)
 
 

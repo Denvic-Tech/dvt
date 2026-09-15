@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import grpc
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from ws_forward.v1 import forward_pb2_grpc
 
@@ -20,8 +19,9 @@ from services.gateway.update_runtime import get_system_state_monitor
 
 from src.clients.denvic_extensions_distributor import DenvicExtensionsDistributor
 from src.db import async_engine, engine
+from src.db.session import AsyncSessionLocal
 from src.logger import DB_SINK, DB_SINK_HANDLER_ID, logger
-from src.managers.extension_manager import ExtensionManager
+from src.runtime.extension_management import build_extension_management_provider
 
 # from src.managers.dcc_manager import get_dcc_manager  # TODO: Waiting DDC v2 before fixes and implementation
 from src.modules.app_settings.public import helpers as app_settings_helpers
@@ -52,7 +52,7 @@ async def lifespan(_app: FastAPI):
     with Session(engine) as session:
         wait_for_db(session)
 
-    async with AsyncSession(async_engine) as session:
+    async with AsyncSessionLocal() as session:
         await app_settings_helpers.ensure_setting_value(
             "dcc.connector_id",
             lambda: str(uuid4()),
@@ -65,14 +65,16 @@ async def lifespan(_app: FastAPI):
 
     await ensure_extension_deps_installed()
     distributor_client = DenvicExtensionsDistributor(config.EXTENSIONS.DISTRIBUTOR_URL)
-    try:
-        async with AsyncSession(async_engine) as session:
-            extension_manager = ExtensionManager(
-                session, distributor_client, gateway_runtime=True
-            )
+    async with AsyncSessionLocal() as session:
+        extension_manager = build_extension_management_provider(
+            session,
+            distributor_client,
+            gateway_runtime=True,
+        )
+        try:
             await extension_manager.sync_installed_extensions()
-    finally:
-        await distributor_client.aclose()
+        finally:
+            await extension_manager.close()
 
     loop = asyncio.get_running_loop()
     # init_future = asyncio.create_task(dcc_manager.init())  # TODO: Waiting DDC v2 before fixes and implementation

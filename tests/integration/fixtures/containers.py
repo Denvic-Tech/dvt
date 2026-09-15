@@ -1,19 +1,55 @@
-from typing import Generator, Any
+import socket
+from ftplib import FTP, all_errors
+from pathlib import Path
+from typing import Any, Generator
+from uuid import uuid4
 
 import pytest
-
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 from testcontainers.clickhouse import ClickHouseContainer
-from testcontainers.mysql import MySqlContainer
-from testcontainers.mongodb import MongoDbContainer
-from testcontainers.mssql import SqlServerContainer
+from testcontainers.core.container import DockerContainer
+from testcontainers.core.image import DockerImage
+from testcontainers.core.waiting_utils import WaitStrategy, WaitStrategyTarget
 from testcontainers.kafka import KafkaContainer
 from testcontainers.minio import MinioContainer
+from testcontainers.mongodb import MongoDbContainer
+from testcontainers.mssql import SqlServerContainer
+from testcontainers.mysql import MySqlContainer
 from testcontainers.oracle import OracleDbContainer
-
+from testcontainers.postgres import PostgresContainer
+from testcontainers.redis import RedisContainer
 
 CONTAINERS_TIMEOUT = 300
+_MINIO_IMAGE = "ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z"
+_FTP_CONTROL_PORT = 21
+_FTP_PASSIVE_PORTS = tuple(range(21000, 21011))
+_FTP_USER = "ftpuser"
+_FTP_PASSWORD = "ftppassword"
+
+
+class _FtpReadyWaitStrategy(WaitStrategy):
+    """Wait until FTP authentication and a passive data connection both work."""
+
+    def wait_until_ready(self, container: WaitStrategyTarget) -> None:
+        host = container.get_container_host_ip()
+        port = int(container.get_exposed_port(_FTP_CONTROL_PORT))
+
+        def check_ftp() -> bool:
+            with FTP() as client:
+                client.connect(host, port, timeout=2)
+                client.login(_FTP_USER, _FTP_PASSWORD)
+                client.nlst()
+            return True
+
+        if self._poll(check_ftp, transient_exceptions=list(all_errors)):
+            return
+
+        stdout, stderr = container.get_logs()
+        raise TimeoutError(
+            "FTP container did not become protocol-ready within "
+            f"{self._startup_timeout:.0f}s. "
+            f"Recent stdout: {stdout.decode(errors='replace')[-2000:]!r}. "
+            f"Recent stderr: {stderr.decode(errors='replace')[-2000:]!r}."
+        )
 
 
 @pytest.fixture(scope="session")
@@ -109,10 +145,45 @@ def minio_container() -> Generator[MinioContainer, Any, None]:
     MinIO test container (S3 compatible)
     """
     with MinioContainer(
-            "minio/minio:RELEASE.2024-08-17T01-24-54Z",
+            _MINIO_IMAGE,
             docker_client_kw={"timeout": CONTAINERS_TIMEOUT}
     ) as minio:
         yield minio
+
+
+@pytest.fixture(scope="session")
+def ftp_container() -> Generator[DockerContainer, Any, None]:
+    """FTP test container with passive ports reachable from host and Dockerized pytest."""
+    docker_context = Path(__file__).resolve().parents[3] / "docker"
+    image_tag = f"dvt/ftp-test-db:testcontainers-{uuid4().hex[:12]}"
+
+    with DockerImage(
+        path=docker_context,
+        tag=image_tag,
+        dockerfile_path="ftp-test-db.Dockerfile",
+        docker_client_kw={"timeout": CONTAINERS_TIMEOUT},
+    ) as ftp_image:
+        ftp = DockerContainer(
+            str(ftp_image),
+            docker_client_kw={"timeout": CONTAINERS_TIMEOUT},
+        )
+        docker_host = ftp.get_docker_client().host()
+        advertised_host = socket.gethostbyname(docker_host)
+        ftp.with_envs(
+            USERS=f"{_FTP_USER}|{_FTP_PASSWORD}|/home/{_FTP_USER}|10000|10000",
+            ADDRESS=advertised_host,
+            MIN_PORT=str(_FTP_PASSIVE_PORTS[0]),
+            MAX_PORT=str(_FTP_PASSIVE_PORTS[-1]),
+        )
+        ftp.with_exposed_ports(_FTP_CONTROL_PORT)
+        for port in _FTP_PASSIVE_PORTS:
+            ftp.with_bind_ports(port, port)
+        ftp.waiting_for(
+            _FtpReadyWaitStrategy().with_startup_timeout(CONTAINERS_TIMEOUT)
+        )
+
+        with ftp:
+            yield ftp
 
 
 @pytest.fixture(scope="session")

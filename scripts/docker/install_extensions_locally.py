@@ -81,6 +81,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Только установить Python-зависимости для уже присутствующих расширений (без скачивания).",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Завершиться с ошибкой, если хотя бы одно расширение не удалось установить.",
+    )
     return parser.parse_args(argv)
 
 
@@ -380,6 +385,7 @@ def run(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     print(f"Найдено расширений для установки: {len(all_extensions)}")
+    failed_extensions: list[str] = []
 
     for idx, item in enumerate(all_extensions, 1):
         name = item.get("name", f"unknown-{idx}")
@@ -396,6 +402,7 @@ def run(argv: list[str] | None = None) -> None:
 
         if not download_url:
             print(f"  [{idx}/{len(all_extensions)}] {name}: пропущено (нет download_url)")
+            failed_extensions.append(name)
             continue
 
         install_root = target_dir / name
@@ -408,12 +415,18 @@ def run(argv: list[str] | None = None) -> None:
             print(f"  [{idx}/{len(all_extensions)}] {name}: OK")
         except Exception as exc:
             print(f"  [{idx}/{len(all_extensions)}] {name}: ОШИБКА — {exc}", file=sys.stderr)
+            failed_extensions.append(name)
             try:
                 if install_root.exists():
                     _remove_readonly(install_root)
             except Exception:
                 pass
             continue
+
+    if args.strict and failed_extensions:
+        failed = ", ".join(sorted(set(failed_extensions)))
+        print(f"Не удалось установить расширения: {failed}", file=sys.stderr)
+        sys.exit(1)
 
     print("Готово.")
 

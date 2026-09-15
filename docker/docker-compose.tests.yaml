@@ -12,6 +12,7 @@ x-tester-service: &tester-service
     - .env
   environment:
     LOG_TO_DB: "false"
+    EXTENSIONS_VOLUME_PATH: /app/extensions
   profiles: [ "testing" ]
 
 services:
@@ -26,6 +27,7 @@ services:
     command: [ "pytest", "tests/integration" ]
     environment:
       LOG_TO_DB: "false"
+      EXTENSIONS_VOLUME_PATH: /app/extensions
       DVT_INTEGRATION_IMAGE_PREFIX: ${DVT_INTEGRATION_IMAGE_PREFIX:-dvt}
       DVT_INTEGRATION_IMAGE_TAG: ${DVT_INTEGRATION_IMAGE_TAG:-latest}
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -33,14 +35,6 @@ services:
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
       TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
       TESTCONTAINERS_RYUK_DISABLED: "true"
-      MINIO_TEST_ENDPOINT: http://minio-test-db:9000
-      FTP_TEST_HOST: ftp_test_db
-      FTP_TEST_PORT: "21"
-    depends_on:
-      minio_test_db:
-        condition: service_healthy
-      ftp_test_db:
-        condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${EXTENSIONS_VOLUME_PATH:-./extensions}:/app/extensions
@@ -52,6 +46,7 @@ services:
     command: [ "pytest", "tests/e2e" ]
     environment:
       LOG_TO_DB: "false"
+      EXTENSIONS_VOLUME_PATH: /app/extensions
       DOCKER_HOST: unix:///var/run/docker.sock
       TC_MAX_TRIES: "600"
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
@@ -156,65 +151,6 @@ services:
     volumes:
       - oracle_test_data:/opt/oracle/oradata
 
-  minio_test_db:
-    image: minio/minio:latest
-    container_name: dvt-minio-test-db
-    restart: unless-stopped
-    ports:
-      - "3900:9000"
-      - "3901:9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live" ]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-    volumes:
-      - minio_test_data:/data
-      - ./data/minio/minio-init.sh:/docker-entrypoint-init.d/minio-init.sh:ro
-      - ./data/minio/cors.json:/etc/minio/cors.json:ro
-      - ./data/minio/certs:/root/.minio/certs:ro
-    networks:
-      default:
-        aliases:
-          - minio-test-db
-      dvt-net:
-
-  ftp_test_db:
-    image: dvt/ftp-test-db:latest
-    build:
-      context: docker
-      dockerfile: ftp-test-db.Dockerfile
-    container_name: dvt-ftp-test-db
-    ports:
-      - "9021:21"
-      - "21000-21010:21000-21010"
-    cap_add:
-      - NET_ADMIN
-    environment:
-      USERS: "ftpuser|ftppassword|/home/ftpuser|10000|10000"
-      ADDRESS: "ftp_test_db"
-      MIN_PORT: "21000"
-      MAX_PORT: "21010"
-      FTP_TEST_DB_NETEM_ENABLED: "${FTP_TEST_DB_NETEM_ENABLED:-false}"
-      FTP_TEST_DB_NETEM_IFACE: "${FTP_TEST_DB_NETEM_IFACE:-eth0}"
-      FTP_TEST_DB_NETEM_DELAY: "${FTP_TEST_DB_NETEM_DELAY:-100ms}"
-      FTP_TEST_DB_NETEM_JITTER: "${FTP_TEST_DB_NETEM_JITTER:-20ms}"
-      FTP_TEST_DB_NETEM_RATE: "${FTP_TEST_DB_NETEM_RATE:-500bit}"
-      FTP_TEST_DB_NETEM_LOSS: "${FTP_TEST_DB_NETEM_LOSS:-}"
-    healthcheck:
-      test: [ "CMD-SHELL", "nc -z 127.0.0.1 21" ]
-      interval: 2s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-    volumes:
-      - ftp_test_data:/home/ftpuser
-
   samba_test_db_init:
     image: alpine:3.20
     container_name: dvt-smb-test-db-init
@@ -256,9 +192,7 @@ volumes:
   mysql_test_data:
   clickhouse_test_data:
   mssql_test_data:
-  minio_test_data:
   oracle_test_data:
-  ftp_test_data:
   samba_test_data:
 
 networks:

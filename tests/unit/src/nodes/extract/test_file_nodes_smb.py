@@ -353,7 +353,10 @@ def test_load_excel_explicit_dtype_has_priority(
     ctx = _make_smb_context("smb://fileserver:445/shared/reports/file.xlsx")
 
     def fake_read_excel(_file_obj, **kwargs):
-        assert kwargs["dtype"] == {"amount": dtype_name}
+        if dtype_name == "string":
+            assert kwargs["dtype"] == {"amount": "string"}
+        else:
+            assert "dtype" not in kwargs
         return pd.DataFrame({"amount": pd.Series(values, dtype=expected_dtype)})
 
     monkeypatch.setattr(pd, "read_excel", fake_read_excel)
@@ -408,7 +411,7 @@ def test_load_excel_reads_locale_formatted_text_numbers_as_float(
     assert result["3 Брусок"].iloc[3:].isna().all()
 
 
-def test_load_excel_explicit_float_still_rejects_unknown_text(tmp_path):
+def test_load_excel_explicit_float_coerces_unknown_text_to_na(tmp_path):
     excel_path = tmp_path / "invalid-number.xlsx"
     pd.DataFrame({"amount": ["10,5", "not-a-number"]}).to_excel(excel_path, index=False)
     node = LoadExcel(
@@ -428,8 +431,11 @@ def test_load_excel_explicit_float_still_rejects_unknown_text(tmp_path):
         storage_options={},
     )
 
-    with pytest.raises(ValueError, match="Failed to read Excel with explicit dtypes"):
-        node._read_excel_via_fs(ctx, ctx.path, mode="full")
+    result = node._read_excel_via_fs(ctx, ctx.path, mode="full")
+
+    assert str(result["amount"].dtype) == "Float64"
+    assert result["amount"].iloc[0] == 10.5
+    assert pd.isna(result["amount"].iloc[1])
 
 
 def test_load_excel_explicit_string_preserves_locale_formatted_value(
@@ -462,7 +468,7 @@ def test_load_excel_explicit_string_preserves_locale_formatted_value(
     assert result["code"].tolist() == ["1 234", "5 678"]
 
 
-def test_load_excel_explicit_integer_dtype_rejects_fractional_values(monkeypatch):
+def test_load_excel_explicit_integer_dtype_coerces_fractional_values_to_na(monkeypatch):
     node = LoadExcel(
         user_id="user",
         project_id="project",
@@ -475,13 +481,16 @@ def test_load_excel_explicit_integer_dtype_rejects_fractional_values(monkeypatch
     ctx = _make_smb_context("smb://fileserver:445/shared/reports/file.xlsx")
 
     def fake_read_excel(_file_obj, **kwargs):
-        assert kwargs["dtype"] == {"amount": "Int64"}
-        raise TypeError("cannot safely cast non-equivalent float64 to int64")
+        assert "dtype" not in kwargs
+        return pd.DataFrame({"amount": [1.0, 2.5, 3.0]})
 
     monkeypatch.setattr(pd, "read_excel", fake_read_excel)
 
-    with pytest.raises(ValueError, match="Failed to read Excel with explicit dtypes"):
-        node._read_excel_via_fs(ctx, ctx.path, mode="full")
+    result = node._read_excel_via_fs(ctx, ctx.path, mode="full")
+
+    assert str(result["amount"].dtype) == "Int64"
+    assert result["amount"].iloc[[0, 2]].tolist() == [1, 3]
+    assert pd.isna(result["amount"].iloc[1])
 
 
 def test_load_excel_rejects_unknown_explicit_dtype_column(monkeypatch):

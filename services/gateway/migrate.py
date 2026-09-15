@@ -5,13 +5,20 @@ from pathlib import Path
 from sqlmodel import Session, create_engine
 
 from src.db import AsyncSessionLocal
-from src.extensions.deletion_queue import process_pending_deletions
-from src.extensions.errors import stage_error
-from src.extensions.loader import iter_extension_roots, load_manifest
-from src.extensions.migrations import ExtensionMigrationManager
 from src.logger import logger
-from src.managers.extension_db_manager import ExtensionDBManager
-from src.managers.extension_install_manager import ExtensionsInstallManager
+from src.modules.extension_management.infra.errors import stage_error
+from src.modules.extension_management.infra.migrations import ExtensionMigrationManager
+from src.modules.extension_management.infra.packages.deletion_queue import (
+    process_pending_deletions,
+)
+from src.modules.extension_management.infra.packages.installer import (
+    ExtensionsInstallManager,
+)
+from src.modules.extension_management.infra.repositories.db import ExtensionDBManager
+from src.modules.extension_management.infra.runtime.loader import (
+    iter_extension_roots,
+    load_manifest,
+)
 from src.utils import waiting
 from src.utils.extensions import ensure_extension_deps_installed
 from src.utils.migrations import run_alembic_upgrade_head
