@@ -17,6 +17,7 @@ from src.modules.extension_management.infra.runtime.loader import (
     iter_extension_roots,
     load_manifest,
     purge_extension_modules,
+    purge_modules_from_root,
     resolve_nodes_dir_if_present,
 )
 from src.modules.extension_management.infra.runtime.registry import RegisteredExtension
@@ -231,11 +232,24 @@ def _load_all_extension_runtimes_locked(
             except Exception as exc:
                 _record_failure(report, spec.name, "manifest", exc)
 
+        previous_extensions = extensions_registry.get_all()
+        replaced_or_removed_roots = []
+        for extension_name, previous_extension in previous_extensions.items():
+            current_extension = manifests.get(extension_name)
+            if current_extension is None or (
+                current_extension.root_dir.resolve() != previous_extension.root_dir.resolve()
+            ):
+                replaced_or_removed_roots.append(previous_extension.root_dir)
+
+        for previous_root in replaced_or_removed_roots:
+            purge_modules_from_root(previous_root)
+        if replaced_or_removed_roots:
+            importlib.invalidate_caches()
+
         _validate_backend_packages(manifests, report)
         for failed_name in report.failures:
             manifests.pop(failed_name, None)
 
-        previous_extensions = extensions_registry.get_all()
         requested_names = {spec.name for spec in normalized_specs}
         report.skipped = set(previous_extensions).difference(requested_names)
         for extension_name, extension in previous_extensions.items():

@@ -635,6 +635,9 @@ class ExtensionManager:
             and item.install_path
             and (
                 not getattr(item, "error_message", None)
+                or self._has_retryable_node_runtime_error(
+                    getattr(item, "error_message", None)
+                )
                 or (
                     item.name in strict_names
                     and self._has_retryable_runtime_error(getattr(item, "error_message", None))
@@ -700,6 +703,19 @@ class ExtensionManager:
                 "Extension migration failed:",
                 "Gateway entrypoint import failed:",
                 "Extension router validation failed:",
+                "Extension node backend validation failed:",
+                "Extension node import failed:",
+                "Extension node registry failed:",
+                "Extension runtime failed:",
+            )
+        )
+
+    @staticmethod
+    def _has_retryable_node_runtime_error(error_message: str | None) -> bool:
+        if not error_message:
+            return False
+        return error_message.startswith(
+            (
                 "Extension node backend validation failed:",
                 "Extension node import failed:",
                 "Extension node registry failed:",

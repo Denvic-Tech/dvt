@@ -110,6 +110,28 @@ def purge_extension_modules(extension: RegisteredExtension) -> None:
             sys.modules.pop(module_name, None)
 
 
+def purge_modules_from_root(root_dir: Path) -> None:
+    """Remove only modules that are physically owned by one extension root.
+
+    Unlike :func:`purge_extension_modules`, this intentionally does not purge by
+    the extension namespace prefix.  During a root transition the gateway may
+    already have imported the replacement generation under the same
+    ``dvt_extensions.<name>`` namespace.  Purging by prefix at that point would
+    remove the fresh generation together with the stale one.
+    """
+
+    resolved_root = root_dir.resolve()
+    for module_name, module in list(sys.modules.items()):
+        module_file = getattr(module, "__file__", None)
+        if _path_under_root(module_file, resolved_root):
+            sys.modules.pop(module_name, None)
+            continue
+
+        module_paths = getattr(module, "__path__", None)
+        if module_paths and any(_path_under_root(path, resolved_root) for path in module_paths):
+            sys.modules.pop(module_name, None)
+
+
 def iter_extension_roots() -> list[Path]:
     extensions_dir = Path(config.EXTENSIONS.EXTENSIONS_DATA_DIR).resolve()
     if not extensions_dir.exists():
