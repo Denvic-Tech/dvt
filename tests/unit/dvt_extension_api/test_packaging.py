@@ -3,7 +3,6 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PACKAGE_ROOT = _REPO_ROOT / "dvt_extension_api"
 
@@ -12,7 +11,7 @@ def test_extension_api_has_editable_distribution_metadata() -> None:
     pyproject = tomllib.loads((_PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert pyproject["project"]["name"] == "dvt-extension-api"
-    assert pyproject["project"]["version"] == "1.0.0"
+    assert pyproject["project"]["version"] == "1.1.0"
     assert pyproject["tool"]["setuptools"]["package-dir"] == {"dvt_extension_api": "."}
     assert pyproject["tool"]["setuptools"]["packages"] == [
         "dvt_extension_api",
