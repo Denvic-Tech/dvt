@@ -71,6 +71,28 @@ def test_run_installs_before_discovering_extension_tests(monkeypatch, tmp_path: 
     assert "tests/integration" in commands[1]
     assert "extensions/sample-extension/tests/integration" in commands[1]
     assert commands[1][-1] == "-q"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_run_cleans_extensions_after_install_failure(monkeypatch, tmp_path: Path) -> None:
+    def fake_run(command, **_kwargs) -> CompletedProcess[str]:
+        _write_extension(tmp_path, "sample-extension", "unit")
+        return CompletedProcess(command, 17)
+
+    monkeypatch.setattr(run_tests_with_extensions.subprocess, "run", fake_run)
+
+    exit_code = run_tests_with_extensions.run(
+        [
+            "--tests-type",
+            "unit",
+            "--extensions-dir",
+            str(tmp_path),
+            "--core-with-extensions",
+        ]
+    )
+
+    assert exit_code == 17
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_build_test_targets_resolves_extension_after_install(tmp_path: Path) -> None:

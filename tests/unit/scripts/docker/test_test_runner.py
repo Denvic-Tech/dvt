@@ -217,6 +217,11 @@ def test_create_isolated_extensions_dir_creates_empty_unique_directories(tmp_pat
     assert first != second
     assert list(first.iterdir()) == []
     assert list(second.iterdir()) == []
+    assert tmp_path.resolve() not in first.resolve().parents
+    assert tmp_path.resolve() not in second.resolve().parents
+
+    first.rmdir()
+    second.rmdir()
 
 
 def test_build_prod_compose_command_includes_prod_override(tmp_path: Path) -> None:

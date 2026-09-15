@@ -34,7 +34,7 @@ def run_command(
     command_env = env.copy()
     if extra_env:
         command_env.update(extra_env)
-    result = subprocess.run(command, env=command_env)
+    result = subprocess.run(command, env=command_env, check=False)
     return result.returncode
 
 
@@ -108,10 +108,13 @@ _EXTENSION_IDENTITY_SEPARATOR_RE = re.compile(r"[-_.\s]+")
 
 
 def create_isolated_extensions_dir(*, project_dir: Path, tests_type: str) -> Path:
-    """Create a per-run host directory used as the tester's /app/extensions bind mount."""
-    root = project_dir / "tmp" / "test-extensions"
-    root.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=f"{tests_type}-", dir=root))
+    """Create a per-run host directory used as the tester's /app/extensions bind mount.
+
+    Keep it outside the repository checkout so root-owned files created by the tester container
+    cannot block GitLab Runner workspace cleanup before a later job starts.
+    """
+    project_name = project_dir.resolve().name or "dvt"
+    return Path(tempfile.mkdtemp(prefix=f"{project_name}-{tests_type}-extensions-"))
 
 
 def _normalize_extension_test_identity(value: str) -> str:
