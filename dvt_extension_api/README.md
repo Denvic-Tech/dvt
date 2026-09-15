@@ -30,6 +30,7 @@ After that, extensions can use normal imports such as:
 ```python
 from dvt_extension_api.v1.metadata import DataFrameMetadata
 from dvt_extension_api.v1.node import DFOutputBaseNode
+from dvt_extension_api.v1.parquet import FilenameTemplate, NamingContext
 ```
 
 Changes made under `dvt_extension_api/` in the DVT checkout are immediately visible
