@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -94,41 +95,55 @@ def build_test_targets(
     return test_targets
 
 
+def cleanup_extensions_dir_contents(extensions_dir: Path) -> None:
+    """Remove tester-created files while still running with the container's ownership privileges."""
+    if not extensions_dir.exists():
+        return
+    for entry in extensions_dir.iterdir():
+        if entry.is_symlink() or entry.is_file():
+            entry.unlink()
+        else:
+            shutil.rmtree(entry)
+
+
 def run(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     extensions_dir = Path(args.extensions_dir).resolve()
 
-    install_command = [
-        sys.executable,
-        "scripts/docker/install_extensions_locally.py",
-        "--target-dir",
-        str(extensions_dir),
-        "--strict",
-    ]
-    install_result = subprocess.run(install_command, cwd=PROJECT_DIR, check=False)
-    if install_result.returncode != 0:
-        return install_result.returncode
-
     try:
-        test_targets = build_test_targets(
-            tests_type=args.tests_type,
-            extensions_dir=str(extensions_dir),
-            core_target=args.core_target,
-            extension_name=args.extension,
-            include_all_extensions=args.core_with_extensions,
-        )
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
+        install_command = [
+            sys.executable,
+            "scripts/docker/install_extensions_locally.py",
+            "--target-dir",
+            str(extensions_dir),
+            "--strict",
+        ]
+        install_result = subprocess.run(install_command, cwd=PROJECT_DIR, check=False)
+        if install_result.returncode != 0:
+            return install_result.returncode
 
-    pytest_command = [
-        sys.executable,
-        "-m",
-        "pytest",
-        *test_targets,
-        *args.pytest_args,
-    ]
-    return subprocess.run(pytest_command, cwd=PROJECT_DIR, check=False).returncode
+        try:
+            test_targets = build_test_targets(
+                tests_type=args.tests_type,
+                extensions_dir=str(extensions_dir),
+                core_target=args.core_target,
+                extension_name=args.extension,
+                include_all_extensions=args.core_with_extensions,
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+
+        pytest_command = [
+            sys.executable,
+            "-m",
+            "pytest",
+            *test_targets,
+            *args.pytest_args,
+        ]
+        return subprocess.run(pytest_command, cwd=PROJECT_DIR, check=False).returncode
+    finally:
+        cleanup_extensions_dir_contents(extensions_dir)
 
 
 if __name__ == "__main__":
