@@ -7,7 +7,7 @@ set -euo pipefail
 RAW_STORAGE_URL="${RAW_STORAGE_URL:-https://raw.distribution.denvic.tech}"
 CONTAINER_REGISTRY_URL="${CONTAINER_REGISTRY_URL:-cr.distribution.denvic.tech}"
 INSTALLATION_MANAGER_IMAGE="${INSTALLATION_MANAGER_IMAGE:-cr.distribution.denvic.tech/dvt/installation_manager:latest}"
-COMPOSE_FILE_URL="${COMPOSE_FILE_URL:-$RAW_STORAGE_URL/dvt/installation_manager/docker-compose.yaml}"
+COMPOSE_FILE_URL="${COMPOSE_FILE_URL:-$RAW_STORAGE_URL/dvt/services/installation_manager/docker-compose.yaml}"
 DVT_LIB_DIR="${DVT_LIB_DIR:-/var/lib/dvt}"
 DVT_INSTALLATION_MANAGER_EXTERNAL_PORT="${DVT_INSTALLATION_MANAGER_EXTERNAL_PORT:-8888}"
 NETWORK_NAME="dvt-net"
