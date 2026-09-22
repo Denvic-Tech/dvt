@@ -24,6 +24,8 @@ def test_load_db_table_metadata_returns_target_table_snapshot() -> None:
         database_name='catalog',
     )
 
+    assert result.comment is None
+    assert all(column.comment is None for column in result.columns)
     assert result.name == 'items'
     assert result.database_name == 'catalog'
     assert result.type == DBTableType.BASE_TABLE
@@ -64,6 +66,10 @@ def test_load_db_table_metadata_maps_reflected_clickhouse_float_types(monkeypatc
             assert table_name == 'measurements'
             assert schema is None
             return []
+
+        @staticmethod
+        def get_table_comment(table_name, schema=None):
+            raise NotImplementedError
 
         @staticmethod
         def get_columns(table_name, schema=None):

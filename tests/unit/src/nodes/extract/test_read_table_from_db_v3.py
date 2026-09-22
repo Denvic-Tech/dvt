@@ -12,10 +12,9 @@ from core.types import (
     DBTableType,
 )
 
-from src.nodes.extract.read_table_from_db_v3 import node as read_table_module
 from src.node_dsl import ExecutionDateTimePrecision, ExecutionSettings, get_definition
 from src.node_dsl.variables import make_unresolved_value
-from src.nodes.extract.read_table_from_db_v3 import ReadTableFromDBV3
+from src.nodes.extract.read_table_from_db_v3 import ReadTableFromDBV3, node as read_table_module
 
 
 def test_read_table_from_db_v3_documents_mcp_safe_column_configuration() -> None:
@@ -46,6 +45,9 @@ def test_read_table_from_db_v3_forwards_partitioning_params_to_planner(monkeypat
     monkeypatch.setattr(read_table_module, "resolve_planner", lambda mode="table": _Planner())
     monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine: "executor")
     monkeypatch.setattr(read_table_module, "frame_from_executor", lambda executor, plan: "output")
+    monkeypatch.setattr(read_table_module, "load_db_table_metadata", lambda *args, **kwargs: DBTable(
+        name="events", columns=[], type=DBTableType.BASE_TABLE,
+    ))
 
     node = ReadTableFromDBV3(
         user_id="user",
@@ -84,6 +86,9 @@ def test_read_table_from_db_v3_passes_none_npartitions_to_planner(monkeypatch):
     monkeypatch.setattr(read_table_module, "resolve_planner", lambda mode="table": _Planner())
     monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine: "executor")
     monkeypatch.setattr(read_table_module, "frame_from_executor", lambda executor, plan: "output")
+    monkeypatch.setattr(read_table_module, "load_db_table_metadata", lambda *args, **kwargs: DBTable(
+        name="events", columns=[], type=DBTableType.BASE_TABLE,
+    ))
 
     node = ReadTableFromDBV3(
         user_id="user",
