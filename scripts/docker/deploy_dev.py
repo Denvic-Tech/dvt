@@ -4,8 +4,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 PROJECT_DIR = Path(__file__).parent.parent.parent
 os.chdir(PROJECT_DIR)
+
+# Match Compose precedence: explicit process variables override the root .env.
+load_dotenv(PROJECT_DIR / ".env", override=False)
 
 env = os.environ.copy()
 env.update({

@@ -67,6 +67,7 @@ grpcio-tools==1.71.2
 grpcio-status==1.71.2
 mypy-protobuf==3.6.0
 
+python-dotenv==1.2.3
 python-multipart==0.0.20
 starlette==0.46.2
 prometheus-fastapi-instrumentator==7.1.0
