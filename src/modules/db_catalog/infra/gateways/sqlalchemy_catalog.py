@@ -13,8 +13,10 @@ import sqlalchemy as sa
 from sqlalchemy.pool import NullPool
 
 from core.metadata import load_db_table_metadata
+from core.metadata.db_metadata.comments import normalize_comment
 from core.types import DataType
 
+from src.logger import logger
 from src.modules.db_catalog.domain import (
     AuthorizedCatalogConnection,
     CatalogColumn,
@@ -38,6 +40,8 @@ from src.modules.db_catalog.domain import (
 )
 from src.modules.db_catalog.domain.gateways import CatalogSourceGateway, TablePreviewSourceGateway
 from src.modules.db_catalog.domain.policies import decode_cursor, encode_cursor
+
+from .table_comments import table_comments_statement
 
 TABLE_PREVIEW_ROW_LIMIT = 50
 
@@ -388,16 +392,53 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
                 for row in rows
             )
         else:
+            comments = self._fetch_table_comments(engine, connection, request, rows)
             items = tuple(
                 CatalogTableSummary(
                     name=str(row["name"]),
                     kind=self._normalize_kind(row.get("kind")),
+                    comment=comments.get(str(row["name"])),
                     database_name=request.database_name or connection.configured_database,
                     schema_name=request.schema_name,
                 )
                 for row in rows
             )
         return CatalogResult(items=items, next_cursor=next_cursor)
+
+    def _fetch_table_comments(
+        self,
+        engine: sa.Engine,
+        connection: AuthorizedCatalogConnection,
+        request: CatalogRequest,
+        rows: list,
+    ) -> dict[str, str | None]:
+        if (
+            not rows
+            or not getattr(engine.dialect, "supports_comments", False)
+            or not getattr(engine.dialect, "supports_table_comment_reflection", True)
+        ):
+            return {}
+        statement = table_comments_statement(connection.dialect)
+        if statement is None:
+            return {}
+        params = {
+            "names": [str(row["name"]) for row in rows],
+            "schema": request.schema_name,
+            "database": request.database_name or connection.configured_database,
+        }
+        try:
+            # Separate connection: a failed optional query must not abort the page transaction.
+            with engine.connect() as db_connection:
+                self._apply_session_deadline(db_connection, connection.dialect)
+                return {
+                    str(row["name"]): normalize_comment(row["comment"])
+                    for row in db_connection.execute(statement, params).mappings()
+                }
+        except NotImplementedError:
+            return {}
+        except (sa.exc.SQLAlchemyError, OSError):
+            logger.warning("Unable to read optional database table comments for catalog page.")
+            return {}
 
     def _fetch_table(
         self,
@@ -425,12 +466,14 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
                 indexed=bool(column.index),
                 primary_key=bool(column.primary_key),
                 indexes=tuple(column.indexes or ()),
+                comment=column.comment,
             )
             for ordinal, column in enumerate(table.columns, start=1)
         )
         return CatalogResult(
             table=CatalogTableDetails(
                 name=table.name,
+                comment=table.comment,
                 kind=kind,
                 columns=columns,
                 database_name=request.database_name or connection.configured_database,

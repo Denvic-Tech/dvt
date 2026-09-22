@@ -52,6 +52,7 @@ class CatalogTableSummary:
     kind: CatalogTableKind
     database_name: str | None = None
     schema_name: str | None = None
+    comment: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +64,7 @@ class CatalogColumn:
     indexed: bool = False
     primary_key: bool = False
     indexes: tuple[str, ...] = ()
+    comment: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +74,7 @@ class CatalogTableDetails:
     columns: tuple[CatalogColumn, ...]
     database_name: str | None = None
     schema_name: str | None = None
+    comment: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

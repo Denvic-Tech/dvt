@@ -17,7 +17,7 @@ from ..domain.types import CatalogTableKind
 
 def dump_cache_entry(entry: CatalogCacheEntry) -> bytes:
     payload = {
-        "version": 1,
+        "version": 2,
         "catalog_version": entry.catalog_version,
         "loaded_at": entry.loaded_at.isoformat(),
         "expires_at": entry.expires_at.isoformat(),
@@ -32,7 +32,7 @@ def dump_cache_entry(entry: CatalogCacheEntry) -> bytes:
 
 def load_cache_entry(payload: bytes) -> CatalogCacheEntry:
     raw = json.loads(payload)
-    if raw.get("version") != 1:
+    if raw.get("version") != 2:
         raise ValueError("Unsupported catalog cache version.")
     result = raw["result"]
     return CatalogCacheEntry(
@@ -59,6 +59,7 @@ def _dump_item(item) -> dict:
             "kind": item.kind.value,
             "database_name": item.database_name,
             "schema_name": item.schema_name,
+            "comment": item.comment,
         }
     raise TypeError(f"Unsupported catalog item: {type(item)!r}")
 
@@ -75,6 +76,7 @@ def _load_item(raw: dict):
             kind=CatalogTableKind(raw["kind"]),
             database_name=raw.get("database_name"),
             schema_name=raw.get("schema_name"),
+            comment=raw.get("comment"),
         )
     raise ValueError(f"Unsupported catalog item type: {item_type!r}")
 
@@ -85,6 +87,7 @@ def _dump_table(table: CatalogTableDetails) -> dict:
         "kind": table.kind.value,
         "database_name": table.database_name,
         "schema_name": table.schema_name,
+        "comment": table.comment,
         "columns": [
             {
                 "name": column.name,
@@ -94,6 +97,7 @@ def _dump_table(table: CatalogTableDetails) -> dict:
                 "indexed": column.indexed,
                 "primary_key": column.primary_key,
                 "indexes": list(column.indexes),
+                "comment": column.comment,
             }
             for column in table.columns
         ],
@@ -106,5 +110,9 @@ def _load_table(raw: dict) -> CatalogTableDetails:
         kind=CatalogTableKind(raw["kind"]),
         database_name=raw.get("database_name"),
         schema_name=raw.get("schema_name"),
-        columns=tuple(CatalogColumn(**column) for column in raw.get("columns", [])),
+        comment=raw.get("comment"),
+        columns=tuple(
+            CatalogColumn(**{**column, "indexes": tuple(column.get("indexes") or ())})
+            for column in raw.get("columns", [])
+        ),
     )
