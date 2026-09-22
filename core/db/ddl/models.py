@@ -130,6 +130,7 @@ TableColumnActionType: TypeAlias = Literal[
     "add_column",
     "drop_column",
     "recreate_column",
+    "set_column_comment",
 ]
 
 
@@ -137,6 +138,12 @@ class TableColumnAction(BaseModel):
     type: TableColumnActionType
     column_name: str = Field(min_length=1)
     column: DBColumn | None = None
+    comment: str | None = None
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        return None if value == "" else value
 
     @field_validator("column_name")
     @classmethod
@@ -148,6 +155,11 @@ class TableColumnAction(BaseModel):
 
     @model_validator(mode="after")
     def validate_action_contract(self) -> "TableColumnAction":
+        if self.type == "set_column_comment":
+            if "comment" not in self.model_fields_set:
+                raise ValueError("comment must be provided for set_column_comment (null deletes it).")
+            if self.column is not None:
+                raise ValueError("column is not allowed for set_column_comment.")
         if self.type in {"add_column", "recreate_column"}:
             if self.column is None:
                 raise ValueError(f"column is required for {self.type}.")

@@ -233,6 +233,8 @@ def test_resolve_write_columns_existing_table_uses_light_column_loader(monkeypat
     captured = {}
 
     class FakeEngine:
+        dialect = sa.dialects.postgresql.dialect()
+
         def dispose(self):
             captured["disposed"] = True
 
@@ -276,7 +278,7 @@ def test_resolve_write_columns_existing_table_uses_light_column_loader(monkeypat
         "postgresql://user@db/test",
     )
 
-    assert response == ddl_table_route.ResolveWriteColumnsResponse()
+    assert response == ddl_table_route.ResolveWriteColumnsResponse(column_comments_supported=True)
     assert captured["loader_kwargs"] == {
         "engine": engine,
         "table_name": "products",
@@ -295,6 +297,7 @@ def test_resolve_write_columns_disposes_engine(monkeypatch):
 
     class FakeDialect:
         name = "postgresql"
+        supports_comments = True
 
     class FakeEngine:
         url = FakeURL()
@@ -331,7 +334,7 @@ def test_resolve_write_columns_disposes_engine(monkeypatch):
         "postgresql://user@db/test",
     )
 
-    assert response == ddl_table_route.ResolveWriteColumnsResponse()
+    assert response == ddl_table_route.ResolveWriteColumnsResponse(column_comments_supported=True)
     assert engine.disposed is True
 
 
