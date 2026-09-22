@@ -123,6 +123,8 @@ For working with the repository file system, the agent must use the `filesystem`
 ## Project Skill (`dvt-project-ops`)
 Use `.codex/skills/dvt-project-ops` for DVT-specific local development operations that require knowledge of repository internals: Docker service status/restart, cross-service log and task diagnostics, safe DB connection test fixtures, and changelog appends.
 
+For user-facing DVT project, graph, catalog, connection and task operations through MCP, read the shared `.agents/skills/dvt-mcp-projects/SKILL.md` and its relevant references. This applies to any AI agent working in this repository.
+
 Usage rules for agents:
 - Read the skill before using its scripts and run them through the project virtual environment from the repository root.
 - Use `dvt_ai_mcp` for user-facing scoped project, graph, connection catalog, and task lifecycle operations; do not duplicate those capabilities in the project skill.
