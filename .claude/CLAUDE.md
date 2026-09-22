@@ -342,3 +342,6 @@ See `docs/RUN_PROJECTS.md` for Python/PowerShell/Airflow examples.
 - **Log Cleanup**: Automated via APScheduler job in Gateway (uses PostgreSQL advisory locks for single-instance execution)
 - **Node Caching**: `DFOutputBaseNode` automatically caches each partition of output DataFrames to Store service
 - **Metadata**: Nodes can provide metadata via `MetadataNodeMixin` for downstream consumption
+
+## DVT user projects through MCP
+For user-facing DVT project, graph, catalog, connection and task work, read .agents/skills/dvt-mcp-projects/SKILL.md and its relevant references.

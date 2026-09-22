@@ -173,7 +173,8 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-.claude/
+.claude/*
+!.claude/CLAUDE.md
 .codex/hooks/.unit_tests_stop_state.json
 .codex/hooks/unit_tests_stop.log
 trash/
