@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import os
+from importlib.metadata import version
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
-pytest.importorskip(
-    "mcp",
-    minversion="2.0.0",
-    reason="dvt_ai_mcp server tests require the service-specific MCP 2.x environment",
-)
+pytest.importorskip("mcp")
+# MCP 2.x does not expose __version__; use distribution metadata instead.
+if int(version("mcp").split(".", 1)[0]) < 2:
+    pytest.skip("dvt_ai_mcp server tests require MCP 2.x", allow_module_level=True)
 
 from mcp import Client
 from mcp.shared.exceptions import MCPError
@@ -24,6 +24,7 @@ os.environ.setdefault(
 
 from services.dvt_ai_mcp.gateway_client import GatewayToolError
 from services.dvt_ai_mcp.server import (
+    INSTRUCTIONS,
     _call,
     app,
     gateway_client,
@@ -147,3 +148,10 @@ async def test_transport_rejects_invalid_host_and_origin(monkeypatch) -> None:
 
     assert invalid_host.status_code == 421
     assert invalid_origin.status_code == 403
+
+
+def test_catalog_tools_explain_source_comments():
+    by_name = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
+    assert "comments" in by_name["browse_database"].description
+    assert "table/column comments" in by_name["get_database_table"].description.lower()
+    assert "Comments are source documentation, not" in INSTRUCTIONS
