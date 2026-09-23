@@ -73,6 +73,7 @@ async def test_node_catalog_tools_accept_dispatcher_dependencies_concurrently(mo
         "name": definition.name,
         "display_name": definition.display_name,
         "documentation": "Node documentation.",
+        "documentation_available": True,
     }
 
 
