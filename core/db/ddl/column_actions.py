@@ -3,6 +3,12 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.schema import CreateColumn
 
+from core.db.ddl.column_comments import (
+    build_column_comment_sql,
+    compile_ddl,
+    execute_ddl_sql,
+    separate_create_comment_sql,
+)
 from core.db.ddl.models import AppliedTableColumnAction, TableColumnAction
 from core.db.ddl.schema import DIALECTS_WITHOUT_SCHEMA_SUPPORT
 from core.db.ddl.table import build_typed_table_preview_from_columns
@@ -64,6 +70,24 @@ def build_table_column_action_sql(
                 )
             ]
             current_column_names = _remove_column_name(current_column_names, resolved_column_name)
+        elif action.type == "set_column_comment":
+            resolved_column_name = _require_existing_column_name(
+                current_column_names, action.column_name, table_name
+            )
+            column = table.c[resolved_column_name]
+            mysql_create_sql = None
+            if engine.dialect.name in {"mysql", "mariadb"}:
+                with engine.connect() as connection:
+                    result = execute_ddl_sql(connection, f"SHOW CREATE TABLE {full_table_name}")
+                    mysql_create_sql = result.one()[1]
+            sql = build_column_comment_sql(
+                dialect=engine.dialect,
+                table=table,
+                column=column,
+                comment=action.comment,
+                current_comment=column.comment,
+                mysql_create_sql=mysql_create_sql,
+            )
         else:
             resolved_column_name = _require_existing_column_name(
                 current_column_names,
@@ -120,7 +144,7 @@ def apply_table_column_actions(
 
     with engine.begin() as conn:
         for sql in _flatten_sql(applied):
-            conn.execute(sa.text(sql))
+            execute_ddl_sql(conn, sql)
 
     return applied
 
@@ -145,7 +169,14 @@ def _build_add_column_action_sql(
         schema_name=schema_name,
         column=action.column,
     )
-    return [f"ALTER TABLE {full_table_name} ADD COLUMN {column_sql}"]
+    preview = build_typed_table_preview_from_columns(
+        engine=engine, table_name=table_name, schema_name=schema_name, columns=[action.column]
+    )
+    return [
+        f"ALTER TABLE {full_table_name} ADD "
+        f"{'' if engine.dialect.name in {'oracle', 'mssql'} else 'COLUMN '}{column_sql}",
+        *separate_create_comment_sql(preview, engine.dialect),
+    ]
 
 
 def _compile_add_column_definition(
@@ -162,7 +193,7 @@ def _compile_add_column_definition(
         columns=[column],
     )
     sqla_column = next(iter(preview.columns))
-    return str(CreateColumn(sqla_column).compile(dialect=engine.dialect)).strip()
+    return compile_ddl(CreateColumn(sqla_column), engine.dialect)
 
 
 def _build_drop_column_sql(
@@ -171,7 +202,10 @@ def _build_drop_column_sql(
     full_table_name: str,
     column_name: str,
 ) -> str:
-    quoted_column_name = engine.dialect.identifier_preparer.quote(column_name)
+    preparer = engine.dialect.identifier_preparer
+    quoted_column_name = preparer.quote(column_name)
+    if preparer._double_percents:
+        quoted_column_name = quoted_column_name.replace("%%", "%")
     return f"ALTER TABLE {full_table_name} DROP COLUMN {quoted_column_name}"
 
 
@@ -188,8 +222,14 @@ def _reflect_table(
     return sa.Table(
         table_name,
         sa.MetaData(),
+        *[
+            sa.Column(
+                column["name"], column["type"],
+                nullable=column.get("nullable", True), comment=column.get("comment"),
+            )
+            for column in inspector.get_columns(table_name, schema=schema_name)
+        ],
         schema=schema_name,
-        autoload_with=engine,
     )
 
 
@@ -215,17 +255,21 @@ def _quote_full_table_name(
 ) -> str:
     preparer = engine.dialect.identifier_preparer
     quoted_table_name = preparer.quote(table_name)
-    if not schema_name:
-        return quoted_table_name
-    return f"{preparer.quote_schema(schema_name)}.{quoted_table_name}"
+    full_name = (
+        f"{preparer.quote_schema(schema_name)}.{quoted_table_name}"
+        if schema_name else quoted_table_name
+    )
+    return full_name.replace("%%", "%") if preparer._double_percents else full_name
 
 
 def _resolve_existing_column_name(
     column_names: list[str],
     requested_column_name: str,
 ) -> str | None:
-    if requested_column_name in column_names:
-        return requested_column_name
+    for column_name in column_names:
+        if column_name == requested_column_name:
+            # Keep quoted_name flags from reflection (notably Oracle lowercase names).
+            return column_name
 
     lowered = requested_column_name.lower()
     matches = [column_name for column_name in column_names if column_name.lower() == lowered]

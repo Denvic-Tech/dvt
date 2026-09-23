@@ -9,6 +9,25 @@ The adapter has no database, volumes, connection drivers, secret-decryption key,
 to Valkey and Orchestrator. Its Python 3.13 image installs only the dependencies from this
 directory, including `mcp==2.0.0`, so Gateway dependency versions remain isolated.
 
+## Database comments
+
+`browse_database` includes an optional `comment` on table/view items.
+`get_database_table` includes `item.comment` and `item.columns[].comment`, so agents can
+interpret tables and columns using source documentation. These fields are available through
+the corresponding public Gateway catalog endpoints as well.
+
+PostgreSQL, MySQL/MariaDB, SQL Server (`MS_Description`), Oracle and ClickHouse comments are
+read from the source. Missing/empty or unsupported comments (including SQLite) are `null`.
+Non-empty text is preserved, including Unicode and line breaks. If a separate optional comment
+query fails, available structure is still returned and a safe warning is logged.
+Catalog comments follow the existing cache TTL and refresh operation.
+
+`ReadTableFromDBV3` preserves source table/column comments in its output metadata during full
+reads, metadata-only execution and execution-cache restoration. Older node metadata without
+these fields remains readable; refresh metadata or rerun the node to obtain comments.
+Propagation through transform nodes and creating/updating/deleting comments are outside this
+read-only feature.
+
 ## Configuration
 
 The service is opt-in. `DVT_AI_MCP_ENABLED` defaults to `false`; in that state the

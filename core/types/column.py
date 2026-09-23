@@ -28,6 +28,7 @@ class DTypeMetadata(BaseModel):
 class Column(BaseModel):
     """Метаданные одной колонки DataFrame."""
     name: str = Field(..., description="Имя колонки в таблице.")
+    comment: str | None = Field(default=None, description="Комментарий колонки в исходной БД.")
     dtype: DataType = Field(..., description="Тип данных колонки.")
     dtype_metadata: DTypeMetadata | None = Field(
         default=None,

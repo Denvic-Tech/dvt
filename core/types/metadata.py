@@ -52,6 +52,7 @@ class DataFrameMetadata(MetadataBase):
     type: Literal[MetadataType.DATAFRAME] = MetadataType.DATAFRAME
 
     columns: list[Column]
+    comment: str | None = Field(default=None, description="Комментарий исходной таблицы БД.")
 
     # TODO: Придумать как вытаскивать количество строк и размер из Dask
     rows_num: int | None = Field(default=None, ge=0)

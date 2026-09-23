@@ -6,11 +6,18 @@ import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.schema import CreateTable
 
+from core.db.ddl.column_comments import (
+    compile_ddl,
+    execute_ddl_sql,
+    require_column_comments,
+    separate_create_comment_sql,
+    split_ddl_statements,
+)
 from core.db.ddl.models import ForeignKeySpec, IndexSpec, TableCreateSpec
 from core.db.ddl.parse import extract_create_table_table_and_schema
 from core.db.ddl.schema import DIALECTS_WITHOUT_SCHEMA_SUPPORT, ensure_schema_exists
 from core.mapper.factory import build_table_from_db_columns, build_table_from_df
-from core.types import DBColumn, DataFrameMetadata
+from core.types import DataFrameMetadata, DBColumn
 
 
 def resolve_metadata_schema_for_ddl(
@@ -77,6 +84,7 @@ def build_db_columns_from_df_metadata(df_metadata: DataFrameMetadata) -> list[DB
     return [
         DBColumn(
             name=column.name,
+            comment=column.comment,
             dtype=column.dtype,
             nullable=column.nullable,
             index=column.index,
@@ -127,7 +135,8 @@ def execute_raw_create_table_sql(
     effective_schema_name = parsed_schema_name or expected_schema_name or schema_name
     ensure_schema_exists(engine=engine, schema_name=effective_schema_name)
     with engine.begin() as conn:
-        conn.execute(sa.text(create_table_sql.rstrip().rstrip(";")))
+        for statement in split_ddl_statements(create_table_sql, engine.dialect.name):
+            execute_ddl_sql(conn, statement)
 
     return parsed_table_name, effective_schema_name
 
@@ -203,6 +212,11 @@ def generate_create_table_ddl_from_columns(
     table_create_spec: TableCreateSpec | None = None,
     preserve_input_nullable: bool = False,
 ) -> str:
+    # Initialize server-specific literal escaping (e.g. PostgreSQL
+    # standard_conforming_strings) before compiling SQL for display/execution.
+    if isinstance(engine, sa.Engine):
+        with engine.connect():
+            pass
     spec = table_create_spec or TableCreateSpec()
     metadata_schema = resolve_metadata_schema_for_ddl(
         dialect_name=engine.dialect.name,
@@ -222,6 +236,7 @@ def generate_create_table_ddl_from_columns(
         schema_name=metadata_schema,
         primary_key_cols=primary_key_cols,
         spec=spec,
+        ensure_schema=False,
     )
     return _compile_table_ddl(engine=engine, table=table, spec=spec)
 
@@ -256,16 +271,27 @@ def _compile_table_ddl(
     table: sa.Table,
     spec: TableCreateSpec,
 ) -> str:
-    sql = str(CreateTable(table).compile(dialect=engine.dialect)).strip()
-    index_sql_blocks = [
-        str(sa.schema.CreateIndex(index).compile(dialect=engine.dialect)).strip()
-        for index in _build_indexes_for_table(table=table, spec=spec)
+    return "\n".join(
+        statement if statement.endswith(";") else f"{statement};"
+        for statement in _table_ddl_statements(engine=engine, table=table, spec=spec)
+    )
+
+
+def _table_ddl_statements(
+    *, engine: sa.Engine, table: sa.Table, spec: TableCreateSpec
+) -> list[str]:
+    """One ordered DDL plan for typed creation and SQL preview."""
+    for fk_spec in spec.foreign_keys or []:
+        table.append_constraint(_build_foreign_key(fk_spec))
+    indexes = [*table.indexes, *_build_indexes_for_table(table=table, spec=spec)]
+    return [
+        compile_ddl(CreateTable(table), engine.dialect),
+        *[
+            compile_ddl(sa.schema.CreateIndex(index), engine.dialect)
+            for index in sorted(indexes, key=lambda item: item.name or "")
+        ],
+        *separate_create_comment_sql(table, engine.dialect),
     ]
-    sql_blocks = [sql, *index_sql_blocks]
-    sql = "\n".join(statement if statement.endswith(";") else f"{statement};" for statement in sql_blocks)
-    if not sql.endswith(";"):
-        sql += ";"
-    return sql
 
 
 def _build_typed_table_from_dataframe_sample(
@@ -309,6 +335,8 @@ def _build_typed_table_from_columns(
     spec = spec or TableCreateSpec()
     _validate_typed_spec(engine, spec)
     effective_primary_key_cols = spec.primary_key_cols or primary_key_cols
+    if any(column.comment for column in columns):
+        require_column_comments(engine.dialect)
     if ensure_schema:
         ensure_schema_exists(engine=engine, schema_name=schema_name)
 
@@ -347,13 +375,11 @@ def _apply_table_constraints_and_create(
     table: sa.Table,
     spec: TableCreateSpec,
 ) -> None:
-    for fk_spec in spec.foreign_keys or []:
-        table.append_constraint(_build_foreign_key(fk_spec))
-
-    table.metadata.create_all(engine, tables=[table], checkfirst=False)
-
-    for index in _build_indexes_for_table(table=table, spec=spec):
-        index.create(engine)
+    with engine.begin() as connection:
+        # Connecting initializes server-specific literal escaping before compilation.
+        statements = _table_ddl_statements(engine=engine, table=table, spec=spec)
+        for statement in statements:
+            execute_ddl_sql(connection, statement)
 
 
 def _build_foreign_key(spec: ForeignKeySpec) -> sa.ForeignKeyConstraint:

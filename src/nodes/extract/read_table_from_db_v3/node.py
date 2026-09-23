@@ -10,7 +10,7 @@ from core.db.connect.sqlalchemy_url import split_backend_and_driver, with_databa
 from core.db.read_v3.dask import frame_from_executor
 from core.db.read_v3.resolver import resolve_executor, resolve_planner
 from core.metadata import get_df_metadata, load_db_table_metadata
-from core.types import DataFrameMetadata
+from core.types import DataFrameMetadata, DBTable
 
 from src.logger import logger
 from src.models.time_zone import TimeZone
@@ -135,13 +135,13 @@ class ReadTableFromDBV3(DFOutputBaseNode):
     )
     limit: int | None = InputField(min_value=1, max_value=1000000)
     time_zone: TimeZone | None = InputField()
-    partition_col: Optional[IO.COLUMN_NAME] = InputField(
+    partition_col: Optional[IO.COLUMN_NAME] = InputField(  # noqa: UP045
         description=(
             "Required for deterministic read_v3 execution. Use the exact raw catalog column "
             "name without SQL quotes or backticks; choose a stable non-null scalar column."
         )
     )
-    partition_grouping: Optional[IO.DICT] = InputField(
+    partition_grouping: Optional[IO.DICT] = InputField(  # noqa: UP045
         description=(
             "Optional custom partition grouping. Configure it only when column type, cardinality, "
             "and data distribution justify a non-default range/hash/grouping strategy."
@@ -202,6 +202,13 @@ class ReadTableFromDBV3(DFOutputBaseNode):
             max_partitions=config.DASK_PARTITIONING.MAX_PARTITIONS,
             datetime_precision=self.execution_settings.datetime_precision,
         )
+        table = load_db_table_metadata(
+            engine,
+            table_name=self.table_name,
+            schema_name=self.schema_name,
+            database_name=self.database_name,
+        )
+        self._remember_source_comments(table)
         executor = resolve_executor(engine)
         self.output = frame_from_executor(executor, plan)
         self.emit_system_variables(SystemVariables(
@@ -215,6 +222,7 @@ class ReadTableFromDBV3(DFOutputBaseNode):
         output_metadata = metadata.get("output")
         if not isinstance(output_metadata, DataFrameMetadata):
             raise TypeError("ReadTableFromDBV3 expected DataFrameMetadata for output")
+        self._remember_source_comments(output_metadata)
         self.output = self.build_empty_ddf_from_metadata(output_metadata)
         if self._can_emit_system_variables():
             self.emit_system_variables(SystemVariables(
@@ -223,9 +231,23 @@ class ReadTableFromDBV3(DFOutputBaseNode):
                 source_db_name=self.database_name,
             ))
 
+    def _remember_source_comments(self, metadata: DataFrameMetadata | DBTable) -> None:
+        self._source_table_comment = metadata.comment
+        self._source_column_comments = {
+            column.name: column.comment for column in metadata.columns
+        }
+
     def infer_metadata(self) -> NodeMetadata:
         if isinstance(self.output, dd.DataFrame):
-            return {"output": get_df_metadata(self.output)}
+            metadata = get_df_metadata(self.output)
+            comments = getattr(self, "_source_column_comments", {})
+            return {"output": metadata.model_copy(update={
+                "comment": getattr(self, "_source_table_comment", None),
+                "columns": [
+                    column.model_copy(update={"comment": comments.get(column.name)})
+                    for column in metadata.columns
+                ],
+            })}
 
         unresolved_fields = self._metadata_target_fields_unresolved()
         if unresolved_fields:
@@ -259,7 +281,7 @@ class ReadTableFromDBV3(DFOutputBaseNode):
                 if self.columns
                 else normalized_columns
             )
-            return {"output": DataFrameMetadata(columns=columns)}
+            return {"output": DataFrameMetadata(columns=columns, comment=table.comment)}
         except ValueError as exc:
             raise ValueError("No matched table from engine") from exc
         finally:

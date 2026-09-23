@@ -12,15 +12,15 @@ from core.db.ddl import (
     normalize_db_columns_nullable_for_ddl,
     resolve_metadata_schema_for_ddl,
 )
+from core.db.ddl.column_comments import column_comments_supported
 from core.db.write_v4.models import (
     ExtraColumnsMode,
     MissingColumnsMode,
     WriteColumnMapping,
     WriteDiagnostic,
 )
-from core.types import DBColumn, DataFrameMetadata, DataType
+from core.types import DataFrameMetadata, DataType, DBColumn
 from core.utils import is_internal_dvt_name, ru2en
-
 
 WriteColumnResolutionMode = Literal["existing_table", "typed_create"]
 WriteColumnResolutionStatus = Literal[
@@ -39,6 +39,8 @@ WriteColumnResolutionStatus = Literal[
 
 
 class WriteColumnResolutionRow(BaseModel):
+    source_comment: str | None = None
+    db_comment: str | None = None
     source_name: str | None = None
     requested_target_name: str | None = None
     effective_target_name: str | None = None
@@ -55,6 +57,7 @@ class WriteColumnResolutionRow(BaseModel):
 
 
 class WriteColumnResolutionResult(BaseModel):
+    column_comments_supported: bool = False
     effective_column_mapping: list[WriteColumnMapping] = Field(default_factory=list)
     columns: list[WriteColumnResolutionRow] = Field(default_factory=list)
     diagnostics: list[WriteDiagnostic] = Field(default_factory=list)
@@ -92,6 +95,7 @@ def resolve_typed_create_write_columns(
         requested_columns.append(
             DBColumn(
                 name=requested_target_name,
+                comment=source_column.comment if column_comments_supported(engine.dialect) else None,
                 dtype=dtype_value,
                 nullable=nullable,
                 index=source_column.index,
@@ -152,6 +156,7 @@ def resolve_typed_create_write_columns(
                 db_name=effective_target_name,
                 dtype=dtype,
                 nullable=normalized_nullable_by_requested.get(requested_target_name, nullable),
+                source_comment=next(c.comment for c in source_columns if c.name == source_name),
                 source_dtype=dtype,
                 db_dtype=dtype,
                 source_nullable=nullable,
@@ -244,6 +249,7 @@ def resolve_existing_table_write_columns(
         rows.append(
             WriteColumnResolutionRow(
                 source_name=None,
+                db_comment=column.comment,
                 requested_target_name=None,
                 effective_target_name=None,
                 db_name=column.name,
@@ -353,6 +359,7 @@ def _resolve_existing_column_row(
         db_dtype=None,
         source_nullable=source_column.nullable,
         db_nullable=None,
+        source_comment=source_column.comment,
         status="missing_in_db",
         reason="No target table column matches the requested or normalized name.",
         suggested_action=TableColumnAction(
@@ -401,12 +408,16 @@ def _matched_existing_row(
         db_dtype=db_dtype,
         source_nullable=source_column.nullable,
         db_nullable=column.nullable,
+        source_comment=source_column.comment,
+        db_comment=column.comment,
         status=status,
         reason=reason,
         suggested_action=TableColumnAction(
             type="recreate_column",
             column_name=effective_target_name,
-            column=source_column.model_copy(update={"name": effective_target_name}),
+            column=source_column.model_copy(update={
+                "name": effective_target_name, "comment": column.comment,
+            }),
         )
         if is_type_mismatch
         else None,
@@ -427,6 +438,7 @@ def _build_requested_db_column(
     )
     return DBColumn(
         name=requested_target_name,
+        comment=source_column.comment,
         dtype=dtype,
         dtype_metadata=source_column.dtype_metadata,
         nullable=nullable,
@@ -489,6 +501,7 @@ def _dataframe_columns(dataframe_metadata: DataFrameMetadata) -> list[DBColumn]:
         columns.append(
             DBColumn(
                 name=column.name,
+                comment=column.comment,
                 dtype=column.dtype,
                 dtype_metadata=column.dtype_metadata,
                 nullable=column.nullable,

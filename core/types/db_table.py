@@ -43,6 +43,7 @@ class DBTable(BaseModel):
     database_name: str | None = Field(None,
                                          description="Имя базы данных, к которой принадлежит таблица (если применимо).")
     name: str = Field(..., description="Имя таблицы в базе данных.")
+    comment: str | None = Field(default=None, description="Комментарий таблицы в исходной БД.")
     columns: list[DBColumn] = Field(..., description="Список колонок в таблице.")
     type: DBTableType = Field(..., description="Тип таблицы (например, BASE TABLE, VIEW).")
 
