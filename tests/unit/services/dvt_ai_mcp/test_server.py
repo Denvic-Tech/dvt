@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from importlib.metadata import version
 from unittest.mock import AsyncMock
@@ -74,6 +75,9 @@ def test_mcp_contract_exposes_only_mvp_tools_with_annotations() -> None:
     assert "WriteDataFrameToDBV4 never creates" in mcp.instructions
     assert "Never put a connection ID string or connection_ref directly" in mcp.instructions
     assert "GetExistDBConnection" in mcp.instructions
+    assert "Use search_nodes to find suitable node types" in mcp.instructions
+    assert "read get_node_definition with the user's locale" in mcp.instructions
+    assert "when parameters or errors are unclear" in mcp.instructions
 
 
 @pytest.mark.asyncio
@@ -81,6 +85,30 @@ async def test_mcp_protocol_lists_all_tools() -> None:
     async with Client(mcp) as client:
         result = await client.list_tools()
     assert {tool.name for tool in result.tools} == EXPECTED_TOOLS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("locale", "documentation"),
+    [("en", "# DataFrame Join"), ("ru", "# Объединение DataFrame"), ("ru", None)],
+)
+async def test_mcp_protocol_forwards_definition_locale_and_documentation(
+    monkeypatch, locale, documentation,
+) -> None:
+    payload = {"name": "DataFrameJoin", "documentation": documentation}
+    call = AsyncMock(return_value=payload)
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "get_node_definition", {"node_name": "DataFrameJoin", "locale": locale},
+        )
+
+    call.assert_awaited_once_with(
+        "get_node_definition", {"node_name": "DataFrameJoin", "locale": locale},
+    )
+    assert not result.is_error
+    assert json.loads(result.content[0].text) == payload
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from src.modules.node_documentation.domain.entities import PublishedNodeDocumentation
@@ -7,6 +9,7 @@ from src.modules.node_documentation.domain.exceptions import (
 )
 from src.modules.node_documentation.flow.use_cases import GetNodeDocumentation
 from src.modules.node_documentation.infra.repositories import NodePackageDocumentationRepository
+from src.modules.node_documentation.infra.repositories import node_documentation as repository_module
 from src.node_dsl import get_all_node_packages
 
 
@@ -121,7 +124,10 @@ async def test_package_repository_reads_colocated_readmes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_package_repository_returns_none_for_missing_documentation() -> None:
+async def test_package_repository_returns_none_for_missing_documentation(
+    monkeypatch, tmp_path,
+) -> None:
+    monkeypatch.setattr(repository_module, "resources", SimpleNamespace(files=lambda _: tmp_path))
     repository = NodePackageDocumentationRepository()
 
     result = await repository.get(node_name="LoadCSV", locale="en")

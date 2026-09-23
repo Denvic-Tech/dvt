@@ -9,6 +9,23 @@ The adapter has no database, volumes, connection drivers, secret-decryption key,
 to Valkey and Orchestrator. Its Python 3.13 image installs only the dependencies from this
 directory, including `mcp==2.0.0`, so Gateway dependency versions remain isolated.
 
+## Node documentation
+
+Use `search_nodes` to discover suitable nodes, then read `get_node_definition` before first
+configuring each selected type. Its machine schema supplies types and allowed values; colocated
+documentation explains selection, configuration, outputs, limitations, examples and common errors.
+Consult it again when a parameter or failure is unclear.
+
+Gateway reads `README.md` (English) and `README.ru.md` (Russian) from the installed node package.
+Pass `locale="ru"` for Russian; an absent translation or unsupported locale falls back to English.
+For an available node without a README, `documentation` remains `null`; unavailable nodes retain
+the existing access/error behavior. Documentation ships with the matching code version.
+
+A non-empty `search_nodes.query` also searches README text in the requested locale (with the same
+fallback). Results contain compact summaries, never the complete README. Full text is returned
+only by `get_node_definition` for a specific node. JSON examples contain parameter values without
+an MCP request envelope; required graph edges are described separately.
+
 ## Database comments
 
 `browse_database` includes an optional `comment` on table/view items.

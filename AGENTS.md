@@ -118,7 +118,10 @@ For working with the repository file system, the agent must use the `filesystem`
 - Package `__init__.py` обязан экспортировать `NODE_CLASS`, указывающий на concrete `BaseNode` subclass из этого package.
 - Category `__init__.py` не должны импортировать nodes или выполнять eager registration; category barrels запрещены.
 - Общие helper-ы одной категории размещаются в `_shared/`; private directories с `_` не участвуют в discovery.
-- Colocated documentation optional: `README.md` — canonical English, `README.ru.md` — Russian translation.
+- Каждая новая активная built-in нода сопровождается `README.md` (canonical English) и равнозначным переводом `README.ru.md` в своём package; шаблон и правила — в `src/node_dsl/README.md`.
+- Для этого требования активными считаются публичные стабильные ноды без `DISABLED=True`, `DEPRECATED=True`, `VISIBLE=False`, `EXPERIMENTAL=True`, без тегов `Deprecated`, `Testing`, `Unstable`, `Not tested`; внутренние/тестовые ноды и исключённые из MCP Kafka-ноды не входят в охват. Локальные настройки отключения нод не меняют этот перечень; документация extensions поддерживается отдельно.
+- При изменении поведения, параметров или ограничений ноды проверять и обновлять обе версии README. Примеры, имена портов и ожидаемые результаты должны соответствовать текущей реализации и машинной схеме.
+- README описывает фактическое поведение; найденные дефекты фиксировать отдельно. Документация поставляется вместе с кодом; отдельной версии документации и обязательной CI-проверки покрытия не требуется.
 
 ## Project Skill (`dvt-project-ops`)
 Use `.codex/skills/dvt-project-ops` for DVT-specific local development operations that require knowledge of repository internals: Docker service status/restart, cross-service log and task diagnostics, safe DB connection test fixtures, and changelog appends.
