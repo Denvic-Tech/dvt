@@ -34,6 +34,14 @@ and use project_id for every mutation and execution. Never attempt to infer or e
 connection credentials. Subgraphs may be inspected and existing membership may be changed, but
 subgraph entities must not be created, updated, or deleted.
 
+Use search_nodes to find suitable node types. Before configuring a selected type for the first
+time in the current task, read get_node_definition with the user's locale. Use its schema for
+types and allowed values, and its documentation for behavior, parameter interactions, examples,
+and limitations. Consult that documentation again when parameters or errors are unclear; reuse
+the definition already in context when it is current. Search results stay compact; request full
+documentation only for the selected node types. README examples are parameter values, not MCP
+patch envelopes; add required object-port edges separately.
+
 Every runtime input whose node definition type is DB_CONNECTION, S3_CONNECTION, FTP_CONNECTION,
 or SMB_CONNECTION is an object port and must be supplied by a graph edge from the matching
 connection node: GetExistDBConnection, GetExistS3Connection, GetExistFTPConnection, or
