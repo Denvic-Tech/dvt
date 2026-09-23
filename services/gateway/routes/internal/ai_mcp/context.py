@@ -193,4 +193,5 @@ async def get_node_definition(
     definition = get_definition(node_name=node_name, lang=locale)
     payload = definition.model_dump(mode="json")
     payload["documentation"] = await _node_documentation(node_name, locale) or None
+    payload["documentation_available"] = bool(payload["documentation"])
     return payload

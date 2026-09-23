@@ -38,6 +38,7 @@ async def test_definition_delivers_package_documentation(locale, heading):
 
     assert result["name"] == "DataFrameJoin"
     assert result["documentation"].startswith(heading)
+    assert result["documentation_available"] is True
     assert "left_on" in result["input_definitions"]
     assert "output" in result["output_definitions"]
 
@@ -86,6 +87,7 @@ async def test_missing_translation_uses_english_for_definition_and_search(monkey
     search = await _call("search_nodes", query="englishfallbackneedle", locale="ru", limit=200)
 
     assert definition["documentation"] == content
+    assert definition["documentation_available"] is True
     assert "LoadCSV" in {item["name"] for item in search["items"]}
 
 
@@ -97,6 +99,7 @@ async def test_missing_readme_keeps_definition_available(monkeypatch, tmp_path):
 
     assert result["name"] == "LoadCSV"
     assert result["documentation"] is None
+    assert result["documentation_available"] is False
     assert result["input_definitions"]
 
 
