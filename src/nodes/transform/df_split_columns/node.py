@@ -8,18 +8,46 @@ from src.node_dsl.node_typing import IO
 
 class DataFrameSplitColumn(DFOutputBaseNode):
     TITLE = "Split Column"
+    ICON_KEY = "dataframe-split-column"
     EMOJI = "✂️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    column: IO.COLUMN_NAME = InputField()
-    delimiter: str = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Check row count, target values and existing names before splitting. The operation "
+            "adds columns while preserving rows and alignment within each partition."
+        ),
+    )
+    column: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Select the existing field to split. Values are converted to strings first; inspect "
+            "how source nulls appear after stringification."
+        ),
+    )
+    delimiter: str = InputField(
+        agent_description=(
+            "Choose the separator from real values and account for pandas str.split pattern "
+            "semantics for multi-character delimiters. Test separators containing regex "
+            "metacharacters instead of assuming literal matching."
+        ),
+    )
     max_splits: int = InputField(
+        agent_description=(
+            "Set the maximum split count n, producing exactly n+1 columns named source_1 through "
+            "source_(n+1). Check the largest required split and collisions with existing names; "
+            "missing pieces are filled with NaN."
+        ),
         default=1,
         min_value=1,
         description="Maximum number of splits (n). Produces n+1 columns."
     )
-    drop_source: bool = InputField(default=False)
+    drop_source: bool = InputField(
+        agent_description=(
+            "Enable only when downstream nodes no longer need the original field. The default "
+            "retains it alongside all generated split columns."
+        ),
+        default=False,
+    )
 
     output: dd.DataFrame = OutputField()
 

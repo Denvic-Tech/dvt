@@ -49,12 +49,20 @@ def _catalog_capabilities(dialect: str) -> DBCatalogCapabilities:
 
 class GetExistDBConnection(SqlConnectionOutputBaseNode):
     TITLE = "DB Connection"
+    ICON_KEY = "db-connection"
     EMOJI = "🔌"
     CATEGORY = "Connections"
     CACHABLE = False
 
     # --- Inputs ---
-    connection_id: IO.DB_CONNECTION_ID = InputField()
+    connection_id: IO.DB_CONNECTION_ID = InputField(
+        agent_description=(
+            "Select an accessible compatible connection with list_connections/get_connection. "
+            "In MCP patches, set kind=connection_ref with its connection_id on this identifier "
+            "input. Connect this node's connection output to consumer object inputs by edges; "
+            "the same output may feed multiple consumers. Never infer or expose credentials."
+        ),
+    )
 
     # --- Outputs ---
     connection: SqlConnectionRecord = OutputField()

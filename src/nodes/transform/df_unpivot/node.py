@@ -10,22 +10,47 @@ from src.logger import logger
 
 class DataFrameUnpivot(DFOutputBaseNode):
     TITLE = "Unpivot DataFrame (Long Format)"
+    ICON_KEY = "dataframe-unpivot"
     EMOJI = "🔄"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the wide table and estimate row expansion from the number of melted columns. "
+            "The resulting names and values are converted to strings, with missing values "
+            "preserved as null."
+        ),
+    )
 
     index_columns: List[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "List the identifiers to repeat on each long-form row; named index fields can be "
+            "restored as columns. Choose enough identifiers to keep the original row meaning after "
+            "expansion."
+        ),
         description="Колонки, которые должны остаться неизменными (идентификаторы строк)."
     )
     columns_to_long: Optional[List[IO.COLUMN_NAME]] = InputField(
+        agent_description=(
+            "List the actual measures to melt, excluding identifier columns. Omit to use all "
+            "non-identifier columns; check width first because each selected measure adds a row "
+            "per input row."
+        ),
         description="Колонки, которые нужно расплавить. Если не заданы — берутся все кроме id_vars."
     )
     new_column_name_with_names: str = InputField(
+        agent_description=(
+            "Choose a distinct output name for the original measure names; avoid collision with "
+            "identifiers and new_column_name_with_values."
+        ),
         default="variable",
         description="Имя новой колонки, содержащей имена исходных столбцов."
     )
     new_column_name_with_values: str = InputField(
+        agent_description=(
+            "Choose a distinct output name for melted values. Values are stringified in this node; "
+            "explicitly cast downstream when numeric or datetime operations are required."
+        ),
         default="value",
         description="Имя новой колонки, содержащей значения исходных столбцов."
     )

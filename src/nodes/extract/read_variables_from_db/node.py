@@ -253,6 +253,7 @@ class ReadVariablesFromDB(
     BaseNode
 ):
     TITLE = "Read Variables DB"
+    ICON_KEY = "variables-from-db"
     EMOJI = "🧮"
     CATEGORY = "Extraction"
     CACHABLE = False
@@ -260,10 +261,30 @@ class ReadVariablesFromDB(
     METADATA_VARIABLE_PREPASS_INPUTS = frozenset({"manual_variables", "sql_query", "sql_variables"})
     ALLOW_NULLABLE_SQL_CODE = True
 
-    connection: SqlConnectionRecord | Engine = InputField()
-    mode: ReadVariablesMode = InputField(default="manual")
+    connection: SqlConnectionRecord | Engine = InputField(
+        agent_description=(
+            "Connect a saved SQL database connection with access to the requested tables/query. "
+            "Inspect the dialect and catalog before choosing names and SQL. Both full execution "
+            "and metadata processing run the variable queries against this database."
+        ),
+    )
+    mode: ReadVariablesMode = InputField(
+        agent_description=(
+            "Use manual for named column aggregations configured in manual_variables; use sql when "
+            "custom filtering, joins, or multiple derived scalar values are required. Only the "
+            "selected mode's configuration is executed."
+        ),
+        default="manual",
+    )
 
     sql_code: str | None = InputField(
+        agent_description=(
+            "In sql mode, provide a dialect-correct read query returning at most one row and at "
+            "least one uniquely named column. Each column alias becomes an output variable. "
+            "Multiple rows fail; zero rows require nullable/default policies. Use supported DVT "
+            "SQL template syntax for dynamic values and inspect the compiled query; this SQL is "
+            "also executed during metadata processing."
+        ),
         default=None,
         multiline=True,
         expression_policy="default",
@@ -271,11 +292,26 @@ class ReadVariablesFromDB(
     )
 
     manual_variables: dict[str, VariableConfiguration] = InputField(
+        agent_description=(
+            "In manual mode, map output variable names to table_name, column_name, aggregation, "
+            "and optional database_name/schema_name. Supported aggregations are min, max, count, "
+            "count_distinct, sum, avg, first, and last. Count excludes null column values. "
+            "First/last require order_by_column; choose deterministic ordering. Manual queries "
+            "aggregate the whole table, so use sql mode for filters. Configure nullable, literal "
+            "default, target_dtype, and is_list_type when needed."
+        ),
         default={},
         description="Manual variable definitions grouped by output variable name.",
         use_connection=False,
     )
     sql_variables: dict[str, SqlVariableConfiguration] = InputField(
+        agent_description=(
+            "In sql mode, optionally map returned column names to nullable/default/type policies. "
+            "Unknown or duplicate normalized names fail. Null values and zero-row results fail "
+            "unless a literal default or nullable=true permits them. Set target_dtype and "
+            "is_list_type explicitly when inference cannot establish a list's element type; "
+            "omission and an explicit null default are different."
+        ),
         default={},
         description="Per-column NULL/default overrides for `sql` mode.",
         use_connection=False,

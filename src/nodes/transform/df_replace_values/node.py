@@ -7,12 +7,30 @@ from src.node_dsl.node_typing import IO
 
 class DataFrameReplaceValues(DFOutputBaseNode):
     TITLE = "Replace values"
+    ICON_KEY = "dataframe-replace-values"
     EMOJI = "🔃"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    column_to_replace: IO.COLUMN_NAME = InputField()
-    dictionary: dict = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect the target column's dtype and representative values. Replacements can change "
+            "its effective dtype, especially when numeric or datetime conversion fails."
+        ),
+    )
+    column_to_replace: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Select one existing column to replace in place. Use a dedicated timezone or cast node "
+            "when the task is a general conversion rather than exact-value substitution."
+        ),
+    )
+    dictionary: dict = InputField(
+        agent_description=(
+            "Map old values to replacements. The aliases null/none/nan/nil/empty string have "
+            "special missing-value semantics; numeric and datetime keys are coerced to the source "
+            "type. Check the README and test representative matches, nulls and output dtype before "
+            "relying on mixed-type replacements."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

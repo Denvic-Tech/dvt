@@ -10,22 +10,94 @@ from src.node_dsl.node_typing import IO
 
 class AddTimeDeltaToDataFrame(DFOutputBaseNode):
     TITLE = "Add TimeDelta To Dataframe"
+    ICON_KEY = "add-timedelta-to-dataframe"
     EMOJI = "⏳"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    column_with_time: IO.COLUMN_NAME = InputField()
-    new_column_with_time: str = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect a DataFrame with a verified temporal source column. This node applies a "
+            "pandas calendar DateOffset, not a fixed elapsed-time timedelta; test month-end and "
+            "timezone cases."
+        ),
+    )
+    column_with_time: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Choose an existing datetime/timedelta-typed column; strings must be converted first. "
+            "Although validation accepts timedelta, verify the chosen calendar offset is supported "
+            "by the actual values."
+        ),
+    )
+    new_column_with_time: str = InputField(
+        agent_description=(
+            "Choose the result field name. An existing name is overwritten; use a new name when "
+            "the original timestamp must be preserved."
+        ),
+    )
 
-    years: float = InputField(default=0.0)
-    months: float = InputField(default=0.0)
-    days: float = InputField(default=0.0)
-    seconds: float = InputField(default=0.0)
-    microseconds: float = InputField(default=0.0)
-    milliseconds: float = InputField(default=0.0)
-    minutes: float = InputField(default=0.0)
-    hours: float = InputField(default=0.0)
-    weeks: float = InputField(default=0.0)
+    years: float = InputField(
+        agent_description=(
+            "Set the signed calendar-year offset. The runtime converts this value to int, "
+            "discarding fractional years; check leap-day results."
+        ),
+        default=0.0,
+    )
+    months: float = InputField(
+        agent_description=(
+            "Set the signed calendar-month offset, not an assumed 30-day duration. Fractional "
+            "months are discarded by int conversion; verify month-end behavior."
+        ),
+        default=0.0,
+    )
+    days: float = InputField(
+        agent_description=(
+            "Set signed calendar days; fractions are discarded by int conversion. Check local-time "
+            "behavior if timestamps carry a timezone."
+        ),
+        default=0.0,
+    )
+    seconds: float = InputField(
+        agent_description=(
+            "Set the signed seconds component of the calendar DateOffset. The runtime converts it "
+            "to an integer, so do not use fractional seconds for subsecond precision."
+        ),
+        default=0.0,
+    )
+    microseconds: float = InputField(
+        agent_description=(
+            "This exposed field is currently not passed to DateOffset and has no effect. Do not "
+            "rely on it for subsecond shifts; use a supported alternative."
+        ),
+        default=0.0,
+    )
+    milliseconds: float = InputField(
+        agent_description=(
+            "This exposed field is currently ignored by the implementation. Do not claim a "
+            "millisecond offset was applied."
+        ),
+        default=0.0,
+    )
+    minutes: float = InputField(
+        agent_description=(
+            "Set the signed minute component of the DateOffset. Fractions are truncated to "
+            "integers and combine with the other applied components."
+        ),
+        default=0.0,
+    )
+    hours: float = InputField(
+        agent_description=(
+            "Set the signed hour component. Fractions are discarded; verify timezone/DST behavior "
+            "when calendar and time components are combined."
+        ),
+        default=0.0,
+    )
+    weeks: float = InputField(
+        agent_description=(
+            "This exposed field is currently not applied. Express an intended whole-week calendar "
+            "shift through days (7 per week) or choose an appropriate supported node."
+        ),
+        default=0.0,
+    )
 
     output: dd.DataFrame = OutputField()
 

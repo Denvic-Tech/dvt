@@ -11,11 +11,23 @@ from src.node_dsl.node_typing import IO
 
 class DataFrameDropColumns(DFOutputBaseNode):
     TITLE = "Drop Columns"
+    ICON_KEY = "dataframe-drop-columns"
     EMOJI = "🗑️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    columns: List[IO.COLUMN_NAME] = InputField()  # Список колонок для удаления
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the table after verifying which fields remain necessary downstream, including "
+            "join keys and write mappings."
+        ),
+    )
+    columns: List[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "List exact business fields to remove. Missing columns are ignored, so check spelling; "
+            "dropping a field also used as the physical index hides its business name but "
+            "preserves the index/divisions."
+        ),
+    )  # Список колонок для удаления
 
     output: dd.DataFrame = OutputField()
 

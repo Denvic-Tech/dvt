@@ -28,6 +28,10 @@ class InputDefinitionModel(BaseModel):
     optional: bool = Field(description="Является ли поле опциональным")
     is_hidden: bool = Field(description="Является ли поле скрытым")
     description: str | None = Field(None, description="Описание поля", json_schema_extra={"i18n": True})
+    agent_description: str | None = Field(
+        default=None,
+        description="Non-localized guidance for agents choosing and configuring this input.",
+    )
     default: Any | None = Field(None, description="Значение по умолчанию")
     multiline: bool | None = Field(None, description="Подсказка UI: многострочный ввод")
     metadata_source_field: str | None = Field(None, description="Названия поля для источника метаданных")
@@ -91,6 +95,10 @@ class NodeDefinition(BaseModel):
     # --- Общие метаданные ---
     name: str = Field(description="Имя класса ноды (уникальный идентификатор)")
     emoji: str | None = Field(default=None, description="Эмодзи иконка для ноды")
+    icon_key: str | None = Field(
+        default=None,
+        description="Stable icon key resolved by the UI; unknown keys use the default marker.",
+    )
     display_name: str = Field(description="Отображаемое имя ноды", json_schema_extra={"i18n": True})
     description: str = Field(default='', description="Описание ноды", json_schema_extra={"i18n": True})
     python_module: str = Field(description="Относительный путь к Python модулю ноды")

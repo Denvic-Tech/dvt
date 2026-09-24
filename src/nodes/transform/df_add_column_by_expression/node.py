@@ -10,9 +10,27 @@ class DataFrameAddColumnByExpression(DFOutputBaseNode):
     CATEGORY = "Transform"
     EXPERIMENTAL = True
 
-    df: dd.DataFrame = InputField()
-    column_name: IO.COLUMN_NAME = InputField(allow_new=True)
-    expression: str = InputField(multiline=True)
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Experimental expression node: inspect existing fields and types and prefer a stable "
+            "specialized transform when available."
+        ),
+    )
+    column_name: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Choose the field to assign; an existing field is overwritten. Check downstream "
+            "references and preserve the source under a different name when needed."
+        ),
+        allow_new=True,
+    )
+    expression: str = InputField(
+        agent_description=(
+            "Use a pandas/Dask eval value expression for the target field, not SQL or a DVT "
+            "template. Test supported operators and dtypes; the Python engine does not make "
+            "arbitrary statements valid."
+        ),
+        multiline=True,
+    )
 
     output: dd.DataFrame = OutputField()
 

@@ -69,12 +69,16 @@ class InputField[T](FieldBase[T]):
 
             expression_policy: ExpressionPolicyRef = "default",
             sql_template: bool = False,
+            *,
+            agent_description: str | None = None,
     ):
         super().__init__(
             description=description,
             force_handle_visible=force_handle_visible
         )
 
+        # Authoring guidance, independent of the localized UI description and runtime validation.
+        self.agent_description = agent_description
         self.optional = Ellipsis
         self.default = default
 
@@ -117,6 +121,7 @@ class InputField[T](FieldBase[T]):
             optional=self.optional,
             is_hidden=self.is_hidden,
             description=self.description,
+            agent_description=self.agent_description,
             default=self.default if self.default is not ... else None,
             multiline=self.multiline,
             metadata_source_field=self.metadata_source_field,

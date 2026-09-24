@@ -13,12 +13,30 @@ from src.logger import logger
 
 class DataFrameGroupByAgg(DFOutputBaseNode):
     TITLE = "GroupBy + Aggregation"
+    ICON_KEY = "aggregate"
     EMOJI = "📊"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    group_by_columns: List[IO.COLUMN_NAME] = InputField(default=[])
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the full intended input and inspect grouping-key nulls and metric types. "
+            "Aggregation changes row granularity; verify totals against the source scope rather "
+            "than assuming duplicates are removed."
+        ),
+    )
+    group_by_columns: List[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Select the business grouping keys. An empty list requests a global aggregation and "
+            "requires aggregation fields. Keys without aggregation fields return distinct key "
+            "combinations; do not confuse this with physical read partitions."
+        ),
+        default=[],
+    )
     dropna: bool = InputField(
+        agent_description=(
+            "Keep false to retain null-key groups. Enable only when excluding rows with null "
+            "grouping keys is intended, and account for those excluded rows when checking totals."
+        ),
         default=False,
         description=(
             "Exclude rows with null values in grouping keys when enabled. "
@@ -27,14 +45,29 @@ class DataFrameGroupByAgg(DFOutputBaseNode):
     )
 
     new_cols: Optional[List[str]] = InputField(
+        agent_description=(
+            "Provide one distinct output name per aggregation, aligned positionally with "
+            "source_cols and agg_funcs. All three lists must be provided together with equal "
+            "lengths, or all omitted for distinct groups."
+        ),
         description="List of new column names for the aggregated results."
     )
     source_cols: Optional[List[IO.COLUMN_NAME]] = InputField(
+        agent_description=(
+            "Use exact input columns and align each with new_cols and agg_funcs. Check dtype and "
+            "nulls: count counts non-null values, not all rows; choose a verified non-null column "
+            "for a row count."
+        ),
         description="List of columns to aggregate.",
     )
     agg_funcs: Optional[List[
         Literal["sum", "mean", "min", "max", "count", "first", "last", "nunique", "std", "var"]
     ]] = InputField(
+        agent_description=(
+            "Use only schema-supported functions, one per source/output pair. count excludes nulls "
+            "and nunique counts distinct values. first/last require meaningful input order; never "
+            "assume an ordering that the upstream graph does not establish."
+        ),
         description="List of aggregation functions to apply to each column.",
     )
 

@@ -13,7 +13,14 @@ class CreateDict(PrimitiveBaseNode):
     # Используем **kwargs для динамического создания словаря
     # В UI это может потребовать специального виджета или динамических входов
     # Пока реализуем через JSON строку
-    json_string: str = InputField(default="{}", multiline=True)
+    json_string: str = InputField(
+        agent_description=(
+            "Disabled legacy primitive. If maintaining an existing graph, provide valid JSON text "
+            "whose top-level value is an object; arrays and scalars are rejected. Use JSON quoting "
+            "and null/true/false, not Python dictionary syntax."
+        ),
+        default="{}", multiline=True,
+    )
 
     output: Dict[str, Any] = OutputField()
 

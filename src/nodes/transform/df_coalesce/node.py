@@ -12,8 +12,21 @@ class FillColumnNullValues(DFOutputBaseNode):
 
     TAGS = ["Unstable"]
 
-    column_with_null: dd.Series = InputField()
-    column_with_values: dd.Series = InputField(description="Данные колонки")
+    column_with_null: dd.Series = InputField(
+        agent_description=(
+            "Experimental column-level operation: connect the Series whose missing values should "
+            "be replaced. Confirm both inputs have compatible indexes and types; length validation "
+            "can compute the inputs."
+        ),
+    )
+    column_with_values: dd.Series = InputField(
+        agent_description=(
+            "Connect fallback values aligned to the first Series index and of equal length. Equal "
+            "row counts do not prove row correspondence; mismatched indexes can leave gaps or "
+            "replace unintended rows."
+        ),
+        description="Данные колонки",
+    )
 
     output: IO.COLUMN = OutputField()
 

@@ -69,6 +69,7 @@ def _build_table_schema_metadata(schema: TableSchema) -> TableSchemaMetadata:
 
 class GetMockTableSchema(BaseNode):
     TITLE = "Get Mock Table Schema"
+    ICON_KEY = "get-mock-table-schema"
     EMOJI = "🧱"
     CATEGORY = "Mock Data"
     DESCRIPTION = "Return a fixed TableSchema for UI and metadata testing."

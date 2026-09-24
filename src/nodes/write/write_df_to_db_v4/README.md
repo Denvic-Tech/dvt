@@ -8,6 +8,8 @@
 
 Connect a DataFrame to `df` and `GetExistDBConnection.connection` to `connection`. Set `table_name`, optional `database_name` and `schema_name`. `write_mode` defaults to `append`; `truncate` replaces all rows; `upsert` requires `upsert_config={"key_column":"id"}` using the target key name. Supply `upsert_config` only for upsert. `column_mapping` contains `source_name` / `target_name` pairs, with optional `dtype` / `nullable`. `on_extra_df_columns` defaults to `ignore`; `on_missing_df_columns` defaults to `ignore_if_default`. `chunksize` defaults to 1000.
 
+Through MCP, inspect the target with `get_database_table` before applying or running the graph. Prepare missing objects with `create_database`, `create_schema` or `create_table` using the intended DataFrame metadata and target constraints, then inspect the target again. Input `agent_description` metadata explains target preparation and write-mode decisions.
+
 ## Outputs
 
 This is a sink: there is no DataFrame result port. System variables `target_table` and `rows_written` describe the completed write. `rows_written` counts inserted input rows, not the final table size.

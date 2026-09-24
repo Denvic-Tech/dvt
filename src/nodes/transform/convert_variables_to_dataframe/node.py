@@ -12,11 +12,18 @@ from src.node_dsl.variables import VariableOutput, build_variable_output, is_unr
 
 class ConvertVariablesToDataFrame(DFOutputBaseNode):
     TITLE = "Variables → DataFrame"
+    ICON_KEY = "convert-variables-to-dataframe"
     EMOJI = "☑️"
     CATEGORY = "Transform"
     CACHABLE = False
 
     input_variables: Dict[str, IO.VARIABLE] = InputField(
+        agent_description=(
+            "Supply a non-empty mapping of typed variable records, usually through VARIABLE edges. "
+            "Full execution produces one row with one column per variable; list-valued variables "
+            "remain list cells, not multiple rows. Unresolved values fail full execution even when "
+            "metadata inference succeeds."
+        ),
         default={},
         description="Input variables",
         allow_multiple_connections=True,

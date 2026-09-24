@@ -218,16 +218,30 @@ def _dvt_partitioning_options(
 
 class LoadParquet(FileConnectionInputMixin, DFOutputBaseNode):
     TITLE = "Load Parquet"
+    ICON_KEY = "load-parquet"
     EMOJI = "🧱"
     CATEGORY = "Extraction"
 
     # --- Inputs ---
     path: str = InputField(
+        agent_description=(
+            "Set the connection-relative path to a Parquet file or dataset directory. Verify the "
+            "dataset schema and files before reading; Hive partition columns are reconstructed "
+            "where supported. FTP reads each file via a temporary local download; dataset "
+            "partitioning is taken from storage, not configured here."
+        ),
         description="Путь в формате s3://bucket/user_id/<path>.parquet (задавай относительный path)"
     )
 
     # Ограничим набор колонок (пробрасывается в pushdown на стороне parquet)
-    usecols: list[str] | None = InputField(is_hidden=True)
+    usecols: list[str] | None = InputField(
+        agent_description=(
+            "Optionally list exact Parquet column names to project at read time, reducing I/O and "
+            "memory. Null reads all columns. Include required Hive partition and downstream key "
+            "columns; do not use an empty list as a synonym for all columns."
+        ),
+        is_hidden=True,
+    )
 
     # --- Outputs ---
     output: dd.DataFrame = OutputField()

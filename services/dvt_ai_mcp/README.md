@@ -26,6 +26,19 @@ fallback). Results contain compact summaries, never the complete README. Full te
 only by `get_node_definition` for a specific node. JSON examples contain parameter values without
 an MCP request envelope; required graph edges are described separately.
 
+All built-in node inputs, including inherited and hidden fields, provide `agent_description`:
+non-localized guidance about prerequisites, value selection and configuration mistakes. This also
+covers experimental, deprecated, testing and internal packages. The localized `description` remains
+the UI help text. Agents should read both and consult the node README for interactions and examples.
+The field stays optional for extensions and older definition payloads; when it is absent or null,
+use the existing description and README. Nested input schemas may carry the same
+`agent_description` metadata on their properties.
+
+General server instructions and graph-patch schemas are independent of concrete node classes.
+Node-specific configuration guidance belongs to the node's fields and colocated documentation.
+Optional inputs can still require a deliberate choice; omitting them follows the documented
+behavior, not a universal policy to skip configuration.
+
 ## Database comments
 
 `browse_database` includes an optional `comment` on table/view items.

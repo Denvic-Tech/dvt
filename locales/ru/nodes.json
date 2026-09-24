@@ -3211,7 +3211,7 @@
                 "partition_col": {
                     "display_name": "колонка_партицирования",
                     "display_type": "STRING",
-                    "description": "Обязательный параметр. Используйте точное имя скалярной колонки из результата запроса; предпочтительна стабильная непустая индексированная числовая колонка или дата без SQL-кавычек."
+                    "description": "Обязательная колонка результата запроса для партиционирования."
                 },
                 "partition_grouping": {
                     "display_name": "группировка_партиций",
@@ -3430,62 +3430,62 @@
                 "TTL_CACHE": {
                     "display_name": "TTL_CACHE",
                     "display_type": "INT",
-                    "description": "Время жизни кеша"
+                    "description": "Время жизни кеша в секундах; 0 отключает кеширование."
                 },
                 "connection": {
                     "display_name": "подключение",
                     "display_type": "DB_CONNECTION",
-                    "description": null
+                    "description": "Подключение к базе данных."
                 },
                 "table_name": {
                     "display_name": "имя_таблицы",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "Имя исходной таблицы."
                 },
                 "database_name": {
                     "display_name": "имя_базы",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "База данных источника; если не задана, используется база подключения."
                 },
                 "schema_name": {
                     "display_name": "имя_схемы",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "Схема источника, если поддерживается базой данных."
                 },
                 "columns": {
                     "display_name": "колонки",
                     "display_type": "COLUMN_NAME",
-                    "description": "Обязательный непустой список колонок. Чтобы читать и показывать в UI все колонки, передайте полный список из каталога; null не означает выбор всех в сохранённом графе."
+                    "description": "Колонки для чтения; выберите все колонки для чтения всей таблицы."
                 },
                 "limit": {
                     "display_name": "limit",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Максимальное число строк; если не задано, ограничение отсутствует."
                 },
                 "time_zone": {
                     "display_name": "таймзона",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "Часовой пояс; сейчас не применяется этой нодой чтения."
                 },
                 "partition_col": {
                     "display_name": "колонка_партицирования",
                     "display_type": "COLUMN_NAME",
-                    "description": "Обязательная колонка для детерминированного read_v3. Используйте точное имя из каталога без SQL-кавычек и обратных кавычек."
+                    "description": "Колонка для разбиения чтения таблицы на партиции."
                 },
                 "partition_grouping": {
                     "display_name": "группировка_партиций",
                     "display_type": "DICT",
-                    "description": "Необязательная настройка группировки партиций. Задавайте её только с учётом типа колонки, кардинальности и распределения данных."
+                    "description": "Способ разбиения чтения; если не задан, range/hash выбирается автоматически."
                 },
                 "npartitions": {
                     "display_name": "кол_партиций",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Целевое число партиций; если не задано, рассчитывается автоматически."
                 },
                 "max_rows_per_partition": {
                     "display_name": "макс_строк_на_партицию",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Предел строк одного сегмента; превышение завершает чтение ошибкой."
                 }
             },
             "output_definitions": {

@@ -59,17 +59,65 @@ class SystemVariables(BaseModel):
 
 class CreateTable(SignalOutputBaseNode):
     TITLE = "Create Table"
+    ICON_KEY = "create-table"
     EMOJI = "🧱"
     CATEGORY = "Tool"
     SYSTEM_VARIABLES_MODEL = SystemVariables
 
-    connection: SqlConnectionRecord | Engine = InputField()
-    database_name: Optional[str] = InputField()
-    schema_name: Optional[str] = InputField()
-    table_name: str = InputField()
-    dataframe_metadata: DataFrameMetadata = InputField()
-    table_create_spec: Optional[TableCreateSpec] = InputField(default=None)
+    connection: SqlConnectionRecord | Engine = InputField(
+        agent_description=(
+            "Connect a SQL database connection with DDL rights for the intended destination. "
+            "Inspect the dialect and existing catalog before choosing the table specification. "
+            "This operation creates an empty table; insertion must be handled separately and "
+            "ordered through signal connections."
+        ),
+    )
+    database_name: Optional[str] = InputField(
+        agent_description=(
+            "Optionally choose the verified destination database; null uses the connection's "
+            "default. Database switching is ignored for Oracle, where schema/user selection "
+            "belongs in schema_name. Do not repeat this identifier inside table_name."
+        ),
+    )
+    schema_name: Optional[str] = InputField(
+        agent_description=(
+            "Optionally specify the destination schema separately from table_name, using the "
+            "selected dialect's catalog conventions. Null uses dialect-specific defaults. Confirm "
+            "the schema/database already exists; this field does not provision a namespace."
+        ),
+    )
+    table_name: str = InputField(
+        agent_description=(
+            "Set the destination table's unqualified name, with database/schema in their own "
+            "fields. Check the existing catalog and on_exists before execution to avoid creating "
+            "or replacing the wrong table."
+        ),
+    )
+    dataframe_metadata: DataFrameMetadata = InputField(
+        agent_description=(
+            "Provide DataFrameMetadata with a non-empty columns list containing names, DVT dtypes, "
+            "nullability, and intended index/key metadata. This is distinct from the TableSchema "
+            "object produced by descriptor conversion. Verify that inferred SQL types and primary "
+            "keys match the intended destination."
+        ),
+    )
+    table_create_spec: Optional[TableCreateSpec] = InputField(
+        agent_description=(
+            "Optionally provide explicit primary_key_cols, indexes, foreign_keys, and ClickHouse "
+            "engine options from the live nested schema. Choose keys and ordering from actual "
+            "uniqueness and query patterns. ClickHouse replicated/collapsing/versioned engines "
+            "have additional required fields. These are table-creation settings, not changes "
+            "applied when an existing table is ignored."
+        ),
+        default=None,
+    )
     on_exists: Literal["ignore", "recreate", "error"] = InputField(
+        agent_description=(
+            "Use error to fail if the target exists, ignore to leave it unchanged without "
+            "reconciling its schema, or recreate to drop and rebuild it. Recreate destroys "
+            "existing data before creation and later failure can leave the table absent; select it "
+            "only when replacement is intended."
+        ),
         default="error",
         description="ignore | recreate | error",
     )

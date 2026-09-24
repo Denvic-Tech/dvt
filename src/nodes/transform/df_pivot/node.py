@@ -10,19 +10,39 @@ from src.node_dsl.node_typing import IO
 
 class DataFramePivot(DFOutputBaseNode):
     TITLE = "Pivot DataFrame (Wide Format)"
+    ICON_KEY = "dataframe-pivot"
     EMOJI = "🧩"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect data at the intended aggregation scope. Estimate distinct pivot values before "
+            "widening: high cardinality produces many output columns and can be expensive."
+        ),
+    )
 
     index: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Select one existing column or named index level for output rows. It must differ from "
+            "column; check whether duplicate index/pivot pairs should be aggregated."
+        ),
         description="Колонка, значения которой станут строками сводной таблицы."
     )
     column: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Select the field whose distinct values become output columns. The node categorizes "
+            "it, potentially scanning values; inspect cardinality and expected output names before "
+            "use."
+        ),
         description="Колонка, уникальные значения которой станут столбцами."
     )
 
     aggfunc: Dict[str, Literal["mean", "sum", "count", "first", "last"]] = InputField(
+        agent_description=(
+            "Provide a non-empty mapping of value column to one supported aggregation. Value "
+            "fields must be actual columns, not only index levels. Multiple metrics can cause "
+            "prefixed output names; inspect output metadata instead of inventing names."
+        ),
         description="Словарь {<колонка>: <функция>}, например: {'sales':'sum','revenue':'mean'}."
     )
 

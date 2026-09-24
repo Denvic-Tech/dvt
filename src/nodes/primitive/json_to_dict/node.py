@@ -10,7 +10,14 @@ class JsonToDict(PrimitiveBaseNode):
     CATEGORY = "Primitive"
     DISABLED = True
 
-    json_string: str = InputField(multiline=True)
+    json_string: str = InputField(
+        agent_description=(
+            "Disabled legacy primitive. Supply valid JSON object text for the declared dictionary "
+            "output. Despite the title, arrays are rejected. Do not rely on the parser accepting "
+            "scalar JSON values, which do not match the output contract."
+        ),
+        multiline=True,
+    )
 
     output: Dict = OutputField()
 

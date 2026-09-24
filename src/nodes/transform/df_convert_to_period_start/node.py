@@ -18,15 +18,35 @@ _FREQ = {
 
 class DataFrameConvertToPeriodStart(DFOutputBaseNode):
     TITLE = "Datetime → Period Start"
+    ICON_KEY = "dataframe-convert-to-period-start"
     EMOJI = "🗓️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    column: IO.COLUMN_NAME = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect source datetime types and timezone meaning before deriving reporting periods. "
+            "This transforms a column without aggregating rows."
+        ),
+    )
+    column: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Choose the date field; non-datetime input is parsed and invalid values become NaT. "
+            "Apply the intended source timezone before deriving local calendar boundaries."
+        ),
+    )
     period: Literal["month", "week", "year", "day", "hour", "minute", "second"] = InputField(
+        agent_description=(
+            "Choose the business period explicitly. Weeks start on Monday; month/year use calendar "
+            "boundaries. Output is timezone-naive, so verify local-versus-UTC reporting semantics."
+        ),
         default="month"
     )
-    new_column: Optional[str] = InputField()
+    new_column: Optional[str] = InputField(
+        agent_description=(
+            "Omit to overwrite the original date field, or supply a distinct name to preserve it. "
+            "The result is the beginning of each period, not an aggregated report."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

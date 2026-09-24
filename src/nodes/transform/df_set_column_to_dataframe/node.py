@@ -12,9 +12,26 @@ class SetColumnToDataFrame(DFOutputBaseNode):
     EXPERIMENTAL = True
     TAGS = ["Unstable"]
 
-    df: dd.DataFrame = InputField()
-    column_data: IO.COLUMN = InputField(description="Данные колонки")
-    column_name: str = InputField(description="Имя новой колонки")
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Experimental assignment node: inspect existing fields and indexes before attaching an "
+            "external Series."
+        ),
+    )
+    column_data: IO.COLUMN = InputField(
+        agent_description=(
+            "Connect Series data aligned to the target DataFrame index. Matching lengths alone do "
+            "not ensure matching rows; verify alignment and missing values."
+        ),
+        description="Данные колонки",
+    )
+    column_name: str = InputField(
+        agent_description=(
+            "Choose the assigned field name. An existing field is replaced, with only a warning; "
+            "use a new name if the original must be retained."
+        ),
+        description="Имя новой колонки",
+    )
 
     output: dd.DataFrame = OutputField()
 
