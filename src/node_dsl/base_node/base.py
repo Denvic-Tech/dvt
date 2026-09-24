@@ -76,6 +76,7 @@ class BaseNode(
     # --- Атрибуты класса для метаданных ---
     TITLE: ClassVar[str | None] = None
     EMOJI: ClassVar[str | None] = None
+    ICON_KEY: ClassVar[str | None] = None
     CATEGORY: ClassVar[str] = "Custom"
     TAGS: ClassVar[list[str]] = []
     TYPE: ClassVar[enums.NodeType] = enums.NodeType.BASE
@@ -97,11 +98,21 @@ class BaseNode(
     DISABLED_OUTPUTS: ClassVar[Sequence[str] | None] = None
 
     input_variables: dict[str, IO.VARIABLE] = InputField(
+        agent_description=(
+            "Connect VARIABLE outputs or provide typed variable records, not arbitrary business "
+            "columns. Check names, types and nullability before using variables in input "
+            "expressions; variables can also come from project scope."
+        ),
         default={},
         description="Input variables",
         allow_multiple_connections=True
     )
     signal_in: Optional[IO.SIGNAL] = InputField(
+        agent_description=(
+            "Use incoming SIGNAL edges for explicit execution dependencies or conditional "
+            "branches. Do not put business data in this port. Leave unconnected when ordinary data "
+            "dependencies provide the intended execution order."
+        ),
         default=None,
         description="Execution signal input",
         allow_multiple_connections=True
