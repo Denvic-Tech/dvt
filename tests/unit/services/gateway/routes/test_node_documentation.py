@@ -142,3 +142,18 @@ async def test_get_base_variable_definitions_route_returns_error_text_contract(
     assert payload["__dvt_error_text"]["type"] == "STRING"
     assert payload["__dvt_error_text"]["required"] is False
     assert "error" in payload["__dvt_error_text"]["description"].lower()
+
+
+@pytest.mark.asyncio
+async def test_node_definition_keeps_ui_and_agent_descriptions_separate(
+    gateway_client,
+    router_prefix,
+) -> None:
+    response = await gateway_client.get(
+        f"{router_prefix}/nodes/ReadTableFromDBV3", headers={"X-Language": "ru"},
+    )
+
+    assert response.status_code == 200, response.text
+    field = response.json()["input_definitions"]["partition_col"]
+    assert "Колонка" in field["description"]
+    assert "cardinality and skew" in field["agent_description"]

@@ -69,12 +69,14 @@ def test_mcp_contract_exposes_only_mvp_tools_with_annotations() -> None:
     assert by_name["create_table"].annotations.idempotent_hint is True
     assert "never claim success before SUCCESS" in mcp.instructions
     assert "Never add or replace a node with a deprecated node type" in mcp.instructions
-    assert "For an ordinary database table read, use ReadTableFromDBV3" in mcp.instructions
-    assert "partition_col to an exact raw catalog column name" in mcp.instructions
-    assert "pass every catalog column" in mcp.instructions
-    assert "WriteDataFrameToDBV4 never creates" in mcp.instructions
+    assert "agent_description" in mcp.instructions
+    assert "optional input can still require an explicit decision" in mcp.instructions
     assert "Never put a connection ID string or connection_ref directly" in mcp.instructions
-    assert "GetExistDBConnection" in mcp.instructions
+    for node_name in (
+        "ReadTableFromDBV3", "ReadQueryFromDBV3", "WriteDataFrameToDBV4",
+        "GetExistDBConnection", "ExecutePython", "DataFrameExecCode", "ExecuteSQL",
+    ):
+        assert node_name not in mcp.instructions
     assert "Use search_nodes to find suitable node types" in mcp.instructions
     assert "read get_node_definition with the user's locale" in mcp.instructions
     assert "when parameters or errors are unclear" in mcp.instructions
@@ -95,7 +97,15 @@ async def test_mcp_protocol_lists_all_tools() -> None:
 async def test_mcp_protocol_forwards_definition_locale_and_documentation(
     monkeypatch, locale, documentation,
 ) -> None:
-    payload = {"name": "DataFrameJoin", "documentation": documentation}
+    payload = {
+        "name": "DataFrameJoin", "documentation": documentation,
+        "input_definitions": {
+            "left_on": {
+                "description": "Left key columns.",
+                "agent_description": "Inspect key cardinality before joining.",
+            },
+        },
+    }
     call = AsyncMock(return_value=payload)
     monkeypatch.setattr(gateway_client, "call_tool", call)
 

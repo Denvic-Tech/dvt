@@ -115,3 +115,21 @@ async def test_unavailable_node_does_not_expose_documentation(node_name, monkeyp
     assert raised.value.status_code == 404
     assert raised.value.detail["code"] == "NODE_NOT_AVAILABLE"
     read_documentation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_definition_delivers_agent_guidance_without_localizing_it():
+    english = await _call("get_node_definition", node_name="ReadTableFromDBV3", locale="en")
+    russian = await _call("get_node_definition", node_name="ReadTableFromDBV3", locale="ru")
+    english_key = english["input_definitions"]["partition_col"]
+    russian_key = russian["input_definitions"]["partition_col"]
+
+    assert english_key["description"] != russian_key["description"]
+    assert english_key["agent_description"] == russian_key["agent_description"]
+    assert "nulls" in english_key["agent_description"]
+    assert "skew" in english_key["agent_description"]
+    assert english["documentation"]
+    # Shared base fields carry the same guidance through the MCP facade in either locale.
+    signal_guidance = english["input_definitions"]["signal_in"]["agent_description"]
+    assert signal_guidance
+    assert signal_guidance == russian["input_definitions"]["signal_in"]["agent_description"]
