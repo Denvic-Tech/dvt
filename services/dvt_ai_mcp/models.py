@@ -17,7 +17,7 @@ class Position(StrictModel):
 class InputValue(StrictModel):
     kind: Literal["constant", "expression", "connection_ref"] = Field(
         description=(
-            "Use connection_ref only for a *_CONNECTION_ID input on a GetExist*Connection node. "
+            "Use connection_ref only for an input whose schema type is *_CONNECTION_ID. "
             "A consumer *_CONNECTION object input must be supplied by an edge from that node."
         )
     )
@@ -42,9 +42,9 @@ class AddNode(StrictModel):
     inputs: dict[str, InputValue | None] = Field(
         default_factory=dict,
         description=(
-            "Initial node inputs. For ReadTableFromDBV3, provide partition_col and an explicit "
-            "non-empty columns list; list every catalog column to select all. Connection object "
-            "inputs must be supplied through add_connections from a GetExist*Connection node."
+            "Initial node inputs. Read get_node_definition for the schema, input "
+            "agent_description guidance and node documentation before configuring them. "
+            "Supply connection object inputs through add_connections from compatible outputs."
         ),
     )
     store_enabled: bool = False
@@ -61,9 +61,9 @@ class UpdateNode(StrictModel):
         default=None,
         description=(
             "Only inputs that must change. Omitted keys keep their current value; a null entry "
-            "removes the value. ReadTableFromDBV3.columns must be an explicit non-empty list, "
-            "with every catalog column listed when all columns are required. Never replace a "
-            "connection edge by writing a connection ID into a consumer connection input."
+            "removes the value. Follow input agent_description guidance and node documentation "
+            "when reassessing affected settings. Never replace a connection edge by writing a "
+            "connection ID into a consumer connection object input."
         ),
     )
     store_enabled: bool | None = None
