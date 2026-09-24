@@ -485,8 +485,12 @@ def ensure_extension_runtime_for_task_process(
 
 
 def _resume_extension_refresh_queues(consumer) -> None:
-    consumer.add_task_queue(config.CELERY.CELERY_TASKS_QUEUE)
-    consumer.add_task_queue(config.CELERY.CELERY_DEPS_QUEUE)
+    queues = consumer.app.amqp.queues
+    for queue_name in (config.CELERY.CELERY_TASKS_QUEUE, config.CELERY.CELERY_DEPS_QUEUE):
+        # cancel_task_queue() also deselects queues used to recreate the consumer.
+        # Restore selection with the original exchange and routing configuration.
+        queues.select_add(queues[queue_name])
+        consumer.add_task_queue(queue_name)
 
 
 def _finish_extension_parent_refresh(consumer) -> None:
