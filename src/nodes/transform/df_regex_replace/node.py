@@ -12,17 +12,36 @@ class DataFrameRegexReplace(DFOutputBaseNode):
     Для каждой строки применяется re.sub(pattern, replacement, string).
     """
     TITLE = "Regex Replace"
+    ICON_KEY = "dataframe-regex-replace"
     EMOJI = "✍️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect the chosen field and required null behavior; the node stringifies its values "
+            "before regex replacement."
+        ),
+    )
     column_to_replace: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Choose an existing field to update in place. The result is string data, so do not "
+            "expect numeric or datetime dtype preservation."
+        ),
         description="Колонка для замены значений"
     )
     pattern: str = InputField(
+        agent_description=(
+            "Supply a valid regular expression and test it against representative matches and "
+            "non-matches. Escape literal metacharacters when matching text literally."
+        ),
         description="Регулярное выражение для поиска"
     )
-    replacement: Optional[str] = InputField(default='',
+    replacement: Optional[str] = InputField(
+        agent_description=(
+            "Use a string replacement, with the regex engine's supported group references if "
+            "needed. The default empty string removes matches; avoid null because the underlying "
+            "replacement operation expects a string or callable."
+        ),default='',
         description="Строка для замены найденного совпадения"
     )
 

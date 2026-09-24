@@ -13,7 +13,14 @@ class ServiceOutputNode(InternalBaseNode):
     OUTPUT_NODE = True
     VISIBLE = False
 
-    input: Optional[Any] = InputField(default=None)
+    input: Optional[Any] = InputField(
+        agent_description=(
+            "Internal hidden sink used by service execution. Connect the value to consume; Dask "
+            "DataFrames are fully computed and other values are only logged. Do not add this as a "
+            "user-facing persistence destination."
+        ),
+        default=None,
+    )
 
     def process(self) -> None:
         logger.info(f"Service Node: {self.input}")

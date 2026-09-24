@@ -12,21 +12,61 @@ from src.nodes.write._shared.target_path import normalize_relative_target_path
 
 class SaveExcel(FileConnectionInputMixin, BaseNode):
     TITLE = "Save Excel"
+    ICON_KEY = "save-excel"
     EMOJI = "💾"
     CATEGORY = "Writing"
     OUTPUT_NODE = True
 
     # --- Inputs ---
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect a DataFrame suitable for spreadsheet export. Check row/column counts, dtypes, "
+            "and timezone compatibility. Each written workbook must satisfy Excel limits, allowing "
+            "space for header and index; single-file mode computes the entire DataFrame into "
+            "memory."
+        ),
+    )
 
     path: str = InputField(
+        agent_description=(
+            "Set a connection-relative workbook name such as reports/export.xlsx; the .xlsx suffix "
+            "is normalized. Existing targets are opened for writing. In partitioned mode the stem "
+            "is extended with -part-00000.xlsx and subsequent numbers."
+        ),
         description="Относительный путь к XLSX-файлу, например: reports/export.xlsx",
     )
 
-    sheet_name: str = InputField(default="Sheet1")
-    index: bool = InputField(default=False)
-    header: bool = InputField(default=True)
-    single_file: bool = InputField(default=True)
+    sheet_name: str = InputField(
+        agent_description=(
+            "Set a valid Excel worksheet name, at most 31 characters and without Excel-forbidden "
+            "characters. Every partition workbook uses this name; the node creates a new workbook "
+            "rather than appending sheets to an existing one."
+        ),
+        default="Sheet1",
+    )
+    index: bool = InputField(
+        agent_description=(
+            "Leave false unless the consumer needs the DataFrame index as extra worksheet columns. "
+            "Include index columns in the Excel width budget and ensure a business key has not "
+            "been lost by omitting its index."
+        ),
+        default=False,
+    )
+    header: bool = InputField(
+        agent_description=(
+            "Choose whether to write column names as the first worksheet row. Leave true for "
+            "normal exports; account for that row when checking Excel's row limit."
+        ),
+        default=True,
+    )
+    single_file: bool = InputField(
+        agent_description=(
+            "Use true only when the entire DataFrame fits worker memory and one Excel worksheet. "
+            "False writes one workbook per Dask partition; it does not automatically split "
+            "oversized partitions, so each partition must still fit Excel and memory limits."
+        ),
+        default=True,
+    )
 
     _MAX_ROWS = 1_048_576
     _MAX_COLS = 16_384

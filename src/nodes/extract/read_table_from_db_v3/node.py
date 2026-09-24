@@ -116,39 +116,117 @@ class SystemVariables(BaseModel):
 
 class ReadTableFromDBV3(DFOutputBaseNode):
     TITLE = "Read Table DB V3"
+    ICON_KEY = "table-from-db"
     EMOJI = "📋"
     CATEGORY = "Extraction"
     SYSTEM_VARIABLES_MODEL = SystemVariables
     METADATA_VARIABLE_PREPASS_INPUTS = frozenset({"table_name", "database_name", "schema_name"})
-    TTL_CACHE: int | None = InputField(default=0, description="Время жизни кеша", min_value=0)
-
-    connection: SqlConnectionRecord | Engine = InputField()
-    table_name: str = InputField()
-    database_name: str | None = InputField()
-    schema_name: str | None = InputField()
-    columns: list[IO.COLUMN_NAME] | None = InputField(
-        description=(
-            "Explicit non-empty columns list to read. Pass every column returned by the table "
-            "catalog to read the whole table; do not use null to represent 'all columns' in a "
-            "persisted graph."
-        )
+    TTL_CACHE: int | None = InputField(
+        default=0,
+        min_value=0,
+        description="Cache lifetime in seconds; 0 disables caching.",
+        agent_description=(
+            "Keep 0 when verifying current source data. Enable caching only when the requested "
+            "freshness allows reuse; a cached result does not verify a fresh source read."
+        ),
     )
-    limit: int | None = InputField(min_value=1, max_value=1000000)
-    time_zone: TimeZone | None = InputField()
+    connection: SqlConnectionRecord | Engine = InputField(
+        description="Database connection.",
+        agent_description=(
+            "Connect the DB_CONNECTION output of a compatible connection node by an edge. "
+            "Do not supply a connection ID or connection_ref to this object port."
+        ),
+    )
+    table_name: str = InputField(
+        description="Name of the source table.",
+        agent_description=(
+            "Resolve the exact table through the connection catalog and get_database_table. "
+            "Prefer this reader followed by specialized transforms for ordinary table extraction. "
+            "Before configuring a new or changed source, follow the README profiling workflow; "
+            "a downstream filter does not reduce the rows fetched by this reader."
+        ),
+    )
+    database_name: str | None = InputField(
+        description="Source database; omit to use the connection default.",
+        agent_description=(
+            "Use a database confirmed by the connection catalog. Do not infer it from a project "
+            "name; omitting it uses the connection's database."
+        ),
+    )
+    schema_name: str | None = InputField(
+        description="Source schema, when supported by the database.",
+        agent_description=(
+            "Use the source catalog's schema where applicable. Do not invent a schema for "
+            "dialects without schemas or assume every database uses public."
+        ),
+    )
+    columns: list[IO.COLUMN_NAME] | None = InputField(
+        description="Columns to read; select every column to read the whole table.",
+        agent_description=(
+            "Supply an explicit non-empty list of exact catalog column names. When no projection "
+            "is requested, list every catalog column. Do not use null to represent all columns "
+            "in a persisted graph. Assess the width of this selected projection when sizing reads."
+        ),
+    )
+    limit: int | None = InputField(
+        min_value=1,
+        max_value=1000000,
+        description="Maximum rows to read; omit to read without a row limit.",
+        agent_description=(
+            "Set only when the task explicitly permits a limited read. Do not silently limit a "
+            "full report to make execution cheaper; a limited preview does not establish table size."
+        ),
+    )
+    time_zone: TimeZone | None = InputField(
+        description="Time zone; currently not applied by this reader.",
+        agent_description=(
+            "The current read path does not apply this parameter. Inspect source/output timezone "
+            "semantics and use explicit downstream timezone transforms when required."
+        ),
+    )
     partition_col: Optional[IO.COLUMN_NAME] = InputField(  # noqa: UP045
-        description=(
-            "Required for deterministic read_v3 execution. Use the exact raw catalog column "
-            "name without SQL quotes or backticks; choose a stable non-null scalar column."
-        )
+        description="Column used to split table reading into partitions.",
+        agent_description=(
+            "Set explicitly in MCP graphs, including one-partition reads. Use the exact raw "
+            "catalog column name without SQL quotes or backticks. Assess type, indexes, nulls, "
+            "cardinality and skew before choosing a stable scalar key; prefer a non-null indexed "
+            "key with enough distinct values. A primary key or date alone does not justify selection."
+        ),
     )
     partition_grouping: Optional[IO.DICT] = InputField(  # noqa: UP045
-        description=(
-            "Optional custom partition grouping. Configure it only when column type, cardinality, "
-            "and data distribution justify a non-default range/hash/grouping strategy."
-        )
+        description="Read partitioning strategy; omit for automatic range/hash selection.",
+        agent_description=(
+            "Profile the actual read size, selected row width and key distribution before choosing. "
+            "Omission deliberately selects automatic range/hash; it does not waive profiling. "
+            "Use only grouping formats documented in the README. Range needs an orderable non-null "
+            "key; hash does not split identical values or a large null group. For time grouping, "
+            "measure rows per candidate period, especially the largest; a reporting month alone "
+            "does not justify it. For a verified small read use npartitions=1 without custom groups "
+            "or hash buckets. Record evidence, chosen key, strategy and count policy in the node "
+            "comment. If profiling fails, record unknowns and prefer automatic sizing with a "
+            "verified compatible key; do not claim optimality. Review available partition/memory "
+            "diagnostics after execution. Grouping controls physical reads, not business aggregation."
+        ),
     )
-    npartitions: int | None = InputField(min_value=1)
-    max_rows_per_partition: int | None = InputField(min_value=1)
+    npartitions: int | None = InputField(
+        min_value=1,
+        description="Target partition count; omit for automatic sizing.",
+        agent_description=(
+            "Normally omit for sizing from rows, selected row width and instance settings. "
+            "Use 1 only for a verified small narrow read, for example about 1,000 ordinary rows; "
+            "consider future growth for recurring reads. No universal row-count threshold proves "
+            "multiple partitions are needed. A partition key is still required. Custom groups or "
+            "explicit hash buckets determine segments independently; do not combine conflicting overrides."
+        ),
+    )
+    max_rows_per_partition: int | None = InputField(
+        min_value=1,
+        description="Row ceiling per segment; exceeding it fails the read.",
+        agent_description=(
+            "This is a failure guard, not automatic splitting of oversized segments. Assess key "
+            "skew before setting a ceiling; choose a better key or grouping when a segment is too large."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

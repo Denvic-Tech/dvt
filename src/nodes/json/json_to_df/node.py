@@ -9,11 +9,27 @@ from src.logger import logger
 
 class JsonToDataFrame(DFOutputBaseNode):
     TITLE = "JSON → DataFrame"
+    ICON_KEY = "json-to-dataframe"
     EMOJI = "{ }"
     CATEGORY = "JSON"
 
-    json: IO.JSON = InputField()
-    orient: Literal["columns", "index", "tight"] = InputField(default="columns")
+    json: IO.JSON = InputField(
+        agent_description=(
+            "Provide a parsed JSON object or list of row objects, not serialized JSON text. A "
+            "single object becomes one row; nested objects/lists remain cell values, so "
+            "flatten/explode beforehand when tabular columns are required. Construction "
+            "materializes the input in pandas before creating Dask partitions."
+        ),
+    )
+    orient: Literal["columns", "index", "tight"] = InputField(
+        agent_description=(
+            "This compatibility setting is currently not used by conversion: all choices call the "
+            "same pandas DataFrame constructor, wrapping a dictionary as one record. Do not expect "
+            "columns/index/tight decoding or a round trip for those encodings; normalize the JSON "
+            "into row objects first."
+        ),
+        default="columns",
+    )
 
     output: dd.DataFrame = OutputField()
 

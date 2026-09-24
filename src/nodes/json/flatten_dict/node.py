@@ -5,14 +5,53 @@ from typing import Any, Dict, List
 
 class ExpandJSON(JSONOutputBaseNode):
     TITLE = "Expand JSON"
+    ICON_KEY = "expand-json"
     EMOJI = "🧩"
     CATEGORY = "JSON"
 
-    json: IO.JSON = InputField(multiline=True)
-    separator: str = InputField(default=".", description="Разделитель для ключей")
-    max_depth: int = InputField(default=15, description="Максимальная глубина вложенности")
-    max_array_size: int = InputField(default=100, description="Максимальный размер массива для размножения")
-    max_total_rows: int = InputField(default=10000, description="Максимальное общее количество строк")
+    json: IO.JSON = InputField(
+        agent_description=(
+            "Provide a parsed object or list of objects. Nested keys are flattened and independent "
+            "arrays are expanded as a Cartesian product, which can multiply rows dramatically. "
+            "Inspect array lengths and nested structure first; use explicit JSON editing when only "
+            "selected arrays should expand."
+        ),
+        multiline=True,
+    )
+    separator: str = InputField(
+        agent_description=(
+            "Choose the literal separator used to join nested object keys. Avoid a separator "
+            "already present in source keys, because flattened names can collide and overwrite "
+            "values."
+        ),
+        default=".", description="Разделитель для ключей",
+    )
+    max_depth: int = InputField(
+        agent_description=(
+            "Depth used for structural analysis and warnings, not a hard limit on recursive "
+            "flattening. Do not rely on this setting to stop expansion or bound memory for deeply "
+            "nested input."
+        ),
+        default=15, description="Максимальная глубина вложенности",
+    )
+    max_array_size: int = InputField(
+        agent_description=(
+            "Set a positive maximum number of elements considered when expanding an array. Longer "
+            "arrays are truncated with a warning, so this can discard data. Choose from observed "
+            "array lengths and completeness requirements rather than accepting the default "
+            "blindly."
+        ),
+        default=100, description="Максимальный размер массива для размножения",
+    )
+    max_total_rows: int = InputField(
+        agent_description=(
+            "Choose a positive expansion budget per top-level input record. If a Cartesian "
+            "expansion exceeds the remaining budget, arrays can be preserved instead of fully "
+            "expanded. This is not a global output-row cap across all records; inspect the "
+            "resulting shape before converting to a DataFrame."
+        ),
+        default=10000, description="Максимальное общее количество строк",
+    )
     output: IO.JSON = OutputField()
 
     def __init__(self, **kwargs):

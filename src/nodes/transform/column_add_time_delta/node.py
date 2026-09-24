@@ -13,14 +13,62 @@ class ColumnAddTimeDelta(BaseNode):
     CATEGORY = "Transform"
     EXPERIMENTAL = True
 
-    datetime_column: IO.COLUMN = InputField()
-    days: float = InputField(default=0.0)
-    seconds: float = InputField(default=0.0)
-    microseconds: float = InputField(default=0.0)
-    milliseconds: float = InputField(default=0.0)
-    minutes: float = InputField(default=0.0)
-    hours: float = InputField(default=0.0)
-    weeks: float = InputField(default=0.0)
+    datetime_column: IO.COLUMN = InputField(
+        agent_description=(
+            "Experimental Series operation: connect a datetime/timedelta column with known index "
+            "alignment. It adds a fixed datetime.timedelta; it does not implement calendar months "
+            "or years."
+        ),
+    )
+    days: float = InputField(
+        agent_description=(
+            "Set signed elapsed days, which combine with other timedelta components. Fractional "
+            "values are accepted; use calendar-offset behavior instead if month-end rules are "
+            "required."
+        ),
+        default=0.0,
+    )
+    seconds: float = InputField(
+        agent_description=(
+            "Set signed seconds in the elapsed-time offset. Combine deliberately with minute/hour "
+            "components to avoid counting the same duration twice."
+        ),
+        default=0.0,
+    )
+    microseconds: float = InputField(
+        agent_description=(
+            "Set the signed microsecond component; verify the downstream timestamp precision does "
+            "not discard it."
+        ),
+        default=0.0,
+    )
+    milliseconds: float = InputField(
+        agent_description=(
+            "Set the signed millisecond component of the elapsed-time offset, not a timestamp "
+            "value."
+        ),
+        default=0.0,
+    )
+    minutes: float = InputField(
+        agent_description=(
+            "Set signed elapsed minutes; all configured duration components are added together."
+        ),
+        default=0.0,
+    )
+    hours: float = InputField(
+        agent_description=(
+            "Set signed elapsed hours. Check expected results around daylight-saving transitions "
+            "rather than assuming calendar-day semantics."
+        ),
+        default=0.0,
+    )
+    weeks: float = InputField(
+        agent_description=(
+            "Set signed weeks, each equal to seven elapsed days in timedelta. This is not a "
+            "business-week/calendar scheduling rule."
+        ),
+        default=0.0,
+    )
 
     output: dd.Series = OutputField()
 

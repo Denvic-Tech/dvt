@@ -16,24 +16,61 @@ from src.types import UnsetType
 
 class CreateVariable(BaseNode):
     TITLE = "Create Variable"
+    ICON_KEY = "create-variable"
 
-    name: str = InputField(description="Имя переменной")
-    type: VariableType = InputField(description="Тип переменной")
+    name: str = InputField(
+        agent_description=(
+            "Set the exact output variable name that downstream DVT expressions will reference. "
+            "Use an intentional, unambiguous name; a matching existing variable is replaced in "
+            "this node's output."
+        ),
+        description="Имя переменной",
+    )
+    type: VariableType = InputField(
+        agent_description=(
+            "Choose the declared VariableType matching the resolved value or, for lists, each "
+            "element. Do not rely on an arbitrary string or object being accepted as another type; "
+            "resolution and default validation enforce the declared variable contract."
+        ),
+        description="Тип переменной",
+    )
     is_list_type: bool = InputField(
+        agent_description=(
+            "Set true when value resolves to a list of elements of the selected type. Leave false "
+            "for a scalar. This is a literal schema setting and cannot be supplied as a DVT "
+            "expression."
+        ),
         default=False,
         description="Интерпретировать переменную как список значений указанного типа.",
         allow_expressions=False,
     )
     value: VariableValue = InputField(
+        agent_description=(
+            "Provide a value compatible with type and is_list_type, or a canonical DVT expression "
+            "resolved against input_variables. Full execution requires referenced variables to "
+            "resolve; metadata mode can retain unresolved values. Configure nullable/default "
+            "deliberately for possible null results."
+        ),
         description="Значение переменной",
         expression_policy="default",
     )
     nullable: bool = InputField(
+        agent_description=(
+            "Set true to permit a resolved null when no default is supplied. This is a literal "
+            "schema setting. An explicit default takes precedence, including default=null; "
+            "nullable=false alone does not override a supplied null default."
+        ),
         default=False,
         description="Разрешить NULL, если значение переменной вычислилось в NULL и default не задан.",
         allow_expressions=False,
     )
     default: Any | UnsetType = InputField(
+        agent_description=(
+            "Optionally provide a literal fallback for a resolved null, matching type and "
+            "is_list_type. Omission means no default; explicit default=null is supplied and can "
+            "yield null even with nullable=false. Expressions are not allowed here. A default "
+            "does not rescue missing variables, expression errors, or invalid non-null values."
+        ),
         default=UNSET,
         description="Литеральное значение по умолчанию, если значение переменной вычислилось в NULL.",
         allow_expressions=False,

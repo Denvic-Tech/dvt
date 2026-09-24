@@ -9,8 +9,20 @@ class DataFrameQuery(DFOutputBaseNode):
     CATEGORY = "Transform"
     EXPERIMENTAL = True
 
-    df: dd.DataFrame = InputField()
-    query: str = InputField(multiline=True)  # pandas query string
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Experimental query node: prefer the structured filter node when it expresses the "
+            "condition. Inspect field types and nulls before evaluating a query."
+        ),
+    )
+    query: str = InputField(
+        agent_description=(
+            "Use a pandas/Dask query expression, not SQL. Quote unusual field names appropriately "
+            "and test null behavior. This executes through the Python query engine; it is distinct "
+            "from DVT input-template expressions."
+        ),
+        multiline=True,
+    )  # pandas query string
 
     output: dd.DataFrame = OutputField()
 

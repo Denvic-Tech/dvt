@@ -9,12 +9,31 @@ from src.node_dsl import DFOutputBaseNode, InputField, OutputField
 
 class DataFrameUnion(DFOutputBaseNode):
     TITLE = "Union DataFrames"
+    ICON_KEY = "dataframe-union"
     EMOJI = "➕"
     CATEGORY = "Transform"
 
-    df1: dd.DataFrame = InputField()
-    df2: dd.DataFrame = InputField()
-    column_mapping: Dict[str, str] = InputField()
+    df1: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the first table whose names define mapping targets. This operation appends "
+            "rows and preserves duplicates; check both schemas and named indexes before combining."
+        ),
+    )
+    df2: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the second table to append. Unmatched columns remain in the union with "
+            "missing values on the other side; common datetime columns are normalized to UTC-naive "
+            "nanosecond values."
+        ),
+    )
+    column_mapping: Dict[str, str] = InputField(
+        agent_description=(
+            "Supply a dictionary from first-table column name to second-table column name; the "
+            "second side is renamed to the first. Use {} when names already match. Avoid duplicate "
+            "final names and verify the resulting schema; this is row concatenation, not a key "
+            "join."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

@@ -19,13 +19,22 @@ import config
 
 class GetExistKafkaConnection(KafkaConnectionOutputBaseNode):
     TITLE = "Kafka Connection"
+    ICON_KEY = "kafka-connection"
     CATEGORY = "Connections"
     CACHABLE = False
     EXPERIMENTAL = True
 
 
     # --- Inputs ---
-    connection_id: int = InputField(is_hidden=True)
+    connection_id: int = InputField(
+        agent_description=(
+            "Experimental connection node, currently outside the MCP-exposed Kafka catalog. Use "
+            "the integer ID of an existing Kafka connection accessible to the executing user; do "
+            "not use a topic ID or another connection type. Resolve the saved connection from "
+            "available catalog information rather than inventing credentials or identifiers."
+        ),
+        is_hidden=True,
+    )
 
     # --- Outputs ---
     connection: KafkaConnectionRecord = OutputField()

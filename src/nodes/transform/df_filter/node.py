@@ -417,6 +417,7 @@ def _validate_condition_columns(node: FilterNode, columns_and_indexes: set[str])
 
 class DataFrameFilter(DFOutputBaseNode):
     TITLE = "Filter DataFrame"
+    ICON_KEY = "filter-rows"
     EMOJI = "🔎"
     CATEGORY = "Transform"
 
@@ -424,8 +425,25 @@ class DataFrameFilter(DFOutputBaseNode):
         "filter_rules_spec": _build_rules_spec(),
     }
 
-    df: dd.DataFrame = InputField()
-    conditions: FilterCondition | FilterAND | FilterOR = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the DataFrame to filter. Inspect its columns and dtypes before constructing "
+            "conditions; column operands must reference actual column names. The output port "
+            "contains matching rows and inverted_output contains the remaining rows, including "
+            "rows whose condition evaluates to null."
+        ),
+    )
+    conditions: FilterCondition | FilterAND | FilterOR = InputField(
+        agent_description=(
+            "Build a structured condition tree using the discriminated condition/and/or schema, "
+            "not a SQL or pandas query string. Each group must contain conditions. Operands are "
+            "column references, typed literal values, or canonical DVT single expressions. Supply "
+            "right for comparisons and list/text operators; omit it for isnull/notnull. Use "
+            "literal lists for isin/notin and text values for contains/startswith/endswith; these "
+            "operators do not accept a column on the right. Match literal types to source dtypes "
+            "and handle nulls explicitly; null masks are treated as false."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
     inverted_output: dd.DataFrame = OutputField()

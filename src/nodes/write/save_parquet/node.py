@@ -28,6 +28,7 @@ def _parquet_part_name(part_index: int, *, dataset_stem: str, single_file: bool)
 
 class SaveParquet(FileConnectionInputMixin, BaseNode):
     TITLE = "Save Parquet"
+    ICON_KEY = "save-parquet"
     EMOJI = "💾"
     CATEGORY = "Writing"
     OUTPUT_NODE = True
@@ -43,34 +44,84 @@ class SaveParquet(FileConnectionInputMixin, BaseNode):
     _TIME64_RE = re.compile(r"^time64\[(?P<unit>us|ns)\]$", re.IGNORECASE)
 
     # --- Inputs ---
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the final typed DataFrame. Inspect dtypes, nested/object columns, row volume, "
+            "and existing target schema before choosing a write contract. Writing triggers "
+            "upstream computation; decide file size and Hive layout deliberately."
+        ),
+    )
 
     path: str = InputField(
+        agent_description=(
+            "Set a connection-relative target. In new mode, simple layout writes one physical "
+            ".parquet file; row_cap, partition_on, filename_template, or append selects a dataset "
+            "directory. Keep the same layout when reusing a target and inspect existing storage "
+            "before choosing mode."
+        ),
         description="Относительный путь к parquet dataset, например: reports/2025-09/data.parquet"
     )
 
-    mode: Literal["create", "overwrite", "append"] = InputField(description="Режим записи")
+    mode: Literal["create", "overwrite", "append"] = InputField(
+        agent_description=(
+            "Choose create to require an unused target, overwrite to replace existing output, or "
+            "append to extend an existing compatible dataset in new mode. Append is not an upsert "
+            "and can duplicate repeated batches. Serialize writers to the same target; overwrite "
+            "is destructive and failure does not guarantee preservation of old data."
+        ),
+        description="Режим записи",
+    )
 
     # параметры записи
     compression: Literal["snappy", "gzip", "brotli", "zstd", "lz4", "none"] = InputField(
+        agent_description=(
+            "Choose a supported codec that downstream readers accept. Snappy is a general default; "
+            "zstd/gzip may trade CPU for smaller files. none disables compression. Select from "
+            "throughput, storage, and compatibility requirements rather than changing it without "
+            "evidence."
+        ),
         default="snappy", description="Кодек сжатия parquet"
     )
 
     write_index: bool = InputField(
+        agent_description=(
+            "Leave false unless the DataFrame index must be stored as part of the Parquet schema. "
+            "Inspect named business keys in the index and keep this setting consistent when "
+            "appending to an existing dataset."
+        ),
         default=False, description="Сохранять индекс DataFrame как колонку"
     )
 
     partition_on: list[str] | None = InputField(
+        agent_description=(
+            "Optionally select existing columns for Hive directory partitioning, based on common "
+            "read filters and observed cardinality/skew. Avoid near-unique keys and excessive "
+            "small directories. Null/empty means no requested Hive keys; append must remain "
+            "compatible with the stored layout. This controls storage directories, not SQL read "
+            "partitions."
+        ),
         default=None, is_hidden=True, description="Список колонок для Hive-partitioning"
     )
 
     row_cap: int | None = InputField(
+        agent_description=(
+            "Optionally set a positive maximum number of rows per physical file. Estimate row "
+            "width and total volume to avoid huge files or excessive tiny files; this is a row "
+            "limit, not a byte-size or memory limit. Setting it selects advanced dataset layout in "
+            "new mode."
+        ),
         default=None,
         min_value=1,
         description="Максимум строк в одном parquet-файле (режим row-cap)",
     )
 
     filename_template: str | None = InputField(
+        agent_description=(
+            "Optionally set a physical-file naming template for advanced layout using supported "
+            "<partition_index>, <increment>, or <uuid> placeholders. Ensure names remain unique "
+            "across files and appended batches. Leave null for standard naming; this setting "
+            "selects a dataset directory in new mode."
+        ),
         default=None,
         is_hidden=True,
         description=(
@@ -80,6 +131,12 @@ class SaveParquet(FileConnectionInputMixin, BaseNode):
     )
 
     compatibility_mode: Literal["legacy", "new"] = InputField(
+        agent_description=(
+            "Use new for new configurations. legacy preserves the older Dask directory layout and "
+            "permits append to create a missing dataset. Inspect existing storage before changing "
+            "this literal setting; switching modes can change file-versus-directory and append "
+            "behavior."
+        ),
         default="new",
         is_hidden=True,
         allow_variables=False,
@@ -87,6 +144,12 @@ class SaveParquet(FileConnectionInputMixin, BaseNode):
     )
 
     parquet_types: dict[str, str] | None = InputField(
+        agent_description=(
+            "Optionally map existing DataFrame columns to explicit Arrow types, such as int64, "
+            "string, timestamp[us, tz=UTC], or decimal128(18,2). Inspect actual values and "
+            "precision/null requirements first. The contract must match the stored schema for "
+            "append; unknown columns and unsupported types fail."
+        ),
         default=None, description="Жесткий parquet-контракт: {column_name: parquet_type}"
     )
 

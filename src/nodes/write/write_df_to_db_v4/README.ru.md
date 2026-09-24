@@ -8,6 +8,8 @@
 
 Подайте DataFrame в `df`, а `GetExistDBConnection.connection` — в `connection`. Задайте `table_name`, при необходимости `database_name` и `schema_name`. `write_mode` по умолчанию `append`; `truncate` заменяет все строки; для `upsert` нужен `upsert_config={"key_column":"id"}` с именем целевого ключа. Передавайте `upsert_config` только для upsert. `column_mapping` содержит пары `source_name` / `target_name` и необязательные `dtype` / `nullable`. `on_extra_df_columns` по умолчанию `ignore`, `on_missing_df_columns` — `ignore_if_default`. `chunksize` по умолчанию 1000.
 
+Через MCP изучите цель с помощью `get_database_table` до применения или запуска графа. Подготовьте отсутствующие объекты через `create_database`, `create_schema` или `create_table` по предполагаемым метаданным DataFrame и ограничениям цели, затем перечитайте цель. Рекомендации `agent_description` входных полей описывают подготовку цели и выбор режима записи.
+
 ## Результат
 
 Это нода записи: выходного порта DataFrame нет. Системные переменные `target_table` и `rows_written` описывают завершённую запись. `rows_written` — число записанных входных строк, а не итоговый размер таблицы.

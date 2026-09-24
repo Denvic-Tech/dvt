@@ -21,12 +21,20 @@ meta_cache_key_by_id = TTLCache(maxsize=100, ttl=10 * 60)
 
 class GetExistS3Connection(S3ConnectionOutputBaseNode):
     TITLE = "S3 Connection"
+    ICON_KEY = "s3-connection"
     EMOJI = "☁️"
     CATEGORY = "Connections"
     CACHABLE = False
 
     # --- Inputs ---
-    connection_id: IO.S3_CONNECTION_ID = InputField()
+    connection_id: IO.S3_CONNECTION_ID = InputField(
+        agent_description=(
+            "Select an accessible compatible connection with list_connections/get_connection. "
+            "In MCP patches, set kind=connection_ref with its connection_id on this identifier "
+            "input. Connect this node's connection output to consumer object inputs by edges; "
+            "the same output may feed multiple consumers. Never infer or expose credentials."
+        ),
+    )
 
     # --- Outputs ---
     connection: S3ConnectionRecord = OutputField()

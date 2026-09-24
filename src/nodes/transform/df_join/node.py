@@ -10,18 +10,47 @@ from src.node_dsl.node_typing import IO
 
 class DataFrameJoin(DFOutputBaseNode):
     TITLE = "Join DataFrames"
+    ICON_KEY = "join-tables"
     EMOJI = "🔗"
     CATEGORY = "Transform"
 
-    left: dd.DataFrame = InputField()
-    right: dd.DataFrame = InputField()
+    left: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the left table and inspect its keys, nulls and duplicate frequencies. For a "
+            "left join this is the preserved side; estimate row multiplication before joining "
+            "large tables."
+        ),
+    )
+    right: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the right table and inspect key cardinality against the left side. "
+            "Conflicting non-key names receive a _right suffix; verify the resulting names before "
+            "downstream selection."
+        ),
+    )
 
-    left_on: Optional[List[IO.COLUMN_NAME]] = InputField(description="Колонки для join в левом DF",
+    left_on: Optional[List[IO.COLUMN_NAME]] = InputField(
+        agent_description=(
+            "Choose exact left-side key names with compatible types and the same positional "
+            "meaning as right_on. Explicitly select keys for ordinary joins; omitted keys can "
+            "invoke index-based behavior. Keys do not restrict a cross join."
+        ),description="Колонки для join в левом DF",
                                                metadata_source_field="left")
-    right_on: Optional[List[IO.COLUMN_NAME]] = InputField(description="Колонки для join в правом DF",
+    right_on: Optional[List[IO.COLUMN_NAME]] = InputField(
+        agent_description=(
+            "Match each right key position to left_on and verify types, nulls and repeated values. "
+            "A non-unique key can multiply rows; this node does not deduplicate either side."
+        ),description="Колонки для join в правом DF",
                                                 metadata_source_field="right")
 
-    how: Literal["left", "right", "outer", "inner", "cross"] = InputField(default="left")
+    how: Literal["left", "right", "outer", "inner", "cross"] = InputField(
+        agent_description=(
+            "Choose which unmatched rows must survive. The default left join preserves left-side "
+            "records; inner drops unmatched rows. Use cross only for an intended Cartesian product "
+            "after estimating left_rows * right_rows."
+        ),
+        default="left",
+    )
 
     output: dd.DataFrame = OutputField()
 

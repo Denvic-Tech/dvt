@@ -38,14 +38,29 @@ class DefinedVariableInput(BaseModel):
 
 class ManageVariables(BaseNode):
     TITLE = "Manage Variables"
+    ICON_KEY = "manage-variables"
 
     input_variables: Dict[str, IO.VARIABLE] = InputField(
+        agent_description=(
+            "Connect the upstream variable maps to use as the resolution context. Multiple "
+            "incoming maps can be combined; avoid conflicting names unless overriding is "
+            "intentional. Newly defined variables resolve against this input context, not against "
+            "earlier entries in defined_variables."
+        ),
         default={},
         description="Input variables",
         allow_multiple_connections=True,
         force_handle_visible=True,
     )
     defined_variables: Dict[str, DefinedVariableInput] = InputField(
+        agent_description=(
+            "Map output names to typed definitions containing type, optional is_list_type, "
+            "nullable and literal default. For each entry supply exactly one explicit value or "
+            "canonical value_input expression. Defaults must match the declared type. Definitions "
+            "with existing names override them; other incoming variables propagate. Entries cannot "
+            "reference sibling definitions created in the same node; chain nodes for dependent "
+            "definitions."
+        ),
         default={},
         description="Переменные для создания или переопределения",
         use_connection=False,
