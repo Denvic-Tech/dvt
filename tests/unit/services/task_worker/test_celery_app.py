@@ -4,7 +4,7 @@ import asyncio
 import queue
 import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from billiard.exceptions import WorkerLostError
@@ -381,6 +381,7 @@ def test_parent_refresh_updates_warm_runtime_then_restores_single_slot(monkeypat
     class _Consumer:
         def __init__(self):
             self.pool = _Pool()
+            self.app = SimpleNamespace(amqp=SimpleNamespace(queues=MagicMock()))
 
         def _update_prefetch_count(self, count):
             events.append(("prefetch", count))
