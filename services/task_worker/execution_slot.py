@@ -30,11 +30,11 @@ def mark_execution_slot_idle(*, task_id: str | None = None) -> None:
         _active_task_id.value = b""
 
 
-def get_execution_slot_snapshot() -> ExecutionSlotSnapshot:
+def get_execution_slot_snapshot(*, is_ready: bool = True) -> ExecutionSlotSnapshot:
     with _active_task_id.get_lock():
         active_task_id = _active_task_id.value.decode("utf-8") or None
     return ExecutionSlotSnapshot(
         active_task_id=active_task_id,
         is_busy=active_task_id is not None,
-        available_slots=0 if active_task_id is not None else 1,
+        available_slots=int(is_ready and active_task_id is None),
     )

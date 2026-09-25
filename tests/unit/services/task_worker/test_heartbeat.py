@@ -5,8 +5,8 @@ from services.task_worker.execution_slot import mark_execution_slot_busy, mark_e
 from services.task_worker.schemas import HeartbeatPayload
 
 
-async def _capture_single_heartbeat(monkeypatch):
-    sender = heartbeat_module.HeartbeatSender()
+async def _capture_single_heartbeat(monkeypatch, *, is_ready=True):
+    sender = heartbeat_module.HeartbeatSender(is_ready=lambda: is_ready)
     payloads: list[HeartbeatPayload] = []
 
     async def _publish(_channel, payload, **_kwargs):
@@ -42,4 +42,13 @@ async def test_busy_heartbeat_reports_active_task_and_no_available_slots(monkeyp
 
     assert payload.active_task_id == "task-running"
     assert payload.is_busy is True
+    assert payload.available_slots == 0
+
+
+@pytest.mark.asyncio
+async def test_idle_worker_without_ready_consumer_reports_no_capacity(monkeypatch):
+    mark_execution_slot_idle()
+    payload = await _capture_single_heartbeat(monkeypatch, is_ready=False)
+    assert payload.active_task_id is None
+    assert payload.is_busy is False
     assert payload.available_slots == 0

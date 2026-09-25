@@ -15,7 +15,7 @@ from celery.signals import (
     worker_ready,
     worker_shutdown,
 )
-from celery.worker.control import control_command
+from celery.worker.control import control_command, inspect_command
 from kombu import Exchange, Queue
 from sqlmodel import Session, select
 
@@ -24,6 +24,12 @@ from core.db.connect import close_clickhouse_pool_managers
 from services.task_worker.deps import get_extension_manager
 from services.task_worker.deps.pipeline_callbacks import close_redis_clients
 from services.task_worker.execution_slot import mark_execution_slot_idle
+from services.task_worker.extension_refresh import (
+    ExtensionRuntimeRefresh,
+    consumer_is_ready,
+    pool_snapshot,
+    resume_task_queues,
+)
 from services.task_worker.heartbeat import HeartbeatSender
 from services.task_worker.helpers import get_async_runner, get_worker_id
 
@@ -103,8 +109,8 @@ _mp_log_queue: Any | None = None
 _mp_log_listener_thread: object | None = None
 _mp_log_stop_event: Any | None = None
 _CHILD_LOG_SINK_INIT_TIMEOUT_SEC = 3.0
-_EXTENSION_REFRESH_POLL_SEC = 0.1
-_extension_parent_refresh_in_progress = False
+_extension_parent_refresh: ExtensionRuntimeRefresh | None = None
+_worker_consumer: Any | None = None
 
 
 def _is_prefork_pool() -> bool:
@@ -484,107 +490,66 @@ def ensure_extension_runtime_for_task_process(
         request_parent_extension_runtime_refresh()
 
 
+def _extension_queue_names() -> tuple[str, str]:
+    return (config.CELERY.CELERY_TASKS_QUEUE, config.CELERY.CELERY_DEPS_QUEUE)
+
+
 def _resume_extension_refresh_queues(consumer) -> None:
-    queues = consumer.app.amqp.queues
-    for queue_name in (config.CELERY.CELERY_TASKS_QUEUE, config.CELERY.CELERY_DEPS_QUEUE):
-        # cancel_task_queue() also deselects queues used to recreate the consumer.
-        # Restore selection with the original exchange and routing configuration.
-        queues.select_add(queues[queue_name])
-        consumer.add_task_queue(queue_name)
+    resume_task_queues(consumer, _extension_queue_names())
 
 
-def _finish_extension_parent_refresh(consumer) -> None:
-    global _extension_parent_refresh_in_progress
-
-    pool = consumer.pool
-    raw_pool = getattr(pool, "_pool", None)
-    if raw_pool is None:
-        _resume_extension_refresh_queues(consumer)
-        _extension_parent_refresh_in_progress = False
-        return
-
-    # Billiard removes the completed request from _cache only after the task
-    # result/ack path is settled in MainProcess. Do not shrink or import before
-    # that point, otherwise a generation refresh could race task finalization.
-    if getattr(raw_pool, "_cache", None):
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
+def _get_extension_parent_refresh(consumer) -> ExtensionRuntimeRefresh:
+    global _extension_parent_refresh  # noqa: PLW0603 - Parent process runtime binding.
+    if _extension_parent_refresh is None or _extension_parent_refresh.consumer is not consumer:
+        _extension_parent_refresh = ExtensionRuntimeRefresh(
+            consumer,
+            _extension_queue_names(),
+            submit_reload=lambda: get_async_runner().submit(
+                _ensure_extension_runtime_for_task_process_async(install_dependencies=False)
+            ),
+            on_refreshed=lambda: logger.info("Task worker warm extension runtime refreshed"),
         )
-        return
+    return _extension_parent_refresh
 
-    if getattr(raw_pool, "_processes", 0) > 0:
-        try:
-            pool.shrink(1)
-            consumer._update_prefetch_count(-1)
-        except ValueError:
-            consumer.timer.call_after(
-                _EXTENSION_REFRESH_POLL_SEC,
-                _finish_extension_parent_refresh,
-                (consumer,),
-            )
-            return
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
-        )
-        return
 
-    if any(process.is_alive() for process in getattr(raw_pool, "_pool", ())):
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
-        )
-        return
-
-    try:
-        changed = get_async_runner().run(
-            _ensure_extension_runtime_for_task_process_async(
-                install_dependencies=False,
-            )
-        )
-        if changed:
-            logger.info("Task worker warm extension runtime refreshed")
-    except Exception:
-        logger.exception("Failed to refresh Task Worker warm extension runtime")
-    finally:
-        try:
-            pool.grow(1)
-            consumer._update_prefetch_count(1)
-        finally:
-            _resume_extension_refresh_queues(consumer)
-            _extension_parent_refresh_in_progress = False
+def _execution_consumer_is_ready() -> bool:
+    if _extension_parent_refresh is not None and _extension_parent_refresh.in_progress:
+        return False
+    return consumer_is_ready(
+        _worker_consumer, _extension_queue_names(), prefork=_is_prefork_pool()
+    )
 
 
 @control_command(name="dvt_refresh_extension_runtime")
 def _refresh_extension_runtime_control(state, **_kwargs):
     """Drain the prefork pool, refresh the warm parent, then resume one execution slot."""
-    global _extension_parent_refresh_in_progress
-
     if not _is_prefork_pool() or not _is_main_process():
         return {"ok": "extension runtime refresh is not required for this pool"}
-    if _extension_parent_refresh_in_progress:
+    if not _get_extension_parent_refresh(state.consumer).request():
         return {"ok": "extension runtime refresh is already scheduled"}
-
-    consumer = state.consumer
-    _extension_parent_refresh_in_progress = True
-    try:
-        consumer.cancel_task_queue(config.CELERY.CELERY_TASKS_QUEUE)
-        consumer.cancel_task_queue(config.CELERY.CELERY_DEPS_QUEUE)
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
-        )
-    except Exception:
-        _extension_parent_refresh_in_progress = False
-        _resume_extension_refresh_queues(consumer)
-        raise
-
     return {"ok": "extension runtime refresh scheduled after current task drain"}
+
+
+@inspect_command(name="dvt_runtime_state")
+def _inspect_extension_runtime(state, **_kwargs):
+    """Expose readiness and refresh progress without task payloads or configuration."""
+    result: dict[str, object] = {
+        "ready": _execution_consumer_is_ready(),
+        "active_queues": [
+            name for name in _extension_queue_names()
+            if state.consumer.task_consumer is not None
+            and state.consumer.task_consumer.consuming_from(name)
+        ],
+        "refresh": None,
+    }
+    if _is_prefork_pool():
+        refresh = _extension_parent_refresh
+        result["refresh"] = (
+            refresh.snapshot()
+            if refresh is not None and refresh.consumer is state.consumer
+            else {"phase": "idle", "failure": None, **pool_snapshot(state.consumer.pool._pool)}
+        )
+    return result
 
 
 async def _startup() -> None:
@@ -602,13 +567,14 @@ async def _startup() -> None:
     logger.info(f"LOG_TO_WS: {config.LOGGING.LOG_TO_WS}")
     logger.info(f"LOG_TO_DB: {config.LOGGING.LOG_TO_DB}")
 
-    _heartbeat = HeartbeatSender()
+    _heartbeat = HeartbeatSender(is_ready=_execution_consumer_is_ready)
     await _heartbeat.start()
     logger.info("Heartbeat started")
 
 
 async def _shutdown() -> None:
-    global _heartbeat
+    global _heartbeat, _worker_consumer  # noqa: PLW0603 - Worker shutdown signal.
+    _worker_consumer = None
 
     logger.info("Task worker service shutting down.")
 
@@ -645,7 +611,9 @@ def _init_extension_runtime_before_pool(**_kwargs) -> None:
 
 
 @worker_ready.connect
-def _init_worker_main(**_kwargs) -> None:
+def _init_worker_main(sender=None, **_kwargs) -> None:
+    global _worker_consumer  # noqa: PLW0603 - Worker ready signal.
+    _worker_consumer = sender
     runner = get_async_runner()
     runner.run(_startup())
 

@@ -1,5 +1,6 @@
 import asyncio
 import time
+from collections.abc import Callable
 from typing import Optional
 
 import redis
@@ -16,7 +17,8 @@ import config
 
 
 class HeartbeatSender:
-    def __init__(self) -> None:
+    def __init__(self, *, is_ready: Callable[[], bool]) -> None:
+        self._is_ready = is_ready
         self._shutdown_event = asyncio.Event()
         self._task: asyncio.Task | None = None
         self._redis = redis.Redis(
@@ -82,7 +84,7 @@ class HeartbeatSender:
                     logger.exception("Failed to get system info for heartbeat")
                     system_info = None
 
-                execution_slot = get_execution_slot_snapshot()
+                execution_slot = get_execution_slot_snapshot(is_ready=self._is_ready())
                 payload = HeartbeatPayload(
                     worker_id=get_worker_id(),
                     capabilities=[
