@@ -2,12 +2,13 @@ from types import SimpleNamespace
 
 import pytest
 
-import config
 from src.enums import ExtensionDepsStatus
 from src.modules.extension_management.infra import dependency_manager as dependency_module
 from src.modules.extension_management.infra.dependency_manager import (
     ExtensionDependencyManager,
 )
+
+import config
 
 
 def test_gateway_extension_client_uses_configured_visibility_timeout() -> None:
@@ -47,11 +48,11 @@ class _Session:
 @pytest.mark.parametrize(
     ("record", "expected_fragment"),
     [
-        (SimpleNamespace(name="ext", is_installed=True, is_enabled=True, deps_status=ExtensionDepsStatus.READY), None),
-        (SimpleNamespace(name="ext", is_installed=True, is_enabled=True, deps_status=ExtensionDepsStatus.INSTALLING), "deps_installing"),
-        (SimpleNamespace(name="ext", is_installed=True, is_enabled=True, deps_status=ExtensionDepsStatus.ERROR), "deps_error"),
-        (SimpleNamespace(name="ext", is_installed=True, is_enabled=False, deps_status=ExtensionDepsStatus.READY), "disabled"),
-        (SimpleNamespace(name="ext", is_installed=False, is_enabled=True, deps_status=ExtensionDepsStatus.NOT_INSTALLED), "not_installed"),
+        (SimpleNamespace(name="ext", manifest_json={}, is_installed=True, is_enabled=True, deps_status=ExtensionDepsStatus.READY), None),
+        (SimpleNamespace(name="ext", manifest_json={}, is_installed=True, is_enabled=True, deps_status=ExtensionDepsStatus.INSTALLING), "deps_installing"),
+        (SimpleNamespace(name="ext", manifest_json={}, is_installed=True, is_enabled=True, deps_status=ExtensionDepsStatus.ERROR), "deps_error"),
+        (SimpleNamespace(name="ext", manifest_json={}, is_installed=True, is_enabled=False, deps_status=ExtensionDepsStatus.READY), "disabled"),
+        (SimpleNamespace(name="ext", manifest_json={}, is_installed=False, is_enabled=True, deps_status=ExtensionDepsStatus.NOT_INSTALLED), "not_installed"),
     ],
 )
 async def test_extension_availability_requires_executable_readiness(

@@ -17,6 +17,7 @@ from src.modules.extension_management.domain.policies import (
     extension_readiness_reasons,
 )
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.identity import resolve_record
 from src.modules.extension_management.infra.packages.dependencies import (
     build_extension_pip_install_command,
 )
@@ -75,9 +76,9 @@ class ExtensionDependencyManager:
         """
         async with AsyncSessionLocal() as session, session.begin():
             result = await session.execute(
-                select(ExtensionRecord).where(ExtensionRecord.name == extension_name).with_for_update()
+                select(ExtensionRecord).with_for_update()
             )
-            extension = result.scalars().first()
+            extension = resolve_record(result.scalars().all(), extension_name)
             if extension is None:
                 logger.warning(
                     "Extension not found for deps status update",
@@ -253,9 +254,13 @@ class ExtensionDependencyManager:
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(ExtensionRecord).where(ExtensionRecord.name.in_(extension_names))
+                select(ExtensionRecord)
             )
-            extensions = {item.name: item for item in result.scalars().all()}
+            records = result.scalars().all()
+            extensions = {
+                name: record for name in extension_names
+                if (record := resolve_record(records, name)) is not None
+            }
 
         missing = sorted(extension_names - set(extensions.keys()))
         not_ready = []
@@ -291,9 +296,9 @@ class ExtensionDependencyManager:
         """Загружает расширение из БД."""
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(ExtensionRecord).where(ExtensionRecord.name == extension_name)
+                select(ExtensionRecord)
             )
-            return result.scalars().first()
+            return resolve_record(result.scalars().all(), extension_name)
 
     def _extract_requirements(self, extension: ExtensionRecord) -> list:
         """Извлекает требования из манифеста расширения."""

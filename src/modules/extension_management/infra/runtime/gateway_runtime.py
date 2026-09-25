@@ -47,6 +47,7 @@ class ExtensionGatewayApp:
     display_name: str
     app: FastAPI
     openapi_schema: dict[str, Any]
+    legacy_names: tuple[str, ...] = ()
 
 
 @dataclass
@@ -146,6 +147,7 @@ def _build_child_app(extension: RegisteredExtension, router: APIRouter) -> Exten
         }
     return ExtensionGatewayApp(
         extension_name=extension.name,
+        legacy_names=extension.legacy_names,
         display_name=display_name,
         app=child,
         openapi_schema=child.openapi(),
@@ -159,11 +161,15 @@ def prepare_extension_gateway_runtime(
     for spec in sorted(specs, key=lambda item: item.name.casefold()):
         extension: RegisteredExtension | None = None
         try:
-            extension = load_manifest(spec.root_dir.resolve(), extension_name=spec.name)
+            extension = load_manifest(
+                spec.root_dir.resolve(), extension_name=spec.name, legacy_names=spec.legacy_names,
+            )
             if extension is None:
                 raise ValueError(f"Manifest not found in '{spec.root_dir}'")
             if not check_dvt_compatibility(extension):
                 raise ValueError(f"Extension '{spec.name}' is incompatible with current DVT")
+            if spec.name in report.loaded or spec.name in report.failures:
+                raise ValueError(f"Duplicate extension package '{spec.name}'")
             report.loaded[spec.name] = extension
             if not extension.backend.gateway_entrypoint:
                 continue
@@ -283,6 +289,12 @@ class ExtensionGatewayRuntime:
     def swap(self, apps: Mapping[str, ExtensionGatewayApp]) -> None:
         with RUNTIME_LOCK:
             prepared_apps = dict(apps)
+            aliases: dict[str, str] = {}
+            for name, app in prepared_apps.items():
+                for alias in (name, *app.legacy_names):
+                    if alias in aliases and aliases[alias] != name:
+                        raise ValueError(f"Ambiguous extension route alias '{alias}'")
+                    aliases[alias] = name
             for extension_app in prepared_apps.values():
                 current_overrides = extension_app.app.dependency_overrides
                 if not isinstance(current_overrides, ChainMap):
@@ -328,6 +340,11 @@ class ExtensionGatewayRuntime:
         extension_name = parts[0]
         with RUNTIME_LOCK:
             extension_app = self._active.get(extension_name)
+            if extension_app is None:
+                extension_app = next(
+                    (app for app in self._active.values() if extension_name in app.legacy_names),
+                    None,
+                )
         if extension_app is None:
             await _not_found(scope, receive, send)
             return
@@ -339,7 +356,7 @@ class ExtensionGatewayRuntime:
         child_scope["root_path"] = (
             f"{scope.get('root_path', '').rstrip('/')}/{extension_name}/api"
         )
-        child_scope["dvt_extension_name"] = extension_name
+        child_scope["dvt_extension_name"] = extension_app.extension_name
         await extension_app.app(child_scope, receive, send)
 
     def merge_openapi(self, core_schema: dict[str, Any]) -> dict[str, Any]:

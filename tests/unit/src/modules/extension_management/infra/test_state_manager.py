@@ -20,7 +20,7 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
                 name=extension_name,
                 display_name="Extension State Test",
                 description="",
-                manifest_json={},
+                manifest_json={"legacy_names": ["Legacy State Test"]},
                 state_json={"bitrix_api_limits": {"counter": 0}},
                 is_enabled=True,
                 is_installed=True,
@@ -34,7 +34,7 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
 
     barrier = threading.Barrier(2)
 
-    def increment_counter() -> dict[str, int]:
+    def increment_counter(name: str) -> dict[str, int]:
         barrier.wait(timeout=5)
 
         def updater(current_state: dict[str, int]) -> dict[str, int]:
@@ -43,14 +43,14 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
             return {"counter": current_counter + 1}
 
         return ExtensionStateManager.update_state(
-            extension_name=extension_name,
+            extension_name=name,
             key="bitrix_api_limits",
             updater=updater,
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        first = executor.submit(increment_counter)
-        second = executor.submit(increment_counter)
+        first = executor.submit(increment_counter, extension_name)
+        second = executor.submit(increment_counter, "Legacy State Test")
         first.result(timeout=10)
         second.result(timeout=10)
 
@@ -60,3 +60,5 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
         ).scalar_one()
 
     assert state_json["bitrix_api_limits"] == {"counter": 2}
+
+    assert ExtensionStateManager.get_state("Legacy State Test", "bitrix_api_limits") == {"counter": 2}

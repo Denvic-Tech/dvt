@@ -18,6 +18,13 @@ def normalize_extension_identity(value: str | None) -> str:
     return canonicalize_name(value.strip())
 
 
+def canonical_extension_name(value: str | None) -> str:
+    """Validate a technical package name; display names are never identities."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Extension package name is required")
+    return str(canonicalize_name(value.strip(), validate=True))
+
+
 def extension_identity_set(
     *values: str | None,
     aliases: Iterable[str] = (),
