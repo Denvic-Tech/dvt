@@ -1,12 +1,23 @@
 # DVT Agent Guidelines
 
+## User Intent & Scope
+- Respond in the language used by the user unless they request otherwise. This does not change explicit language requirements for repository artifacts, such as node documentation or changelog entries.
+- Distinguish a question about whether a change is possible from an instruction to make that change, regardless of the working mode, including ordinary operation outside Plan Mode.
+- For questions such as "Would you be able to fix this?", "Is this fixable?", or "How would you approach this?", first answer the question: explain feasibility, the proposed approach, and significant limitations. Such a question alone does not authorize file changes, implementation, or service restarts; read-only code inspection is allowed to support an informed answer.
+- Start implementation when instructed to do so, for example "Fix it", "Implement it", or "Make the changes", or after the user agrees to the proposed fix. If implementation has already been authorized in the current discussion, do not request authorization again; a follow-up question does not revoke previously authorized work.
+- If it is unclear whether the user wants discussion or implementation, first provide a substantive answer and clarify their intent before making changes.
+- Stay within the task scope: do not perform incidental refactoring, renaming, or other improvements unless they are necessary for the requested result.
+- Separate diagnosis from implementation: a request such as "Look into why this is failing" authorizes investigation. Present the identified cause and proposed fix to the user first; implement the fix once instructed to do so, unless implementation was already authorized.
+- Keep small changes simple: do not introduce new abstractions, general-purpose mechanisms, or dependencies without a concrete need in the current task.
+- Communicate substantively: report results, significant findings, or blockers; do not narrate every file read or command.
+
 ## Project Description
 **DVT (Denvic Visual Transformer)** is a visual ETL (Extract, Transform, Load) tool designed to build, manage, and execute complex data pipelines through a node-based graphical interface. This repository contains the backend system, which orchestrates pipeline execution across a distributed set of microservices.
 
 The core architecture includes:
 - **Gateway API** that serves as the primary entrypoint for the frontend, handling user authentication, project management, pipeline definitions, and real-time WebSocket communication.
-- **Orchestrator** gRPC сервис принимает задачи, отслеживает heartbeat воркеров, публикует durable dispatch outbox и выполняет reconciliation lifecycle.
-- **Task Workers** consume Celery messages, атомарно claim-ят task в PostgreSQL и выполняют pipeline с concurrency `1` на container.
+- **Orchestrator** is a gRPC service that accepts tasks, monitors worker heartbeats, publishes dispatch messages from the durable outbox, and reconciles task lifecycle state.
+- **Task Workers** consume Celery messages, atomically claim tasks in PostgreSQL, and execute pipelines with concurrency `1` per container.
 - **Project Scheduler** that manages scheduled pipeline execution tasks.
 
 The system is built to be scalable and modular, featuring a custom Node Domain-Specific Language (DSL) that allows developers to easily extend its capabilities by adding new data sources, transformations, and destinations.
@@ -70,10 +81,10 @@ Changelog entry requirements:
 - Entry text must clearly and concisely describe the changes.
 - **All changelog entries must be written in Russian.**
 
-Example entry text:
+Example entry content in English for reference (write the actual entry in Russian):
 ```text
-Обновлен файл `AGENTS.md` для улучшения описания проекта и структуры.
-Добавлены инструкции по project skill `dvt-project-ops`.
+Updated `AGENTS.md` to improve the project description and structure.
+Added instructions for the `dvt-project-ops` project skill.
 ```
 This process ensures a transparent and traceable history of automated code modifications.
 
@@ -85,43 +96,43 @@ When running optimization experiments for the project, read and follow `services
 For working with the repository file system, the agent must use the `filesystem` tool (read/write/list/edit) as the primary interface instead of shell commands where possible. Use shell commands only when the `filesystem` tool cannot perform the required operation.
 
 ## Gateway/OpenAPI & UI Rules
-- При изменении сущностей (моделей, схем данных), задействованных в Gateway API (`services/gateway`), необходимо перезапустить сервис `Gateway`, так как `services/ui/src/shared/gatewayClient` генерируется автоматически по OpenAPI от `Gateway`.
-- Не вносить правки в `services/ui`: локальная разработка UI ведется в другой директории.
-- Если имплементация роута становится слишком большой, не раздувать один файл в `services/gateway/routes/impl`: выносить вспомогательные модули в отдельные файлы и оформлять директорию как пакет.
-- Для такой пакетной структуры основной файл имплементации называть `impl.py`, а `__init__.py` оставлять тонким фасадом для re-export публичных entrypoint-ов.
+- After changing entities (models or data schemas) used by the Gateway API (`services/gateway`), restart the `Gateway` service because `services/ui/src/shared/gatewayClient` is generated automatically from the Gateway OpenAPI schema.
+- Do not edit `services/ui`: local UI development takes place in a separate directory.
+- If a route implementation becomes too large, extract supporting modules into separate files and organize the directory as a package instead of expanding a single file in `services/gateway/routes/impl`.
+- In such a package, name the main implementation file `impl.py` and keep `__init__.py` as a thin facade that re-exports public entrypoints.
 
 ## DDD-lite Rules For `src/modules`
-- Правила этого раздела обязательны для bounded context модулей в `src/modules/*`.
-- `domain` содержит только бизнес-смысл: entities, value objects, domain types/enums, policies, domain exceptions, repository/gateway contracts.
-- `flow` содержит только application orchestration/use cases и работает через domain contracts и domain objects.
-- `infra` содержит только технические детали: ORM/SQLModel models, Pydantic/transport schemas, HTTP/DB clients, repository/gateway implementations, mappers.
-- `domain` не импортирует `flow`, `infra`, `src.models`, `src.schemas`, `src.dto`, `src.crud`, `src.clients`, `src.db`, `fastapi`, `pydantic`, `sqlmodel`, `sqlalchemy`.
-- `flow` не импортирует `infra`, `src.models`, `src.schemas`, `src.dto`, `src.crud`, `src.clients`, `src.db`, `fastapi`, `pydantic`, `sqlmodel`, `sqlalchemy`.
-- `infra` может импортировать `domain`, но не импортирует `flow`.
-- Repository/gateway contracts объявляются только в `domain`.
-- Нельзя создавать `repositories` или `gateways` внутри `flow`. Протоколы живут в `domain`, имплементации живут в `infra`.
-- Repository/gateway contracts принимают и возвращают только domain entities, value objects, domain result objects или примитивы/std-lib types.
-- `Pydantic`, `SQLModel`, HTTP schemas, ORM rows, DB sessions и transport DTO запрещены в сигнатурах domain contracts.
-- По умолчанию domain entities и value objects должны быть `dataclass`. Использовать другой тип допустимо только при явно описанной причине в коде или задаче.
-- Преобразования `ORM <-> domain` и `transport <-> domain` живут только в `infra/mappers.py` или соседних infra-модулях.
-- Если use case требует данные из БД/HTTP, `flow` должен получать их через domain contract, а не через `crud`/client напрямую.
-- Все use case в `flow/use_cases` должны быть классами, а не функциями. Основная точка входа use case должна называться `execute`.
-- Не использовать и не выбрасывать `RegisteredException` напрямую вне layer-specific `exceptions.py`. Если слою нужна ошибка, создать `exceptions.py` в этом слое и объявить именованный класс-наследник от `RegisteredException`.
-- Не перегружать repository contracts методами, которые лучше выражаются отдельными use case. Если контракт разрастается, это сигнал пересмотреть границу агрегата или вынести orchestration в `flow`.
-- Нельзя нарушать границы DDD-lite ради скорости, совместимости миграции или временного упрощения.
-- Compatibility shims допустимы только вне bounded context модуля, чтобы поддержать legacy callers. Shim не должен затаскивать infra/framework зависимости в `domain` или `flow`.
-- Если корректная реализация требует нарушить эти границы или делает принадлежность к слою неоднозначной, агент должен остановиться и запросить решение пользователя вместо самостоятельного допущения.
+- The rules in this section are mandatory for bounded context modules under `src/modules/*`.
+- `domain` contains only business concepts: entities, value objects, domain types/enums, policies, domain exceptions, and repository/gateway contracts.
+- `flow` contains only application orchestration and use cases, operating through domain contracts and domain objects.
+- `infra` contains only technical details: ORM/SQLModel models, Pydantic/transport schemas, HTTP/DB clients, repository/gateway implementations, and mappers.
+- `domain` must not import `flow`, `infra`, `src.models`, `src.schemas`, `src.dto`, `src.crud`, `src.clients`, `src.db`, `fastapi`, `pydantic`, `sqlmodel`, or `sqlalchemy`.
+- `flow` must not import `infra`, `src.models`, `src.schemas`, `src.dto`, `src.crud`, `src.clients`, `src.db`, `fastapi`, `pydantic`, `sqlmodel`, or `sqlalchemy`.
+- `infra` may import `domain`, but must not import `flow`.
+- Declare repository/gateway contracts only in `domain`.
+- Do not create `repositories` or `gateways` inside `flow`. Protocols belong in `domain`; implementations belong in `infra`.
+- Repository/gateway contracts must accept and return only domain entities, value objects, domain result objects, primitives, or standard-library types.
+- `Pydantic`, `SQLModel`, HTTP schemas, ORM rows, DB sessions, and transport DTOs are forbidden in domain contract signatures.
+- Domain entities and value objects must use `dataclass` by default. Another type is allowed only when the reason is explicitly documented in the code or task.
+- `ORM <-> domain` and `transport <-> domain` conversions belong only in `infra/mappers.py` or adjacent infrastructure modules.
+- If a use case needs data from a database or HTTP service, `flow` must obtain it through a domain contract, never directly through `crud` or a client.
+- All use cases in `flow/use_cases` must be classes, not functions. Their main entrypoint must be named `execute`.
+- Do not use or raise `RegisteredException` directly outside a layer-specific `exceptions.py`. If a layer needs an error, create `exceptions.py` in that layer and declare a named subclass of `RegisteredException`.
+- Do not overload repository contracts with methods better expressed as separate use cases. A growing contract is a signal to reconsider the aggregate boundary or move orchestration into `flow`.
+- Do not violate DDD-lite boundaries for speed, migration compatibility, or temporary simplification.
+- Compatibility shims are allowed only outside the bounded context module to support legacy callers. A shim must not introduce infrastructure or framework dependencies into `domain` or `flow`.
+- If a correct implementation would require violating these boundaries or makes layer ownership ambiguous, stop and ask the user for a decision instead of making an assumption.
 
 ## Node Package Contract
-- Каждый built-in DVT node живет в отдельном package `src/nodes/<category>/<node_package>/`: один package = одна регистрируемая node.
-- `node.yaml` обязателен и является единственным filesystem marker для discovery; V1 содержит `schema_version: 1`.
-- Package `__init__.py` обязан экспортировать `NODE_CLASS`, указывающий на concrete `BaseNode` subclass из этого package.
-- Category `__init__.py` не должны импортировать nodes или выполнять eager registration; category barrels запрещены.
-- Общие helper-ы одной категории размещаются в `_shared/`; private directories с `_` не участвуют в discovery.
-- Каждая новая активная built-in нода сопровождается `README.md` (canonical English) и равнозначным переводом `README.ru.md` в своём package; шаблон и правила — в `src/node_dsl/README.md`.
-- Для этого требования активными считаются публичные стабильные ноды без `DISABLED=True`, `DEPRECATED=True`, `VISIBLE=False`, `EXPERIMENTAL=True`, без тегов `Deprecated`, `Testing`, `Unstable`, `Not tested`; внутренние/тестовые ноды и исключённые из MCP Kafka-ноды не входят в охват. Локальные настройки отключения нод не меняют этот перечень; документация extensions поддерживается отдельно.
-- При изменении поведения, параметров или ограничений ноды проверять и обновлять обе версии README. Примеры, имена портов и ожидаемые результаты должны соответствовать текущей реализации и машинной схеме.
-- README описывает фактическое поведение; найденные дефекты фиксировать отдельно. Документация поставляется вместе с кодом; отдельной версии документации и обязательной CI-проверки покрытия не требуется.
+- Each built-in DVT node lives in a separate package at `src/nodes/<category>/<node_package>/`: one package represents one registrable node.
+- `node.yaml` is required and is the only filesystem marker used for discovery; V1 contains `schema_version: 1`.
+- The package's `__init__.py` must export `NODE_CLASS`, pointing to a concrete `BaseNode` subclass from that package.
+- Category `__init__.py` files must not import nodes or perform eager registration; category barrel modules are forbidden.
+- Shared helpers for a category belong in `_shared/`; private directories whose names start with `_` are excluded from discovery.
+- Each new active built-in node must include `README.md` (canonical English) and an equivalent `README.ru.md` translation in its package; the template and rules are in `src/node_dsl/README.md`.
+- For this requirement, active nodes are public, stable nodes without `DISABLED=True`, `DEPRECATED=True`, `VISIBLE=False`, or `EXPERIMENTAL=True`, and without the tags `Deprecated`, `Testing`, `Unstable`, or `Not tested`. Internal/test nodes and Kafka nodes excluded from MCP are out of scope. Local node-disable settings do not change this scope; extension documentation is maintained separately.
+- When changing a node's behavior, parameters, or limitations, review and update both README versions. Examples, port names, and expected results must match the current implementation and machine-readable schema.
+- READMEs must describe actual behavior; record discovered defects separately. Documentation ships with the code; separate documentation versioning and mandatory CI checks for documentation coverage are not required.
 
 ## Project Skill (`dvt-project-ops`)
 Use `.codex/skills/dvt-project-ops` for DVT-specific local development operations that require knowledge of repository internals: Docker service status/restart, cross-service log and task diagnostics, safe DB connection test fixtures, and changelog appends.
@@ -152,6 +163,15 @@ Always execute Python scripts through the project virtual environment. Prefer re
 Use 4-space indents, ~100 character lines, snake_case for functions/modules, PascalCase for classes, uppercase constants, and intentful node names (`WriteDataFrameToDB`). Prefer dataclasses for domain entities/value objects in `src/modules`, and use Pydantic only for transport, API validation, configuration, and infrastructure boundaries.
 
 ## Testing Guidelines
+
+### Proportionate Verification
+- Choose verification based on the risk of the change and the affected behavior. Adding tests and running test suites are not mandatory rituals after every edit.
+- For changes limited to documentation, agent instructions, comments, text, or formatting with no behavior change, reviewing the diff and checking consistency is sufficient. Do not write tests for the presence of phrases, headings, or exact documentation wording.
+- For logic changes, use relevant existing tests first. Add a new test when it protects a meaningful scenario or edge case, or reproduces a real defect not covered by existing tests.
+- Do not add tests that duplicate the implementation or only check mock configuration, trivial assignments, or internal structure without meaningful observable behavior. Do not expand coverage of unrelated code as part of the current task.
+- Start with the smallest relevant set of checks. Run the full suite, Docker-based tests, integration tests, or end-to-end tests when the change affects the corresponding boundaries, there is a concrete regression risk, or the task or mandatory project checks explicitly require them.
+- After verification succeeds, do not repeat or broaden it without new changes, failures, or a concrete unverified risk. In the final response, briefly state what was checked or why tests were unnecessary.
+
 Keep tests beside code in `tests/` (files `test_<module>.py`), reuse `tests/fixtures/` and `tests/data/`, mark Docker suites with `@pytest.mark.docker_required`, and cover pipeline edges and client fallbacks.
 
 ### Test Development Rules
