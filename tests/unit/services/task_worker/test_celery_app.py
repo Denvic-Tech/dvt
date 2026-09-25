@@ -275,140 +275,40 @@ def test_changed_prefork_child_requests_warm_parent_refresh(monkeypatch) -> None
     assert broadcasts == [("dvt_refresh_extension_runtime", False)]
 
 
-def test_parent_refresh_control_pauses_queues_and_schedules_drain(monkeypatch) -> None:
-    events: list[tuple] = []
-
-    class _Timer:
-        def call_after(self, delay, callback, args):
-            events.append(("schedule", delay, callback, args))
-
-    class _Consumer:
-        timer = _Timer()
-
-        def cancel_task_queue(self, queue_name):
-            events.append(("cancel", queue_name))
-
-        def add_task_queue(self, queue_name):
-            events.append(("add", queue_name))
-
-    consumer = _Consumer()
-    state = SimpleNamespace(consumer=consumer)
+def test_parent_refresh_control_uses_controller_and_reports_duplicate(monkeypatch) -> None:
+    refresh = MagicMock()
+    refresh.request.side_effect = [True, False]
+    consumer = object()
+    get_refresh = MagicMock(return_value=refresh)
+    monkeypatch.setattr(celery_app, "_get_extension_parent_refresh", get_refresh)
     monkeypatch.setattr(celery_app, "_is_prefork_pool", lambda: True)
     monkeypatch.setattr(celery_app, "_is_main_process", lambda: True)
-    monkeypatch.setattr(celery_app, "_extension_parent_refresh_in_progress", False)
 
-    result = celery_app._refresh_extension_runtime_control(state)
-
-    assert result == {"ok": "extension runtime refresh scheduled after current task drain"}
-    assert events[:2] == [
-        ("cancel", celery_app.config.CELERY.CELERY_TASKS_QUEUE),
-        ("cancel", celery_app.config.CELERY.CELERY_DEPS_QUEUE),
-    ]
-    assert events[2][0:2] == ("schedule", celery_app._EXTENSION_REFRESH_POLL_SEC)
-    assert events[2][2] is celery_app._finish_extension_parent_refresh
-    assert events[2][3] == (consumer,)
-    assert celery_app._extension_parent_refresh_in_progress is True
+    assert celery_app._refresh_extension_runtime_control(SimpleNamespace(consumer=consumer)) == {
+        "ok": "extension runtime refresh scheduled after current task drain"
+    }
+    assert celery_app._refresh_extension_runtime_control(SimpleNamespace(consumer=consumer)) == {
+        "ok": "extension runtime refresh is already scheduled"
+    }
+    get_refresh.assert_called_with(consumer)
 
 
-def test_parent_refresh_waits_for_active_billiard_request(monkeypatch) -> None:
-    events: list[tuple] = []
-
-    class _Timer:
-        def call_after(self, delay, callback, args):
-            events.append(("schedule", delay, callback, args))
-
-    raw_pool = SimpleNamespace(_cache={"task": object()}, _processes=1, _pool=[])
-    pool = SimpleNamespace(_pool=raw_pool)
-    consumer = SimpleNamespace(pool=pool, timer=_Timer())
-
-    celery_app._finish_extension_parent_refresh(consumer)
-
-    assert events == [
-        (
-            "schedule",
-            celery_app._EXTENSION_REFRESH_POLL_SEC,
-            celery_app._finish_extension_parent_refresh,
-            (consumer,),
-        )
-    ]
+def test_refresh_controller_submits_reload_without_blocking_celery(monkeypatch) -> None:
+    runner = MagicMock()
+    monkeypatch.setattr(celery_app, "_extension_parent_refresh", None)
+    monkeypatch.setattr(celery_app, "get_async_runner", lambda: runner)
+    refresh = celery_app._get_extension_parent_refresh(object())
+    assert refresh.submit_reload() is runner.submit.return_value
+    runner.submit.call_args.args[0].close()
+    runner.run.assert_not_called()
 
 
-def test_parent_refresh_shrinks_idle_pool_before_import(monkeypatch) -> None:
-    events: list[tuple] = []
-
-    class _Timer:
-        def call_after(self, delay, callback, args):
-            events.append(("schedule", delay, callback, args))
-
-    class _Pool:
-        _pool = SimpleNamespace(_cache={}, _processes=1, _pool=[])
-
-        def shrink(self, count):
-            events.append(("shrink", count))
-            self._pool._processes -= count
-
-    class _Consumer:
-        pool = _Pool()
-        timer = _Timer()
-
-        def _update_prefetch_count(self, count):
-            events.append(("prefetch", count))
-
-    consumer = _Consumer()
-    celery_app._finish_extension_parent_refresh(consumer)
-
-    assert events[0:2] == [("shrink", 1), ("prefetch", -1)]
-    assert events[2][0:2] == ("schedule", celery_app._EXTENSION_REFRESH_POLL_SEC)
-
-
-def test_parent_refresh_updates_warm_runtime_then_restores_single_slot(monkeypatch) -> None:
-    events: list[tuple] = []
-
-    class _RawPool:
-        def __init__(self):
-            self._cache = {}
-            self._processes = 0
-            self._pool = []
-
-    class _Pool:
-        def __init__(self):
-            self._pool = _RawPool()
-
-        def grow(self, count):
-            events.append(("grow", count))
-            self._pool._processes += count
-
-    class _Consumer:
-        def __init__(self):
-            self.pool = _Pool()
-            self.app = SimpleNamespace(amqp=SimpleNamespace(queues=MagicMock()))
-
-        def _update_prefetch_count(self, count):
-            events.append(("prefetch", count))
-
-        def add_task_queue(self, queue_name):
-            events.append(("add", queue_name))
-
-    class _Runner:
-        def run(self, coro):
-            coro.close()
-            events.append(("runtime.refresh", False))
-            return True
-
-    consumer = _Consumer()
-    monkeypatch.setattr(celery_app, "get_async_runner", lambda: _Runner())
-    monkeypatch.setattr(celery_app, "_extension_parent_refresh_in_progress", True)
-
-    celery_app._finish_extension_parent_refresh(consumer)
-
-    assert events == [
-        ("runtime.refresh", False),
-        ("grow", 1),
-        ("prefetch", 1),
-        ("add", celery_app.config.CELERY.CELERY_TASKS_QUEUE),
-        ("add", celery_app.config.CELERY.CELERY_DEPS_QUEUE),
-    ]
-    assert celery_app._extension_parent_refresh_in_progress is False
+def test_heartbeat_readiness_is_false_while_refresh_is_in_progress(monkeypatch) -> None:
+    monkeypatch.setattr(
+        celery_app, "_extension_parent_refresh", SimpleNamespace(in_progress=True)
+    )
+    monkeypatch.setattr(celery_app, "consumer_is_ready", lambda *_args, **_kwargs: True)
+    assert celery_app._execution_consumer_is_ready() is False
 
 
 def test_main_process_worker_lost_signal_finalizes_authoritative_execution(monkeypatch) -> None:
@@ -489,6 +389,9 @@ async def test_main_process_db_logging_does_not_create_ws_grpc_client(monkeypatc
     monkeypatch.setattr(celery_app, "_init_ws_log_sink", _ws_sink)
 
     class _Heartbeat:
+        def __init__(self, *, is_ready):
+            assert is_ready is celery_app._execution_consumer_is_ready
+
         async def start(self): return None
 
     monkeypatch.setattr(celery_app, "HeartbeatSender", _Heartbeat)
@@ -599,6 +502,9 @@ async def test_ready_startup_does_not_reload_extensions_after_pool_creation(monk
     events: list[str] = []
 
     class _FakeHeartbeat:
+        def __init__(self, *, is_ready):
+            assert is_ready is celery_app._execution_consumer_is_ready
+
         async def start(self) -> None:
             events.append("heartbeat.start")
 
@@ -799,3 +705,21 @@ def test_shutdown_worker_child_stops_runner_when_clickhouse_cleanup_fails(monkey
 
     assert runner_stopped["value"] is True
     assert warnings == ["Failed to close ClickHouse HTTP pool managers: cleanup failed"]
+
+
+def test_runtime_inspect_reports_idle_pool_without_creating_refresh(monkeypatch):
+    raw = SimpleNamespace(_pool=[], _cache={}, _processes=1, _fileno_to_inq={})
+    consumer = SimpleNamespace(
+        pool=SimpleNamespace(_pool=raw),
+        task_consumer=SimpleNamespace(consuming_from=lambda _name: False),
+    )
+    monkeypatch.setattr(celery_app, "_extension_parent_refresh", None)
+    monkeypatch.setattr(celery_app, "_is_prefork_pool", lambda: True)
+    monkeypatch.setattr(celery_app, "_execution_consumer_is_ready", lambda: False)
+
+    result = celery_app._inspect_extension_runtime(SimpleNamespace(consumer=consumer))
+    assert result["ready"] is False
+    assert result["active_queues"] == []
+    assert result["refresh"]["pool_target_size"] == 1
+    assert result["refresh"]["children"] == []
+    assert celery_app._extension_parent_refresh is None
