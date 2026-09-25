@@ -14,6 +14,7 @@ from sqlmodel import Session
 
 from src.db import engine, get_async_session_acm
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.identity import resolve_record
 
 TState = TypeVar("TState", bound=dict[str, Any])
 
@@ -101,7 +102,7 @@ class ExtensionStateManager:
 
     @staticmethod
     def _state_select_stmt(extension_name: str, for_update: bool):
-        stmt = select(ExtensionRecord).where(ExtensionRecord.name == extension_name)
+        stmt = select(ExtensionRecord).where(ExtensionRecord.id == extension_name)
         if for_update:
             stmt = stmt.with_for_update()
         return stmt
@@ -109,10 +110,8 @@ class ExtensionStateManager:
     @staticmethod
     async def async_get_state(extension_name: str, key: str = "default") -> dict[str, Any]:
         async with get_async_session_acm() as session:
-            result = await session.execute(
-                select(ExtensionRecord).where(ExtensionRecord.name == extension_name)
-            )
-            extension = result.scalars().first()
+            records = (await session.execute(select(ExtensionRecord))).scalars().all()
+            extension = resolve_record(records, extension_name)
             if extension is None:
                 return {}
             return ExtensionStateManager._read_key_state(extension.state_json, key)
@@ -135,6 +134,12 @@ class ExtensionStateManager:
         updater: Callable[[dict[str, Any]], TState],
         key: str = "default",
     ) -> TState:
+        async with get_async_session_acm() as lookup:
+            records = (await lookup.execute(select(ExtensionRecord))).scalars().all()
+            record = resolve_record(records, extension_name)
+            if record is None:
+                raise ValueError(f"Extension '{extension_name}' not found.")
+            extension_name = record.id
         local_lock = ExtensionStateManager._get_local_lock(extension_name, key)
         with local_lock:
             async with get_async_session_acm() as session:
@@ -164,9 +169,9 @@ class ExtensionStateManager:
     @staticmethod
     def get_state(extension_name: str, key: str = "default") -> dict[str, Any]:
         with Session(engine) as session:
-            extension = session.exec(
-                select(ExtensionRecord).where(ExtensionRecord.name == extension_name)
-            ).scalars().first()
+            extension = resolve_record(
+                session.exec(select(ExtensionRecord)).scalars().all(), extension_name,
+            )
             if extension is None:
                 return {}
             return ExtensionStateManager._read_key_state(extension.state_json, key)
@@ -185,6 +190,13 @@ class ExtensionStateManager:
         updater: Callable[[dict[str, Any]], TState],
         key: str = "default",
     ) -> TState:
+        with Session(engine) as lookup:
+            record = resolve_record(
+                lookup.exec(select(ExtensionRecord)).scalars().all(), extension_name,
+            )
+            if record is None:
+                raise ValueError(f"Extension '{extension_name}' not found.")
+            extension_name = record.id
         local_lock = ExtensionStateManager._get_local_lock(extension_name, key)
         with (
             local_lock,

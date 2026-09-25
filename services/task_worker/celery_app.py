@@ -363,9 +363,10 @@ async def _read_extension_runtime_generation(
     async with AsyncSessionLocal() as session:
         records = list((await session.execute(select(ExtensionRecord))).scalars().all())
 
-    by_name = {record.name: record for record in records}
+    from src.modules.extension_management.infra.identity import resolve_record
+
     for name in sorted(required_extension_names or ()):
-        record = by_name.get(name)
+        record = resolve_record(records, name)
         if record is None:
             raise RuntimeError(f"Required extension '{name}' is missing")
         if not record.is_installed:

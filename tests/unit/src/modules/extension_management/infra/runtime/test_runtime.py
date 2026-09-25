@@ -178,6 +178,9 @@ def test_shared_backend_package_rejects_both_extensions(monkeypatch, tmp_path: P
     second_root = tmp_path / "second"
     _write_extension(first_root, backend_name="shared_backend")
     _write_extension(second_root, backend_name="shared_backend")
+    for root in (first_root, second_root):
+        path = root / "pyproject.toml"
+        path.write_text(path.read_text().replace('name = "sample"', f'name = "{root.name}"'))
     monkeypatch.setattr(runtime.config.APP, "VERSION", "")
     monkeypatch.setattr(
         "src.node_dsl._init_nodes.rebuild_node_registries",

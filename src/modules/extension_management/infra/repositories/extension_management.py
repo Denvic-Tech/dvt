@@ -3,6 +3,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.modules.extension_management.domain.entities import Extension
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.identity import resolve_record
 from src.modules.extension_management.infra.mappers import extension_record_to_domain
 
 
@@ -18,9 +19,9 @@ class SQLExtensionRepository:
 
     async def get(self, name: str) -> Extension | None:
         result = await self._session.execute(
-            sa.select(ExtensionRecord).where(ExtensionRecord.name == name)
+            sa.select(ExtensionRecord)
         )
-        record = result.scalars().first()
+        record = resolve_record(result.scalars().all(), name)
         return extension_record_to_domain(record) if record is not None else None
 
 

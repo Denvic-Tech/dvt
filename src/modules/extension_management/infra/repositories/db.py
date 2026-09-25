@@ -10,11 +10,17 @@ from src.enums import ExtensionDepsStatus
 from src.logger import logger
 from src.modules.extension_management.domain.entities import ExtensionCreate
 from src.modules.extension_management.domain.policies import (
+    canonical_extension_name,
     extension_identity_set,
     normalize_extension_identity,
 )
 from src.modules.extension_management.domain.value_objects import ExtensionManifest
+from src.modules.extension_management.infra.database import extension_schema_name
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.identity import (
+    manifest_with_aliases,
+    resolve_record,
+)
 from src.modules.extension_management.infra.manifest import build_manifest_stub
 
 
@@ -32,34 +38,8 @@ class ExtensionDBManager:
         )
 
     async def get_extension(self, name: str) -> ExtensionRecord | None:
-        exact = (
-            (
-                await self.session.execute(
-                    sa.select(ExtensionRecord).where(ExtensionRecord.name == name)
-                )
-            )
-            .scalars()
-            .first()
-        )
-        if exact is not None:
-            return exact
-
-        identity = normalize_extension_identity(name)
-        if not identity:
-            return None
         records = (await self.session.execute(sa.select(ExtensionRecord))).scalars().all()
-        for extension in records:
-            payload = extension.manifest_json or {}
-            aliases = extension_identity_set(
-                extension.name,
-                payload.get("package_name"),
-                aliases=(
-                    alias for alias in payload.get("legacy_names", []) if isinstance(alias, str)
-                ),
-            )
-            if identity in aliases:
-                return extension
-        return None
+        return resolve_record(records, name)
 
     async def get_extension_or_raise(self, name: str) -> ExtensionRecord:
         extension = await self.get_extension(name)
@@ -74,6 +54,7 @@ class ExtensionDBManager:
             f"Upserting extension record name='{data.name}' repository_url='{data.repository_url}'"
         )
 
+        canonical = canonical_extension_name(manifest.name if manifest else data.name)
         now = datetime.now(UTC)
         upd_data = {}
 
@@ -81,6 +62,15 @@ class ExtensionDBManager:
             if update_data is None:
                 update_data = {}
 
+            declared = (target.manifest_json or {}).get("package_name")
+            if declared and canonical_extension_name(declared) != canonical:
+                raise ValueError(f"Conflicting package identity for extension '{target.name}'")
+            old_name = target.name
+            target.storage_schema = target.storage_schema or extension_schema_name(old_name)
+            target.name = canonical
+            target.manifest_json = manifest_with_aliases(
+                target, {**(target.manifest_json or {}), "legacy_names": [old_name]}
+            )
             target.display_name = (
                 data.display_name
                 or (manifest.display_name if manifest else None)
@@ -99,17 +89,19 @@ class ExtensionDBManager:
                 description=target.description,
                 repository_url=target.repository_url,
                 existing_manifest=(
-                    manifest.model_dump(mode="json") if manifest else target.manifest_json
+                    manifest_with_aliases(target, manifest.model_dump(mode="json"))
+                    if manifest else target.manifest_json
                 ),
             )
             target.last_version = manifest.version if manifest else target.last_version
             target.updated_at = now
 
-        extension = await self.get_extension(data.name)
+        extension = await self.get_extension(canonical)
 
         if extension is None:
             extension = ExtensionRecord(
-                name=data.name,
+                name=canonical,
+                storage_schema=extension_schema_name(canonical),
                 display_name=(
                     data.display_name or (manifest.display_name if manifest else None) or data.name
                 ),
@@ -119,7 +111,7 @@ class ExtensionDBManager:
                 is_installed=False,
                 deps_status=ExtensionDepsStatus.NOT_INSTALLED,
                 manifest_json=self._build_manifest_json(
-                    name=data.name,
+                    name=canonical,
                     display_name=(
                         data.display_name
                         or (manifest.display_name if manifest else None)
@@ -137,6 +129,10 @@ class ExtensionDBManager:
                 last_version=manifest.version if manifest else None,
             )
         else:
+            if manifest is None:
+                canonical = canonical_extension_name(
+                    (extension.manifest_json or {}).get("package_name") or extension.name
+                )
             _apply_update(extension, upd_data)
 
         merged_extension = await self.session.merge(extension)
@@ -146,7 +142,7 @@ class ExtensionDBManager:
         except IntegrityError as exc:
             await self.session.rollback()
             if isinstance(getattr(exc, "orig", None), UniqueViolation):
-                existing = await self.get_extension(data.name)
+                existing = await self.get_extension(canonical)
                 if existing is None:
                     raise
                 _apply_update(existing, upd_data)
@@ -174,12 +170,15 @@ class ExtensionDBManager:
         available_versions: list[str] | None = None,
     ) -> ExtensionRecord:
         """Atomically merge records that resolve to one canonical package identity."""
-        canonical = normalize_extension_identity(data.name)
+        canonical = canonical_extension_name(manifest.name if manifest else data.name)
         identities = extension_identity_set(
             data.name,
             manifest.package_name if manifest else None,
             aliases=(*aliases, *(manifest.legacy_names if manifest else ())),
         )
+        # Serialize catalog/install reconciliation, including insertion of absent names.
+        if self.session.get_bind().dialect.name == "postgresql":
+            await self.session.execute(sa.text("LOCK TABLE extensions IN SHARE ROW EXCLUSIVE MODE"))
         records = (await self.session.execute(sa.select(ExtensionRecord))).scalars().all()
         candidates: list[ExtensionRecord] = []
         for item in records:
@@ -218,7 +217,19 @@ class ExtensionDBManager:
                 int(bool(item.repository_url or item.available_versions)),
             )
 
+        for item in candidates:
+            declared = (item.manifest_json or {}).get("package_name")
+            if declared and canonical_extension_name(declared) != canonical:
+                raise ValueError(f"Conflicting package identity for extension '{item.name}'")
+        owners = [
+            item for item in candidates
+            if item.is_installed or item.install_path or item.state_json or item.storage_schema
+        ]
+        if len(owners) > 1:
+            raise ValueError(f"Multiple installations or states for extension '{canonical}'")
         survivor = max(candidates, key=rank)
+        old_name = survivor.name
+        survivor.storage_schema = survivor.storage_schema or extension_schema_name(old_name)
         catalog = max(
             candidates,
             key=lambda item: (
@@ -265,11 +276,11 @@ class ExtensionDBManager:
                     *existing_manifest.get("legacy_names", []),
                     *aliases,
                     *(manifest.legacy_names if manifest else ()),
-                    *(item.name for item in candidates if item is not survivor),
+                    *(item.name for item in candidates),
                 }
             )
         survivor.manifest_json = self._build_manifest_json(
-            name=survivor.name,
+            name=canonical,
             display_name=survivor.display_name or survivor.name,
             description=survivor.description,
             repository_url=survivor.repository_url,
@@ -292,6 +303,9 @@ class ExtensionDBManager:
             elif duplicate.state_json and not survivor.state_json:
                 survivor.state_json = dict(duplicate.state_json)
             await self.session.delete(duplicate)
+        # Delete a canonical catalog duplicate before renaming the surviving row.
+        await self.session.flush()
+        survivor.name = canonical
         await self.session.commit()
         await self.session.refresh(survivor)
         return survivor
@@ -335,7 +349,7 @@ class ExtensionDBManager:
         extension.current_version = version
         extension.last_version = latest_version or version
         extension.install_path = install_path
-        extension.manifest_json = manifest.model_dump(mode="json")
+        extension.manifest_json = manifest_with_aliases(extension, manifest.model_dump(mode="json"))
         extension.is_installed = True
         extension.deps_status = ExtensionDepsStatus.INSTALLING
         extension.error_message = None
@@ -403,7 +417,8 @@ class ExtensionDBManager:
                 extension = known.get(ext_name)
             if extension is None:
                 extension = ExtensionRecord(
-                    name=manifest.name,
+                    name=canonical_extension_name(manifest.name),
+                    storage_schema=extension_schema_name(manifest.name),
                     display_name=manifest.display_name or manifest.name,
                     description=manifest.description,
                     repository_url=None,
@@ -420,8 +435,7 @@ class ExtensionDBManager:
                     updated_at=now,
                 )
             else:
-                manifest_json = manifest.model_dump(mode="json")
-                manifest_json["name"] = extension.name
+                manifest_json = manifest_with_aliases(extension, manifest.model_dump(mode="json"))
                 runtime_changed = any(
                     (
                         extension.display_name != (manifest.display_name or extension.display_name),
@@ -505,6 +519,9 @@ class ExtensionDBManager:
         root_dir_str = str(root_dir)
         for extension in known.values():
             if extension.install_path == root_dir_str:
+                declared = (extension.manifest_json or {}).get("package_name")
+                if declared and canonical_extension_name(declared) != manifest.name:
+                    raise ValueError(f"Package identity changed at '{root_dir_str}'")
                 return extension
 
         identities = extension_identity_set(
@@ -526,10 +543,6 @@ class ExtensionDBManager:
                 candidates.append(extension)
         if not candidates:
             return None
-        return max(
-            candidates,
-            key=lambda item: (
-                int(bool(item.is_installed)),
-                int(bool(item.install_path or item.state_json)),
-            ),
-        )
+        if len(candidates) > 1:
+            raise ValueError(f"Ambiguous installed extension '{manifest.name}'")
+        return candidates[0]

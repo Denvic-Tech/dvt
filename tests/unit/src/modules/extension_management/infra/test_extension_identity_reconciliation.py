@@ -74,7 +74,10 @@ async def test_upgrade_from_dvt_121_legacy_db_to_122_canonical_catalog_preserves
     assert len(rows) == 1
     upgraded = rows[0]
     assert upgraded.id == "dvt-121-record-id"
-    assert upgraded.name == "repository-name"
+    assert upgraded.name == "canonical-package"
+    from src.modules.extension_management.infra.database import extension_schema_name
+
+    assert upgraded.storage_schema == extension_schema_name("repository-name")
     assert upgraded.is_installed is True
     assert upgraded.is_enabled is False
     assert upgraded.current_version == "1.0.0"
@@ -201,7 +204,8 @@ async def test_reconcile_existing_duplicates_preserves_installed_survivor_and_st
     rows = await manager.list_extensions()
     assert len(rows) == 1
     assert reconciled.id == "installed-id"
-    assert reconciled.name == "foo_connector"
+    assert reconciled.name == "foo-connector"
+    assert reconciled.storage_schema == "dvt_ext_foo_connector"
     assert reconciled.is_installed is True
     assert reconciled.is_enabled is False
     assert reconciled.current_version == "1.0.0"
@@ -344,3 +348,102 @@ async def test_catalog_dvtx_uninstall_and_resync_keep_single_record(
     assert rows[0].available_versions == ["1.2.0", "1.1.0"]
     assert rows[0].state_json == {"license": "encrypted-value"}
     assert rows[0].manifest_json["state_schema"] == {"license": "str"}
+
+
+@pytest.mark.asyncio
+async def test_reinstall_preserves_aliases_storage_and_record_id(async_test_db_session):
+    from src.modules.extension_management.infra.database import extension_schema_name
+
+    record = ExtensionRecord(
+        name="Bitrix24 Connector", display_name="Bitrix",
+        manifest_json={"package_name": "bitrix24-connector"},
+        state_json={"license": {"value": "retained"}},
+    )
+    async_test_db_session.add(record)
+    await async_test_db_session.commit()
+    original_id = record.id
+    manifest = ExtensionManifest(
+        name="bitrix24-connector", package_name="bitrix24-connector", version="0.10.2",
+    )
+    manager = ExtensionDBManager(async_test_db_session)
+    for _ in range(2):
+        record = await manager.reconcile_extension_identity(
+            ExtensionCreate(name=manifest.name), manifest,
+        )
+        await manager.mark_installed(
+            record, version=manifest.version, install_path="/extensions/bitrix24-connector",
+            manifest=manifest,
+        )
+        assert record.id == original_id
+        assert record.name == manifest.name
+        assert record.storage_schema == extension_schema_name("Bitrix24 Connector")
+        assert record.state_json == {"license": {"value": "retained"}}
+        assert (await manager.get_extension("Bitrix24 Connector")).id == original_id
+        await manager.mark_uninstalled(record)
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_rejects_multiple_owned_installations(async_test_db_session):
+    records = [
+        ExtensionRecord(
+            name=name, display_name=name, is_installed=True, state_json={"owner": name},
+            manifest_json={"package_name": "same-package"},
+        )
+        for name in ("Same Package", "same-package")
+    ]
+    async_test_db_session.add_all(records)
+    await async_test_db_session.commit()
+    manager = ExtensionDBManager(async_test_db_session)
+    with pytest.raises(ValueError, match="Multiple installations"):
+        await manager.reconcile_extension_identity(
+            ExtensionCreate(name="same-package"),
+            ExtensionManifest(name="same-package", package_name="same-package", version="1"),
+        )
+    assert {record.name for record in await manager.list_extensions()} == {
+        "Same Package", "same-package",
+    }
+
+
+@pytest.mark.asyncio
+async def test_lookup_rejects_alias_collision_even_with_exact_name(async_test_db_session):
+    async_test_db_session.add_all([
+        ExtensionRecord(name="first", display_name="First", manifest_json={}),
+        ExtensionRecord(name="second", display_name="Second",
+                        manifest_json={"legacy_names": ["first"]}),
+    ])
+    await async_test_db_session.commit()
+    with pytest.raises(ValueError, match="Ambiguous extension identity"):
+        await ExtensionDBManager(async_test_db_session).get_extension("first")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drop_data", [False, True])
+async def test_uninstall_data_option_preserves_identity_and_controls_state(
+    async_test_db_session, monkeypatch, drop_data,
+):
+    record = ExtensionRecord(
+        name="bitrix24-connector", display_name="Bitrix",
+        manifest_json={"legacy_names": ["Bitrix24 Connector"]},
+        state_json={"license": {"value": "retained"}}, is_installed=True,
+    )
+    async_test_db_session.add(record)
+    await async_test_db_session.commit()
+    original_id = record.id
+    manager = ExtensionManager(async_test_db_session, SimpleNamespace())
+    monkeypatch.setattr(manager, "_refresh_runtime", AsyncMock())
+    drop_schema = Mock()
+    monkeypatch.setattr(manager.migration_manager, "drop_schema", drop_schema)
+
+    result = await manager.uninstall_extension(
+        "Bitrix24 Connector", drop_extension_data=drop_data,
+    )
+
+    assert result.id == original_id
+    assert result.name == "bitrix24-connector"
+    assert result.is_installed is False
+    assert result.state_json == ({} if drop_data else {"license": {"value": "retained"}})
+    assert (await manager.get_extension("Bitrix24 Connector")).id == original_id
+    if drop_data:
+        drop_schema.assert_called_once_with("bitrix24-connector")
+    else:
+        drop_schema.assert_not_called()
