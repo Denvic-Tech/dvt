@@ -157,7 +157,7 @@ def _write_extension_marker_fixture(
     )
     (extension_root / "pyproject.toml").write_text(
         "[project]\n"
-        "name = 'dvt-test-runtime-extension'\n"
+        f"name = '{extension_name}'\n"
         f"version = '{version}'\n"
         "description = 'Task Worker persistent child integration fixture'\n"
         "dependencies = []\n\n"
