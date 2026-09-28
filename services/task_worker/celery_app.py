@@ -1,4 +1,5 @@
 import asyncio
+import json
 import multiprocessing
 import sys
 import time
@@ -6,6 +7,7 @@ from typing import Any
 
 import redis
 from billiard.exceptions import WorkerLostError
+from celery import current_task
 from celery.signals import (
     task_failure,
     worker_before_create_process,
@@ -44,10 +46,13 @@ from src.logger import (
 )
 from src.logger._multiprocessing.mp_child_sink import add_mp_queue_sink_child
 from src.logger._multiprocessing.mp_parent_listener import start_mp_log_listener
+from src.modules.extension_management.domain.value_objects import ExtensionManifest
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.dependency_bootstrap import (
+    ensure_extension_deps_installed,
+)
 from src.modules.task_execution.domain.types import TaskTerminationReason
 from src.runtime.async_runtime import shared_ws_forward
-from src.utils.extensions import ensure_extension_deps_installed
 from src.utils.waiting import wait_for_alembic_migrations, wait_for_db
 
 import config
@@ -390,10 +395,22 @@ async def _read_extension_runtime_generation(
                 str(record.install_path or ""),
                 "1" if record.is_installed else "0",
                 "1" if record.is_enabled else "0",
-                record.deps_status.value,
+                # Errors affect which extensions can be loaded into the registry.
                 str(record.error_message or ""),
                 record.installed_at.isoformat() if record.installed_at is not None else "",
-                record.updated_at.isoformat() if record.updated_at is not None else "",
+                json.dumps(
+                    {
+                        key: value
+                        for key, value in ExtensionManifest.from_mapping(
+                            record.manifest_json or {}
+                        ).model_dump(exclude_none=True).items()
+                        if key in (
+                            "package_name", "dvt_version", "backend", "nodes",
+                            "requirements", "state_schema",
+                        )
+                    },
+                    sort_keys=True,
+                ),
             )
             for record in records
             if record.is_installed or record.install_path
@@ -415,7 +432,7 @@ async def _initialize_extension_runtime_before_pool() -> None:
         )
 
     try:
-        await ensure_extension_deps_installed()
+        await ensure_extension_deps_installed(raise_on_failure=True, publish_status=False)
 
         logger.debug("Task worker startup: syncing installed extensions before pool init")
         async with AsyncSessionLocal() as session:
@@ -452,7 +469,7 @@ async def _ensure_extension_runtime_for_task_process_async(
     # the shared-volume runtime. Parent refreshes are requested only after a child
     # has already crossed that barrier, so they can skip pip work safely.
     if install_dependencies:
-        await ensure_extension_deps_installed(raise_on_failure=True)
+        await ensure_extension_deps_installed(raise_on_failure=True, publish_status=False)
     async with AsyncSessionLocal() as session:
         manager = await get_extension_manager(session=session)
         try:
@@ -460,19 +477,26 @@ async def _ensure_extension_runtime_for_task_process_async(
         finally:
             await manager.close()
 
-    _extension_runtime_generation = await _read_extension_runtime_generation(
-        required_extension_names=required_extension_names
-    )
+    # Revalidate readiness, but do not acknowledge a newer installation that may
+    # have arrived while this process was preparing the observed generation.
+    await _read_extension_runtime_generation(required_extension_names=required_extension_names)
+    _extension_runtime_generation = current_generation
     _extension_runtime_initialized = True
     return True
 
 
 def request_parent_extension_runtime_refresh() -> None:
-    """Ask prefork MainProcesses to refresh their warm node template best-effort."""
+    """Refresh only the parent whose container crossed the local dependency barrier."""
     if not _is_prefork_pool() or _is_main_process():
         return
     try:
-        celery_app.control.broadcast("dvt_refresh_extension_runtime", reply=False)
+        hostname = getattr(getattr(current_task, "request", None), "hostname", None)
+        if not hostname:
+            logger.warning("Cannot refresh extension runtime without the current worker hostname")
+            return
+        celery_app.control.broadcast(
+            "dvt_refresh_extension_runtime", destination=[hostname], reply=False,
+        )
     except Exception as exc:
         # The current child has already reloaded its own runtime, so failure to
         # refresh the warm parent must not invalidate the task being executed.

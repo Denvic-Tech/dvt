@@ -84,3 +84,81 @@ async def test_extension_availability_reports_missing(monkeypatch):
 
     assert missing == ["missing"]
     assert not_ready == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("publish_status", [False, True])
+@pytest.mark.parametrize("returncode", [0, 1])
+async def test_local_dependency_install_does_not_change_shared_readiness(
+    async_test_db_engine, monkeypatch, tmp_path, publish_status, returncode,
+):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel import select
+
+    from src.modules.extension_management.infra.db_models import ExtensionRecord
+
+    factory = async_sessionmaker(async_test_db_engine, expire_on_commit=False)
+    record = ExtensionRecord(
+        name="deps-test", display_name="Deps", is_installed=True,
+        deps_status=ExtensionDepsStatus.READY, install_path=str(tmp_path),
+        manifest_json={"requirements": ["example-package==1.0"]},
+    )
+    async with factory() as session:
+        session.add(record)
+        await session.commit()
+        await session.refresh(record)
+        original_timestamp = record.updated_at
+
+    monkeypatch.setattr(dependency_module, "AsyncSessionLocal", factory)
+    transitions = []
+
+    def run_pip(*_args, **_kwargs):
+        return SimpleNamespace(returncode=returncode, stderr="install failed", stdout="")
+
+    monkeypatch.setattr(dependency_module.subprocess, "run", run_pip)
+    manager = ExtensionDependencyManager()
+    update_status = manager.update_deps_status
+
+    async def track_status(name, status):
+        transitions.append(status)
+        return await update_status(name, status)
+
+    monkeypatch.setattr(manager, "update_deps_status", track_status)
+    result = await manager.install_dependencies("deps-test", publish_status=publish_status)
+    assert result.success is (returncode == 0)
+
+    async with factory() as session:
+        stored = (await session.execute(select(ExtensionRecord))).scalars().one()
+        if publish_status:
+            expected = ExtensionDepsStatus.READY if returncode == 0 else ExtensionDepsStatus.ERROR
+            assert transitions == [ExtensionDepsStatus.INSTALLING, expected]
+            assert stored.deps_status == expected
+        else:
+            assert transitions == []
+            assert stored.deps_status == ExtensionDepsStatus.READY
+            assert stored.updated_at == original_timestamp
+
+
+@pytest.mark.asyncio
+async def test_repeating_dependency_status_does_not_change_timestamp(
+    async_test_db_engine, monkeypatch,
+):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel import select
+
+    from src.modules.extension_management.infra.db_models import ExtensionRecord
+
+    factory = async_sessionmaker(async_test_db_engine, expire_on_commit=False)
+    async with factory() as session:
+        record = ExtensionRecord(
+            name="ready", display_name="Ready", deps_status=ExtensionDepsStatus.READY,
+        )
+        session.add(record)
+        await session.commit()
+        await session.refresh(record)
+        timestamp = record.updated_at
+    monkeypatch.setattr(dependency_module, "AsyncSessionLocal", factory)
+    await ExtensionDependencyManager().update_deps_status("ready", ExtensionDepsStatus.READY)
+    async with factory() as session:
+        record = (await session.execute(select(ExtensionRecord))).scalars().one()
+        assert record.updated_at == timestamp

@@ -277,7 +277,7 @@ class ExtensionDBManager:
                     *aliases,
                     *(manifest.legacy_names if manifest else ()),
                     *(item.name for item in candidates),
-                }
+                } - {canonical}
             )
         survivor.manifest_json = self._build_manifest_json(
             name=canonical,
@@ -286,7 +286,6 @@ class ExtensionDBManager:
             repository_url=survivor.repository_url,
             existing_manifest=existing_manifest,
         )
-        survivor.updated_at = datetime.now(UTC)
         self.session.add(survivor)
         for duplicate in candidates:
             if duplicate is survivor:
@@ -303,6 +302,12 @@ class ExtensionDBManager:
             elif duplicate.state_json and not survivor.state_json:
                 survivor.state_json = dict(duplicate.state_json)
             await self.session.delete(duplicate)
+        if (
+            old_name != canonical
+            or len(candidates) > 1
+            or self.session.is_modified(survivor, include_collections=False)
+        ):
+            survivor.updated_at = datetime.now(UTC)
         # Delete a canonical catalog duplicate before renaming the surviving row.
         await self.session.flush()
         survivor.name = canonical
@@ -387,6 +392,8 @@ class ExtensionDBManager:
         self, extension: ExtensionRecord, error_message: str | None
     ) -> ExtensionRecord:
         """Persist a non-dependency extension error without corrupting deps_status."""
+        if extension.error_message == error_message:
+            return extension
         extension.error_message = error_message
         extension.updated_at = datetime.now(UTC)
         self.session.add(extension)
@@ -435,7 +442,15 @@ class ExtensionDBManager:
                     updated_at=now,
                 )
             else:
-                manifest_json = manifest_with_aliases(extension, manifest.model_dump(mode="json"))
+                manifest_json = self._build_manifest_json(
+                    name=extension.name,
+                    display_name=manifest.display_name or extension.display_name,
+                    description=manifest.description or extension.description,
+                    repository_url=extension.repository_url,
+                    existing_manifest=manifest_with_aliases(
+                        extension, manifest.model_dump(mode="json", exclude_none=True),
+                    ),
+                )
                 runtime_changed = any(
                     (
                         extension.display_name != (manifest.display_name or extension.display_name),
