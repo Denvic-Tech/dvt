@@ -85,7 +85,7 @@ async def test_extension_runtime_syncs_and_closes_pre_fork_resources(monkeypatch
         async def dispose(self) -> None:
             events.append("async_engine.dispose")
 
-    async def _fake_ensure_extension_deps_installed() -> None:
+    async def _fake_ensure_extension_deps_installed(**_kwargs) -> None:
         events.append("extensions.deps")
 
     async def _fake_get_extension_manager(*, session):
@@ -260,11 +260,16 @@ def test_recycled_spawned_child_starts_with_fresh_extension_bootstrap(monkeypatc
 
 
 def test_changed_prefork_child_requests_warm_parent_refresh(monkeypatch) -> None:
-    broadcasts: list[tuple[str, bool]] = []
+    broadcasts = []
 
     class _Control:
-        def broadcast(self, command: str, *, reply: bool):
-            broadcasts.append((command, reply))
+        def broadcast(self, command: str, *, destination: list[str], reply: bool):
+            broadcasts.append((command, destination, reply))
+
+    monkeypatch.setattr(
+        celery_app, "current_task",
+        SimpleNamespace(request=SimpleNamespace(hostname="celery@worker-a")),
+    )
 
     monkeypatch.setattr(celery_app, "_is_prefork_pool", lambda: True)
     monkeypatch.setattr(celery_app, "_is_main_process", lambda: False)
@@ -272,7 +277,7 @@ def test_changed_prefork_child_requests_warm_parent_refresh(monkeypatch) -> None
 
     celery_app.request_parent_extension_runtime_refresh()
 
-    assert broadcasts == [("dvt_refresh_extension_runtime", False)]
+    assert broadcasts == [("dvt_refresh_extension_runtime", ["celery@worker-a"], False)]
 
 
 def test_parent_refresh_control_uses_controller_and_reports_duplicate(monkeypatch) -> None:

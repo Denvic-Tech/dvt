@@ -21,12 +21,14 @@ from src.clients.denvic_extensions_distributor import DenvicExtensionsDistributo
 from src.db import async_engine, engine
 from src.db.session import AsyncSessionLocal
 from src.logger import DB_SINK, DB_SINK_HANDLER_ID, logger
-from src.runtime.extension_management import build_extension_management_provider
 
 # from src.managers.dcc_manager import get_dcc_manager  # TODO: Waiting DDC v2 before fixes and implementation
 from src.modules.app_settings.public import helpers as app_settings_helpers
+from src.modules.extension_management.infra.dependency_bootstrap import (
+    ensure_extension_deps_installed,
+)
+from src.runtime.extension_management import build_extension_management_provider
 from src.utils.cleanup import PgAdvisoryLock, clean_old_logs
-from src.utils.extensions import ensure_extension_deps_installed
 from src.utils.waiting import wait_for_db
 
 import config

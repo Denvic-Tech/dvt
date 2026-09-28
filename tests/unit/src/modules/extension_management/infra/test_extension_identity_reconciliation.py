@@ -447,3 +447,29 @@ async def test_uninstall_data_option_preserves_identity_and_controls_state(
         drop_schema.assert_called_once_with("bitrix24-connector")
     else:
         drop_schema.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_repeated_reconciliation_and_error_updates_preserve_timestamp(async_test_db_session):
+    manager = ExtensionDBManager(async_test_db_session)
+    manifest = ExtensionManifest(name="stable-package", version="1.0.0")
+    data = ExtensionCreate(name=manifest.name)
+    # Initial normalization may populate storage identity and aliases.
+    await manager.reconcile_extension_identity(data, manifest)
+    record = await manager.reconcile_extension_identity(data, manifest)
+    timestamp = record.updated_at
+
+    for _ in range(3):
+        record = await manager.reconcile_extension_identity(data, manifest)
+        await manager.set_runtime_error(record, None)
+        assert record.updated_at == timestamp
+
+    changed = await manager.reconcile_extension_identity(
+        ExtensionCreate(name=manifest.name, description="Changed catalog description"), manifest,
+    )
+    assert changed.description == "Changed catalog description"
+    assert changed.updated_at != timestamp
+    await manager.set_runtime_error(changed, "Runtime failure")
+    timestamp = changed.updated_at
+    await manager.set_runtime_error(changed, "Runtime failure")
+    assert changed.updated_at == timestamp

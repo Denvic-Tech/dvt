@@ -94,7 +94,7 @@ async def build_pending_task_from_project(
     })
 
     # Собираем имена расширений из пайплайна
-    from src.utils.extensions import collect_extension_names
+    from src.modules.extension_management.infra.pipeline_dependencies import collect_extension_names
     extension_names = collect_extension_names(pipeline)
 
     # Проверяем доступность расширений

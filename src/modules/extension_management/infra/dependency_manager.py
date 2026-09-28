@@ -86,6 +86,8 @@ class ExtensionDependencyManager:
                 )
                 return False
 
+            if extension.deps_status == status:
+                return True
             extension.deps_status = status
             extension.updated_at = datetime.now(UTC)
             session.add(extension)
@@ -96,23 +98,31 @@ class ExtensionDependencyManager:
             )
             return True
 
-    async def install_dependencies(self, extension_name: str) -> ExtensionDependencyResult:
+    async def install_dependencies(
+        self, extension_name: str, *, publish_status: bool = True,
+    ) -> ExtensionDependencyResult:
         """Устанавливает зависимости расширения.
         
         Выполняет установку через pip install в окружение воркера.
         
         Args:
             extension_name: Имя расширения для установки.
+            publish_status: False для локальной подготовки контейнера без изменения БД.
             
         Returns:
             Результат операции установки.
         """
         log = logger.bind(extension_name=extension_name)
 
+        async def update_status(status: ExtensionDepsStatus) -> None:
+            # Preparing one container must not invalidate other workers' readiness.
+            if publish_status:
+                await self.update_deps_status(extension_name, status)
+
         extension = await self._load_extension(extension_name)
         if extension is None:
             log.error("Extension not found in DB")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.ERROR)
+            await update_status(ExtensionDepsStatus.ERROR)
             return ExtensionDependencyResult(
                 success=False,
                 extension_name=extension_name,
@@ -123,7 +133,7 @@ class ExtensionDependencyManager:
         requirements = self._extract_requirements(extension)
         if not isinstance(requirements, list):
             log.error("Invalid manifest requirements type")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.ERROR)
+            await update_status(ExtensionDepsStatus.ERROR)
             return ExtensionDependencyResult(
                 success=False,
                 extension_name=extension_name,
@@ -136,7 +146,7 @@ class ExtensionDependencyManager:
         ]
         if not requirements:
             log.info("No dependencies to install")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.READY)
+            await update_status(ExtensionDepsStatus.READY)
             return ExtensionDependencyResult(
                 success=True,
                 extension_name=extension_name,
@@ -148,7 +158,7 @@ class ExtensionDependencyManager:
             "Installing extension requirements"
         )
         try:
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.INSTALLING)
+            await update_status(ExtensionDepsStatus.INSTALLING)
             install_root = Path(extension.install_path) if extension.install_path else None
             if install_root is None:
                 raise RuntimeError("Extension install path is not configured")
@@ -166,7 +176,7 @@ class ExtensionDependencyManager:
                 stderr = (completed.stderr or completed.stdout or "").strip()
                 raise RuntimeError(stderr or "pip install failed")
 
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.READY)
+            await update_status(ExtensionDepsStatus.READY)
             log.info("Extension dependencies installed")
             return ExtensionDependencyResult(
                 success=True,
@@ -176,7 +186,7 @@ class ExtensionDependencyManager:
             )
         except Exception as exc:
             log.exception("Failed to install extension dependencies")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.ERROR)
+            await update_status(ExtensionDepsStatus.ERROR)
             return ExtensionDependencyResult(
                 success=False,
                 extension_name=extension_name,
