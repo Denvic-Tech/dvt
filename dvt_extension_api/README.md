@@ -36,6 +36,34 @@ from dvt_extension_api.v1.parquet import FilenameTemplate, NamingContext
 Changes made under `dvt_extension_api/` in the DVT checkout are immediately visible
 to the environment where the package was installed with `-e`.
 
+## Cooperative cancellation
+
+Nodes receive a read-only `self.cancellation` token when created by
+`PipelineProcessor`. Existing constructors and inputs are unchanged; standalone
+nodes receive an inactive token. The additive public symbols are
+`CancellationToken` and `NodeExecutionCancelled` in
+`dvt_extension_api.v1.execution`.
+
+Call `self.cancellation.raise_if_requested()` between units of work, or use
+`is_requested()` with an API accepting a cancellation predicate. For deferred
+work, capture the token itself in the graph:
+
+```python
+token = self.cancellation
+
+def read_page():
+    token.raise_if_requested()
+    # Perform one bounded request, then check again before the next request.
+```
+
+The bound token is process-local: local threaded Dask work can observe STOP,
+including when a downstream node computes a source graph. Do not serialize it
+to distributed/process schedulers. Blocking I/O needs its own timeouts; polling
+does not interrupt an in-flight system call. Let `NodeExecutionCancelled`
+propagate. The processor treats it as cancellation only when the task STOP
+signal is set, without node-error callbacks or error-signal branches. Other
+exceptions remain errors. Task execution still owns terminal-reason precedence.
+
 ## Scope
 
 This packaging is intentionally development-focused. A later SDK extraction can

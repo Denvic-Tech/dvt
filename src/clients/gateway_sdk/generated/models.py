@@ -19,7 +19,7 @@ DBTableType: TypeAlias = Literal['BASE_TABLE', 'VIEW', 'TEMPORARY', 'SYSTEM', 'U
 
 DVTDefaultRoles: TypeAlias = Literal['superadmin', 'admin', 'user']
 
-DataType: TypeAlias = Literal['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'DATETIME', 'TIMEDELTA', 'CATEGORY', 'DICTIONARY', 'OBJECT', 'UNKNOWN']
+DataType: TypeAlias = Literal['INT', 'FLOAT', 'STRING', 'BOOLEAN', 'DATETIME', 'TIMEDELTA', 'CATEGORY', 'DICTIONARY', 'OBJECT', 'UNKNOWN', 'BINARY', 'LIST', 'STRUCT']
 
 ExceptionCategory: TypeAlias = Literal['DATABASE', 'DATAFRAME', 'GATEWAY_ADMIN', 'GATEWAY_EXCEPTION_REGISTRY', 'GATEWAY_INTERNAL', 'GATEWAY_PROJECT', 'GATEWAY_PROJECT', 'GATEWAY_PUBLIC', 'GATEWAY_STORAGE', 'GATEWAY_UTILS', 'GATEWAY_QUEUE', 'GATEWAY_WS', 'GATEWAY_CACHE', 'TASK_WORKER_CACHE', 'TASK_WORKER_TASKS', 'PROJECT_SCHEDULER_TASKS', 'WORKER_CLIENT', 'ORCHESTRATOR_CLIENT', 'SCHEDULER_CLIENT', 'S3', 'FTP', 'high', 'critical', 'UNKNOWN', 'USER', 'ORGANIZATION', 'PROJECT', 'TASK', 'QUEUE_TOPIC', 'GRAPH', 'GRAPH_NODE', 'GRAPH_EDGE', 'SUBGRAPH', 'NODES', 'CRUD_USER', 'CRUD_ORGANIZATION', 'CRUD_PROJECT', 'CRUD_PROJECT_SCHEDULE', 'CRUD_DB_CONNECTION', 'CRUD_QUEUE_TOPIC', 'CRUD_TASK', 'CRUD_GRAPH', 'CRUD_GRAPH_NODE', 'CRUD_GRAPH_EDGE', 'CRUD_SUBGRAPH']
 
@@ -539,23 +539,41 @@ class DBTable(SDKBaseModel):
     columns: list[DBColumn] = Field(..., description='Список колонок в таблице.')
     type: DBTableType = Field(..., description='Тип таблицы (например, BASE TABLE, VIEW).')
 
+class ArrowFieldMetadata(SDKBaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra='allow')
+    name: str = Field(...)
+    nullable: bool = Field(True)
+    type: ArrowTypeMetadata = Field(...)
+
+class ArrowTypeMetadata(SDKBaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra='allow')
+    fields: list[ArrowFieldMetadata] = Field([])
+    kind: Literal['scalar', 'timestamp', 'duration', 'decimal', 'list', 'large_list', 'fixed_size_list', 'struct', 'fixed_size_binary'] = Field(...)
+    name: str | None = Field(None)
+    precision: int | None = Field(None)
+    scale: int | None = Field(None)
+    size: int | None = Field(None)
+    timezone: str | None = Field(None)
+    unit: Literal['s', 'ms', 'us', 'ns'] | None = Field(None)
+
 class DTypeMetadata(SDKBaseModel):
     model_config = ConfigDict(populate_by_name=True, extra='allow')
-    name: str = Field(..., description='Имя типа данных.')
-    class_: str = Field(..., alias='class', description='Класс типа данных.')
-    origin: Literal['numpy', 'pandas', 'python'] = Field(..., description='Источник типа данных.')
-    repr: str | None = Field(None, description='Строковое представление dtype.')
-    module: str | None = Field(None, description='Полное имя Python-модуля класса dtype.')
-    kind: str | None = Field(None, description='Низкоуровневый код kind для dtype.')
-    itemsize: int | None = Field(None, description='Размер элемента dtype в байтах, если применимо.')
-    is_extension: bool | None = Field(None, description='Является ли dtype pandas ExtensionDtype.')
-    scalar_type: str | None = Field(None, description='Имя скалярного типа элементов dtype.')
-    storage: str | None = Field(None, description='Бэкенд хранения dtype, если он задан.')
-    unit: str | None = Field(None, description='Единица времени для datetime/timedelta dtype.')
-    timezone: str | None = Field(None, description='Часовой пояс для timezone-aware datetime dtype.')
-    ordered: bool | None = Field(None, description='Флаг упорядоченности категориального dtype.')
+    arrow_type: ArrowTypeMetadata | None = Field(None)
     categories_count: int | None = Field(None, description='Количество категорий для category dtype.')
     categories_dtype: str | None = Field(None, description='dtype значений категорий для category dtype.')
+    class_: str = Field(..., alias='class', description='Класс типа данных.')
+    is_extension: bool | None = Field(None, description='Является ли dtype pandas ExtensionDtype.')
+    itemsize: int | None = Field(None, description='Размер элемента dtype в байтах, если применимо.')
+    kind: str | None = Field(None, description='Низкоуровневый код kind для dtype.')
+    module: str | None = Field(None, description='Полное имя Python-модуля класса dtype.')
+    name: str = Field(..., description='Имя типа данных.')
+    ordered: bool | None = Field(None, description='Флаг упорядоченности категориального dtype.')
+    origin: Literal['numpy', 'pandas', 'python'] = Field(..., description='Источник типа данных.')
+    repr: str | None = Field(None, description='Строковое представление dtype.')
+    scalar_type: str | None = Field(None, description='Имя скалярного типа элементов dtype.')
+    storage: str | None = Field(None, description='Бэкенд хранения dtype, если он задан.')
+    timezone: str | None = Field(None, description='Часовой пояс для timezone-aware datetime dtype.')
+    unit: str | None = Field(None, description='Единица времени для datetime/timedelta dtype.')
 
 class DataFrameData(SDKBaseModel):
     model_config = ConfigDict(populate_by_name=True, extra='allow')
@@ -3322,6 +3340,8 @@ DBDatabase.model_rebuild()
 DBMetadata.model_rebuild()
 DBSchema.model_rebuild()
 DBTable.model_rebuild()
+ArrowFieldMetadata.model_rebuild()
+ArrowTypeMetadata.model_rebuild()
 DTypeMetadata.model_rebuild()
 DataFrameData.model_rebuild()
 DataFrameMetadataInput.model_rebuild()
@@ -3627,6 +3647,8 @@ ODBCDriverOptions.model_rebuild()
 
 
 __all__ = [
+    'ArrowTypeMetadata',
+    'ArrowFieldMetadata',
     'SDKBaseModel',
     'AIAnalysisCreateResponseSchema',
     'AIAnalysisCreateSchema',

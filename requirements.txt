@@ -76,3 +76,5 @@ ruff==0.15.13
 pre-commit==4.4.0
 
 fsspec==2025.9.0
+
+pyarrow==25.0.1

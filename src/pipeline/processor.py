@@ -36,7 +36,7 @@ from src.node_dsl.core.input_values import (
     iter_node_input_link_values,
     resolve_node_input_value,
 )
-from src.node_dsl.exceptions import NodeValidationError
+from src.node_dsl.exceptions import NodeExecutionCancelled, NodeValidationError
 from src.node_dsl.execution_settings import ExecutionSettings
 from src.node_dsl.node_typing import contains_exact_io
 from src.node_dsl.types import (
@@ -844,6 +844,8 @@ class PipelineProcessor:
             logger.debug(f"Processing node {node_id} ({current_node_name}).")
             await current_node_instance.execute(mode=self.task.mode)
         except Exception as node_exec_error:
+            if isinstance(node_exec_error, NodeExecutionCancelled) and self._stop_requested():
+                return True, False, False, None
             logger.exception(f"Error executing node {node_id} ({current_node_name}): {node_exec_error}")
             error_message = str(node_exec_error)
             if self.on_node_error:

@@ -3,6 +3,10 @@ class NodeDSLException(Exception):
     pass
 
 
+class NodeExecutionCancelled(NodeDSLException):
+    """Cooperative task stop, classified by the authoritative task signal."""
+
+
 class NodeRegistrationError(NodeDSLException):
     def __init__(self, message: str = "Node registration failed"):
         """Исключение для ошибок регистрации ноды."""

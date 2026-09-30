@@ -2,12 +2,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .arrow_type import ArrowTypeMetadata
 from .data_type import DataType
 
 
 class DTypeMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
 
+    arrow_type: ArrowTypeMetadata | None = None
     name: str = Field(..., description="Имя типа данных.")
     class_name: str = Field(..., alias="class", description="Класс типа данных.")
     origin: Literal["numpy", "pandas", "python"] = Field(..., description="Источник типа данных.")

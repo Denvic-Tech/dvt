@@ -1,22 +1,42 @@
 import json
 from collections import Counter
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Optional, Union, List, Dict, Sequence, TypeVar, Type
+from typing import Any
 
 import pandas as pd
 from loguru import logger
 from pandas import PeriodDtype
 from pandas.api.types import (
-    is_integer_dtype, is_float_dtype, is_bool_dtype, is_datetime64_any_dtype,
-    is_string_dtype, is_object_dtype,
-    is_timedelta64_dtype, is_complex_dtype
+    is_bool_dtype,
+    is_complex_dtype,
+    is_datetime64_any_dtype,
+    is_float_dtype,
+    is_integer_dtype,
+    is_object_dtype,
+    is_string_dtype,
+    is_timedelta64_dtype,
 )
 from sqlalchemy import (
-    text, PrimaryKeyConstraint, Date, ClauseElement, Column,
-    Integer, Float, DateTime, Boolean, MetaData, Table,
-    BigInteger, Numeric, Text, Dialect, JSON as SA_JSON,
-    Sequence, Identity  # Добавлены String и Sequence
+    JSON as SA_JSON,
+    BigInteger,
+    Boolean,
+    ClauseElement,
+    Column,
+    Date,
+    DateTime,
+    Dialect,
+    Float,
+    Identity,
+    Integer,
+    MetaData,
+    Numeric,
+    PrimaryKeyConstraint,
+    Sequence,  # Добавлены String и Sequence
+    Table,
+    Text,
+    text,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase
@@ -24,7 +44,9 @@ from sqlalchemy.sql.type_api import TypeEngine
 from sqlalchemy.types import TypeDecorator
 
 from core.mapper import type_decorators as td
+from core.types import DataType
 from core.utils.translit import ru2en
+
 from ._shared import CH_TYPES, INT32_MAX, INT32_MIN, VARCHAR, PGTimestamp
 
 # Имитация импортов диалектов
@@ -76,12 +98,11 @@ def get_sqla_type(column: pd.Series, dialect: Any, use_jsonb_pg: bool = True) ->
     Определяет SQLAlchemy-тип колонки pandas.Series для заданного dialect.
     """
     dtype = column.dtype
+    if DataType.from_type(dtype) in {DataType.BINARY, DataType.LIST, DataType.STRUCT}:
+        raise TypeError(f"SQL type inference does not support binary/nested column {column.name}")
     # TODO пока для SQL БД (pg, oracle, и т.д.) делаем все колонки nullable,
     #  т.к. от clickhouse может приходить тип NOT NULL за заполненными ПУСТЫМИ полями
-    if dialect != "clickhouse":
-        nullable = True
-    else:
-        nullable = is_nullable_column(column)
+    nullable = True if dialect != "clickhouse" else is_nullable_column(column)
 
     # Проверка доступности ClickHouse типов
     if dialect.name == "clickhouse" and CH_TYPES is None:
@@ -315,9 +336,9 @@ def build_table_from_df(
         table_name: str,
         dialect: Dialect,
         metadata: MetaData,
-        primary_key_cols: Optional[Union[str, List[str]]] = None,
-        partition_by: Optional[Union[str, List[str], ClauseElement]] = None,
-        order_by: Optional[Union[str, List[str], ClauseElement]] = None,
+        primary_key_cols: str | list[str] | None = None,
+        partition_by: str | list[str] | ClauseElement | None = None,
+        order_by: str | list[str] | ClauseElement | None = None,
         add_surrogate_pk_if_missing: bool = False,
         surrogate_pk_name: str = "id",
         surrogate_pk_type: type[TypeEngine] = Integer,
@@ -336,7 +357,7 @@ def build_table_from_df(
     if df.index.names and any(n is not None for n in df.index.names):
         df = df.reset_index()
 
-    ru2en_map: Dict[str, str] = {}
+    ru2en_map: dict[str, str] = {}
     used: Counter = Counter()
 
     def _is_ascii(s: str) -> bool:
@@ -357,7 +378,7 @@ def build_table_from_df(
             eng = f"{eng}_{used[eng]}"
         ru2en_map[raw] = eng
 
-    def _ensure_list(x: Optional[Union[str, Sequence[str], ClauseElement]]) -> list[Any]:
+    def _ensure_list(x: str | Sequence[str] | ClauseElement | None) -> list[Any]:
         if x is None:
             return []
         if isinstance(x, (list, tuple)):
@@ -525,18 +546,15 @@ def build_table_from_df(
     return table
 
 
-MapperT = TypeVar("MapperT", bound=Type[DeclarativeBase])
-
-
-def build_mapper_from_df(
+def build_mapper_from_df[MapperT: type[DeclarativeBase]](
         df: pd.DataFrame,
         Base: MapperT,
         table_name: str,
         dialect: Dialect,
         metadata: MetaData,
-        primary_key_cols: Optional[Union[str, List[str]]] = 'id',
-        partition_by: Optional[Union[str, List[str], ClauseElement]] = None,
-        order_by: Optional[Union[str, List[str], ClauseElement]] = None,
+        primary_key_cols: str | list[str] | None = 'id',
+        partition_by: str | list[str] | ClauseElement | None = None,
+        order_by: str | list[str] | ClauseElement | None = None,
         add_surrogate_pk_if_missing: bool = False,
         surrogate_pk_name: str = "id",
         surrogate_pk_type: type[TypeEngine] = Integer,

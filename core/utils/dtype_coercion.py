@@ -3,6 +3,8 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
+from core.types.data_type import DataType
+
 
 def _coerce_to_bool(series: pd.Series) -> pd.Series:
     """
@@ -38,6 +40,14 @@ def apply_dtypes_and_casts(
     """
     for col, target_dtype in dtype_map.items():
         if col not in df.columns:
+            continue
+
+        complex_types = {DataType.BINARY, DataType.LIST, DataType.STRUCT}
+        source_type = DataType.from_type(df[col].dtype)
+        target_type = DataType.from_type(target_dtype)
+        if source_type in complex_types or target_type in complex_types:
+            if df[col].dtype != target_dtype:
+                raise TypeError(f"Unsupported binary/nested conversion for column {col}")
             continue
 
         # --- 🕒 Datetime ---

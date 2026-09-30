@@ -3635,3 +3635,21 @@
 
 ### 2026-09-28 16:53:40
 - Код src/utils/extensions.py перенесён в инфраструктуру модуля extension_management: подготовка зависимостей и файловая блокировка находятся в infra/dependency_bootstrap.py, сбор расширений пайплайна через реестр нод — в infra/pipeline_dependencies.py. Обновлены импорты Gateway, Task Worker и создания задач; тест подготовки зависимостей перенесён к модулю. Поведение сохранено, 42 профильных теста и архитектурный аудит прошли.
+
+### 2026-09-29 16:52:12
+- Добавлен обратно совместимый публичный CancellationToken для нод расширений: сигнал STOP передаётся в локальные отложенные вычисления, NodeExecutionCancelled завершает pipeline отменой только при установленном сигнале задачи. Добавлены тесты отмены через threaded Dask и сохранения классификации обычных ошибок, описан контракт Extension API.
+
+### 2026-09-29 18:02:04
+- Добавлено ТЗ docs/specs/kafka-nodes-v1.ru.md на Read Kafka Messages и Commit Kafka Offsets: ленивое чтение Dask, системные переменные, правила commit, DDD-lite, необходимые интеграционные изменения и критерии приёмки. Реализация нод не изменялась.
+
+### 2026-09-30 11:12:31
+- ТЗ Kafka-нод разделено на четыре последовательные задачи для coding-агентов в tmp/kafka_nodes/tasks. Уточнены тестирование на KafkaContainer в KRaft с контролем ресурсов, обязательные отчёты в tmp/kafka_nodes/reports и примеры сообщений коммитов на английском языке.
+
+### 2026-09-30 13:32:39
+- Добавлена основа kafka_consumption: доменные контракты, JSON offsets v1, Kafka gateway с ручным чтением и commit, таймаутами и отменой. Добавлены Arrow BINARY/LIST/STRUCT и безопасное восстановление схем, синхронизация моделей Python Gateway SDK. Исправлена Kafka Connection без создания producer, обновлены RU/EN README и зависимости Kafka/Arrow. Добавлены KRaft KafkaContainer, интеграционные проверки Windows/tester, TLS и SASL PLAIN/SCRAM; результаты и локальная поставка db-connections описаны в tmp/kafka_nodes/reports/01_foundation_and_kafka_testcontainer.md.
+
+### 2026-09-30 14:00:29
+- Проверена первая задача Kafka foundation: повторно пройдены целевые unit- и KafkaContainer-тесты, воспроизведены потеря сообщений при повторе poll и нарушение нулевого timeout; в tmp/kafka_nodes добавлены отчёт проверки и задача на доработки.
+
+### 2026-09-30 14:12:53
+- Исправлены замечания P1/P2 Kafka foundation: после неудачного poll восстановление выполняется через проверку snapshot и seek к безопасной позиции без потери сообщений и повторного расхода лимитов; poll(timeout_ms=0) снова неблокирующий, общий deadline и cancellation проверяются после сетевого ожидания. Добавлены регрессии SDK и fault injection на реальном KafkaContainer. Проверки: 44 unit, 4 integration, SSL и SASL_SSL/SCRAM-SHA-512 прошли. Отчёт: tmp/kafka_nodes/reports/01_review_fixes.md. Развёртывание не выполнялось.

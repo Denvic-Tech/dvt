@@ -173,6 +173,15 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
     @staticmethod
     def _pandas_dtype_for_metadata(column) -> object:
         dtype_metadata = getattr(column, "dtype_metadata", None)
+        arrow_type = getattr(dtype_metadata, "arrow_type", None)
+        if arrow_type is not None:
+            from core.types.arrow_type import arrow_type_from_metadata
+            return pd.ArrowDtype(arrow_type_from_metadata(arrow_type))
+        if column.dtype in {DataType.LIST, DataType.STRUCT}:
+            raise ValueError(f"Nested Arrow metadata is required for column {column.name}")
+        if column.dtype == DataType.BINARY:
+            import pyarrow as pa
+            return pd.ArrowDtype(pa.binary())
         dtype_repr = getattr(dtype_metadata, "repr", None)
         if dtype_repr:
             try:
