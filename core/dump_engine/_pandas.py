@@ -127,7 +127,20 @@ class UniversalPyArrowCacheEngine(CacheEngine[pd.DataFrame]):
 
         # Missing marker is the legacy universal-pyarrow-v1 format.
         buf = BytesIO(data)
-        df = feather.read_feather(buf)
+        # pandas cannot parse nested Arrow dtype repr from Feather metadata.
+        # Supply the physical dtype for nested columns; preserve existing scalar behavior.
+        table = feather.read_table(buf)
+        if any(pa.types.is_nested(field.type) for field in table.schema):
+            def nested_dtype(dtype):
+                if pa.types.is_nested(dtype):
+                    return pd.ArrowDtype(dtype)
+                if isinstance(dtype, pa.ExtensionType):
+                    return dtype.to_pandas_dtype()
+                return None
+
+            df = table.to_pandas(types_mapper=nested_dtype)
+        else:
+            df = table.to_pandas()
 
         # Если есть метаданные, восстанавливаем исходные типы данных
         if meta and 'meta' in meta:

@@ -89,6 +89,8 @@ class BaseNode(
     DISABLED: ClassVar[bool] = False
     ADDITIONAL_SCHEMA: ClassVar[dict | None] = None
     CACHABLE: ClassVar[bool] = True
+    # A live source forbids snapshot replay of itself and its dependent execution path.
+    REQUIRES_FRESH_EXECUTION: ClassVar[bool] = False
     TTL_CACHE: ClassVar[int | None] = False
     EXTENSION_NAME: ClassVar[str | None] = None
     EXTENSION_VERSION: ClassVar[str | None] = None
@@ -232,6 +234,7 @@ class BaseNode(
             on_process_start=on_process_start,
             on_process_success=on_process_success,
             on_progress_step=on_progress_step,
+            on_node_metadata=pipeline_processor.refresh_node_metadata,
 
             data_store=pipeline_processor.data_store,
             data_index_store=pipeline_processor.data_index_store,

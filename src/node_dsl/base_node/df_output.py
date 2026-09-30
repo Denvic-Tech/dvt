@@ -286,7 +286,10 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
     ) -> None:
         cache = self._dataframe_execution_cache
         generation_id = self._dataframe_cache_generation_id
-        if not self._store_enabled or cache is None or generation_id is None:
+        if (
+            self.REQUIRES_FRESH_EXECUTION or not self._store_enabled
+            or cache is None or generation_id is None
+        ):
             return
         if not metadata:
             return
@@ -339,6 +342,8 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
             data_index_store: "IndexStore[Any, Any]",
             node_runtime_fingerprint: str | None = None,
     ) -> MetadataCacheEntry | None:
+        if cls.REQUIRES_FRESH_EXECUTION:
+            return None
         del data_index_store  # generation cache uses manifests, not partition index scans
         cache = DataFrameExecutionCache(data_store=data_store)
         try:
@@ -425,7 +430,7 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
 
             cache: DataFrameExecutionCache | None = None
             generation_id: str | None = None
-            if self._store_enabled:
+            if self._store_enabled and not self.REQUIRES_FRESH_EXECUTION:
                 if self.data_store is None:
                     logger.warning(
                         "store_enabled=True but data store is not configured; dataframe cache will be skipped."
