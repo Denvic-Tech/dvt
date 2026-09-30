@@ -42,6 +42,8 @@ class KafkaOffsetsSchema(BaseModel):
             raise ValueError("Unsupported kafka_offsets schema_version")
         if not self.topic.strip() or not self.group_id.strip():
             raise ValueError("topic and group_id must be nonempty")
+        if self.cluster_id is not None and not self.cluster_id.strip():
+            raise ValueError("cluster_id must be nonempty when provided")
         ids = [part.partition for part in self.partitions]
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate partitions")

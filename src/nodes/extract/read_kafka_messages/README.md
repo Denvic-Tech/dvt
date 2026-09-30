@@ -111,7 +111,8 @@ For a SQL destination, select/convert supported columns first: arbitrary binary/
 is destination-specific. Pass `ReadKafkaMessages.output_variables` to the explicit commit
 consumer's `input_variables`, and gate that consumer with the successful destination
 `signal_out`. The Read node's own signal alone does not prove a completed destination write.
-The separate CommitKafkaOffsets node is delivered in the next implementation stage.
+Use [Commit Kafka Offsets](../../tool/commit_kafka_offsets/README.md) for this acknowledgement;
+connect every required destination's signal_out to its signal_in.
 
 For a precise replay starting at position 100 of partition 0:
 

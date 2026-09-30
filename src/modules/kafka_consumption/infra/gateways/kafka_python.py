@@ -9,6 +9,8 @@ from kafka.admin import KafkaAdminClient
 from kafka.errors import KafkaError, OffsetOutOfRangeError
 from kafka.structs import OffsetAndMetadata, TopicPartition as SDKTopicPartition
 
+from src.logger import logger
+
 from ...domain.entities import ReadBatch
 from ...domain.exceptions import KafkaInputError, KafkaMessageTooLargeError
 from ...domain.gateways.kafka import CheckCancelled
@@ -83,7 +85,11 @@ class KafkaPythonGateway:
             except KafkaError as error:
                 if not error.retriable or attempt + 1 == self.settings.attempts:
                     error_class = KafkaCommitError if name == "commit" else KafkaUnavailableError
-                    raise error_class(f"Kafka {name} failed ({type(error).__name__})") from None
+                    detail = (
+                        "; offsets may already be saved; retry the original JSON"
+                        if name == "commit" else ""
+                    )
+                    raise error_class(f"Kafka {name} failed ({type(error).__name__}){detail}") from None
                 deadline = monotonic() + 0.5 * (attempt + 1)
                 while monotonic() < deadline:
                     self._check_cancelled()
@@ -301,10 +307,30 @@ class KafkaPythonGateway:
         offsets = {
             self._sdk(p): OffsetAndMetadata(position, "", -1) for p, position in positions.items()
         }
-        with self._consumer(group_id=group_id) as consumer:
-            self._retry(
-                lambda: consumer.commit(
-                    offsets=offsets, timeout_ms=self.settings.request_timeout_ms
-                ),
-                "commit",
-            )
+        submitted = False
+
+        def submit(consumer):
+            nonlocal submitted
+            self._check_cancelled()
+            submitted = True
+            consumer.commit(offsets=offsets, timeout_ms=self.settings.request_timeout_ms)
+
+        try:
+            with self._consumer(group_id=group_id) as consumer:
+                self._retry(lambda: submit(consumer), "commit")
+                self._check_cancelled()
+            self._check_cancelled()
+        except BaseException as error:
+            if submitted:
+                note = (
+                    "Kafka commit was submitted; some offsets may already be saved. "
+                    "Cancellation/failure does not roll back offsets; retry the original JSON."
+                )
+                error.add_note(note)
+                logger.warning(note)
+            if isinstance(error, (KafkaError, ssl.SSLError)):
+                raise KafkaCommitError(
+                    f"Kafka commit/close failed ({type(error).__name__}); "
+                    "offsets may already be saved; retry the original JSON"
+                ) from None
+            raise

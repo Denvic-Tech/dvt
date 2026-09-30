@@ -96,9 +96,9 @@ def test_json_rejects_duplicates_and_version():
         "group_id": "g",
         "partitions": [{"partition": 0, "next_offset": 0}] * 2,
     }
-    with pytest.raises(ValueError):
+    with pytest.raises(KafkaInputError):
         offsets_from_json(payload)
-    with pytest.raises(ValueError):
+    with pytest.raises(KafkaInputError):
         offsets_from_json({**payload, "schema_version": 2, "partitions": []})
 
 

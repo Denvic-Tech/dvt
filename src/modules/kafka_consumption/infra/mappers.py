@@ -1,14 +1,23 @@
+from pydantic import ValidationError
+
 from ..domain.entities import RawMessage, ReadSummary
+from ..domain.exceptions import KafkaInputError
 from ..domain.value_objects import PartitionOffsets, TopicPartition
 from .schemas import KafkaOffsetsSchema
 
 
 def offsets_from_json(payload: dict | str) -> ReadSummary:
-    schema = (
-        KafkaOffsetsSchema.model_validate_json(payload)
-        if isinstance(payload, str)
-        else KafkaOffsetsSchema.model_validate(payload)
-    )
+    try:
+        schema = (
+            KafkaOffsetsSchema.model_validate_json(payload)
+            if isinstance(payload, str)
+            else KafkaOffsetsSchema.model_validate(payload)
+        )
+    except (ValidationError, ValueError, TypeError, KafkaInputError):
+        # Pydantic errors can include the complete input, including arbitrary payload.
+        raise KafkaInputError(
+            "Invalid kafka_offsets JSON; check version, context and positions"
+        ) from None
     values = schema.model_dump(exclude={"schema_version", "partitions"})
     return ReadSummary(
         **values, partitions=tuple(PartitionOffsets(**p.model_dump()) for p in schema.partitions)

@@ -1,12 +1,12 @@
 from db_connection.connectors.kafka import build_kafka_config
 
 from .domain.gateways.kafka import CheckCancelled, KafkaGateway
-from .flow.use_cases import PlanKafkaRead, ReadKafkaChunk
+from .flow.use_cases import CommitKafkaOffsets, PlanKafkaRead, ReadKafkaChunk
 from .infra.dask_reader import KafkaDaskReader
 from .infra.gateways.kafka_python import KafkaPythonGateway, KafkaRuntimeSettings
 
 __all__ = [
-    "KafkaDaskReader", "KafkaRuntimeSettings", "PlanKafkaRead", "ReadKafkaChunk",
+    "CommitKafkaOffsets", "KafkaDaskReader", "KafkaRuntimeSettings", "PlanKafkaRead", "ReadKafkaChunk",
     "build_kafka_gateway",
 ]
 
