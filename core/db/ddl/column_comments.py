@@ -132,6 +132,7 @@ def build_column_comment_sql(
     comment: str | None,
     current_comment: str | None = None,
     mysql_create_sql: str | None = None,
+    mysql_definition: str | None = None,
 ) -> list[str]:
     require_column_comments(dialect)
     comment = normalize_comment(comment)
@@ -156,9 +157,11 @@ def build_column_comment_sql(
             f"ALTER TABLE {full_table} COMMENT COLUMN {column_name} {_literal(comment or '', dialect)}"
         ]
     if name in {"mysql", "mariadb"}:
-        if mysql_create_sql is None:
-            raise ValueError("SHOW CREATE TABLE is required to preserve MySQL column attributes.")
-        definition = mysql_column_definition(mysql_create_sql, column.name)
+        if mysql_definition is None:
+            if mysql_create_sql is None:
+                raise ValueError("SHOW CREATE TABLE is required to preserve MySQL column attributes.")
+            mysql_definition = mysql_column_definition(mysql_create_sql, column.name)
+        definition = mysql_definition
         definition = mysql_comment_definition(definition, comment, dialect)
         return [f"ALTER TABLE {full_table} MODIFY COLUMN {definition}"]
     schema = table.schema or dialect.default_schema_name or "dbo"
