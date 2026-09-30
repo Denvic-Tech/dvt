@@ -34,7 +34,8 @@ def test_reflected_comments_survive_metadata_serialization(monkeypatch):
     ]
     inspector.get_table_comment.return_value = {"text": "  Клиенты\nОписание  "}
     monkeypatch.setattr(sa, "inspect", lambda engine: inspector)
-    table = load_db_table_metadata(object(), table_name="Customers", schema_name="Analytics")
+    engine = sa.create_mock_engine("postgresql://", lambda *args, **kwargs: None)
+    table = load_db_table_metadata(engine, table_name="Customers", schema_name="Analytics")
     assert [c.comment for c in table.columns] == ["Первичный ключ", None, None]
     metadata = DataFrameMetadata(columns=table.columns, comment=table.comment)
     restored = DataFrameMetadata.model_validate_json(metadata.model_dump_json())

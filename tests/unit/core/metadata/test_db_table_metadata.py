@@ -86,11 +86,22 @@ def test_load_db_table_metadata_maps_reflected_clickhouse_float_types(monkeypatc
                     'type': clickhouse_types.Nullable(clickhouse_types.Float64),
                     'nullable': True,
                 },
+                {
+                    'name': 'nullable_low_cardinality',
+                    'type': clickhouse_types.LowCardinality(
+                        clickhouse_types.Nullable(clickhouse_types.String)
+                    ),
+                    # clickhouse-sqlalchemy only detects a top-level Nullable wrapper.
+                    'nullable': False,
+                },
             ]
 
     monkeypatch.setattr(table_metadata_module.sa, 'inspect', lambda engine: ClickHouseInspector())
 
-    result = load_db_table_metadata(object(), table_name='measurements')
+    engine = sa.create_mock_engine('clickhouse+http://', lambda *args, **kwargs: None)
+    result = load_db_table_metadata(engine, table_name='measurements')
 
-    assert [column.dtype for column in result.columns] == [DataType.FLOAT, DataType.FLOAT]
-    assert [column.nullable for column in result.columns] == [False, True]
+    assert [column.dtype for column in result.columns] == [
+        DataType.FLOAT, DataType.FLOAT, DataType.STRING,
+    ]
+    assert [column.nullable for column in result.columns] == [False, True, True]
