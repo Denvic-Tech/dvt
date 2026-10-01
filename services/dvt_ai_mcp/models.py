@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
@@ -84,6 +84,25 @@ class GraphPatch(StrictModel):
     delete_node_ids: list[str] = Field(default_factory=list)
     add_connections: list[AddConnection] = Field(default_factory=list)
     delete_connection_ids: list[str] = Field(default_factory=list)
+
+
+class SchedulePatch(StrictModel):
+    """Only supplied settings change; null values and an empty patch are invalid."""
+
+    cron: str | None = Field(default=None, min_length=1)
+    force_exec: bool | None = None
+    max_retries: int | None = Field(default=None, ge=0, le=10)
+    retry_delay_seconds: int | None = Field(default=None, ge=1, le=86400)
+    retry_backoff: Literal["fixed", "exponential"] | None = None
+    retry_max_delay_seconds: int | None = Field(default=None, ge=1, le=86400)
+
+    @model_validator(mode="after")
+    def validate_patch(self):
+        if not self.model_fields_set or any(
+            getattr(self, name) is None for name in self.model_fields_set
+        ):
+            raise ValueError("Provide non-null schedule settings to change.")
+        return self
 
 
 class RuntimeVariable(StrictModel):

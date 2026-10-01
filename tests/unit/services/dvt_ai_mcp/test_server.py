@@ -34,6 +34,12 @@ from services.dvt_ai_mcp.server import (
 )
 
 EXPECTED_TOOLS = {
+    "create_project",
+    "list_project_schedules",
+    "get_project_schedule",
+    "set_project_schedule",
+    "update_project_schedule",
+    "set_project_schedule_enabled",
     "list_projects",
     "get_project",
     "get_project_graph",
@@ -59,7 +65,7 @@ EXPECTED_TOOLS = {
 }
 
 
-def test_mcp_contract_exposes_only_mvp_tools_with_annotations() -> None:
+def test_mcp_contract_exposes_supported_tools_with_annotations() -> None:
     tools = mcp._tool_manager.list_tools()
     assert {tool.name for tool in tools} == EXPECTED_TOOLS
     by_name = {tool.name: tool for tool in tools}
@@ -67,6 +73,15 @@ def test_mcp_contract_exposes_only_mvp_tools_with_annotations() -> None:
     assert by_name["apply_graph_changes"].annotations.destructive_hint is True
     assert by_name["run_project"].annotations.read_only_hint is False
     assert by_name["create_table"].annotations.idempotent_hint is True
+    assert by_name["create_project"].annotations.idempotent_hint is False
+    assert by_name["create_project"].annotations.destructive_hint is False
+    for name in ("list_project_schedules", "get_project_schedule"):
+        assert by_name[name].annotations.read_only_hint is True
+    for name in (
+        "set_project_schedule", "update_project_schedule", "set_project_schedule_enabled",
+    ):
+        assert by_name[name].annotations.read_only_hint is False
+        assert by_name[name].annotations.open_world_hint is True
     assert "never claim success before SUCCESS" in mcp.instructions
     assert "Never add or replace a node with a deprecated node type" in mcp.instructions
     assert "agent_description" in mcp.instructions
@@ -87,6 +102,10 @@ async def test_mcp_protocol_lists_all_tools() -> None:
     async with Client(mcp) as client:
         result = await client.list_tools()
     assert {tool.name for tool in result.tools} == EXPECTED_TOOLS
+    by_name = {tool.name: tool for tool in result.tools}
+    assert "mode" not in by_name["set_project_schedule"].input_schema["properties"]
+    patch_schema = by_name["update_project_schedule"].input_schema
+    assert "mode" not in patch_schema["$defs"]["SchedulePatch"]["properties"]
 
 
 @pytest.mark.asyncio
@@ -193,3 +212,91 @@ def test_catalog_tools_explain_source_comments():
     assert "comments" in by_name["browse_database"].description
     assert "table/column comments" in by_name["get_database_table"].description.lower()
     assert "Comments are source documentation, not" in INSTRUCTIONS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool,arguments", [
+    ("create_project", {"name": "New project", "folder_id": "folder"}),
+    ("list_project_schedules", {"cursor": None, "limit": 5}),
+    ("get_project_schedule", {"project_id": "p"}),
+    ("update_project_schedule", {
+        "project_id": "p", "patch": {"force_exec": False, "max_retries": 0},
+    }),
+    ("set_project_schedule_enabled", {"project_id": "p", "enabled": False}),
+    ("set_project_schedule", {
+        "project_id": "p", "cron": "0 4 * * *",
+        "force_exec": False, "max_retries": 0, "retry_delay_seconds": 60,
+        "retry_backoff": "fixed", "retry_max_delay_seconds": 3600,
+    }),
+])
+async def test_project_and_schedule_tools_forward_arguments(monkeypatch, tool, arguments):
+    call = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool(tool, arguments)
+    assert not result.is_error
+    call.assert_awaited_once_with(tool, {
+        key: value for key, value in arguments.items() if value is not None
+    })
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch", [
+    {}, {"max_retries": None}, {"max_retries": 11}, {"disabled": False},
+    {"scheduled_by_user_id": "other"}, {"mode": "invalid"},
+    {"mode": "metadata_only"}, {"mode": "full"},
+])
+async def test_schedule_patch_schema_rejects_invalid_fields(monkeypatch, patch):
+    call = AsyncMock()
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "update_project_schedule", {"project_id": "p", "patch": patch},
+        )
+    assert result.is_error
+    call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,code", [
+    (404, "SCHEDULE_NOT_FOUND"),
+    (422, "INVALID_ARGUMENTS"),
+    (503, "SCHEDULER_UNAVAILABLE"),
+    (404, "FOLDER_NOT_FOUND_OR_DENIED"),
+])
+async def test_new_gateway_errors_survive_http_adapter(monkeypatch, status, code):
+    from services.dvt_ai_mcp.gateway_client import bearer_token_context
+
+    detail = {"code": code, "message": "Safe operation error."}
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(status, json={"detail": detail}),
+    )
+    async with httpx.AsyncClient(transport=transport, base_url="http://gateway.test") as http:
+        monkeypatch.setattr(gateway_client, "_client", http)
+        context_token = bearer_token_context.set("test-token")
+        try:
+            with pytest.raises(MCPError) as error:
+                await _call("get_project_schedule", {"project_id": "p"})
+        finally:
+            bearer_token_context.reset(context_token)
+    assert error.value.data == {"dvt_error": detail}
+
+
+@pytest.mark.asyncio
+async def test_unknown_gateway_error_remains_redacted(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import bearer_token_context
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(500, json={
+        "detail": {"code": "UNKNOWN_INTERNAL", "message": "private backend details"},
+    }))
+    async with httpx.AsyncClient(transport=transport, base_url="http://gateway.test") as http:
+        monkeypatch.setattr(gateway_client, "_client", http)
+        context_token = bearer_token_context.set("test-token")
+        try:
+            with pytest.raises(MCPError) as error:
+                await _call("get_project_schedule", {"project_id": "p"})
+        finally:
+            bearer_token_context.reset(context_token)
+    assert error.value.data == {"dvt_error": {
+        "code": "GATEWAY_UNAVAILABLE", "message": "Gateway operation failed.",
+    }}

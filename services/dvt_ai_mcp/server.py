@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import INTERNAL_ERROR, ToolAnnotations
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -16,21 +17,37 @@ from .gateway_client import (
     bearer_token_context,
     gateway_client,
 )
-from .models import DDLColumn, GraphPatch, RuntimeVariable, TableCreateSpec
+from .models import DDLColumn, GraphPatch, RuntimeVariable, SchedulePatch, TableCreateSpec
 from .settings import settings
 
 INSTRUCTIONS = """
-You work with DVT visual ETL projects. Before editing, inspect the project graph and search the
+You work with DVT visual ETL projects. If the user's intent does not clearly identify whether to
+use an existing project or create a new one, ask before making changes. Explicit intent needs no
+repeat confirmation. For a new project, call create_project, then read its empty graph and use the
+normal validate/apply workflow. Never substitute a similar existing project for a requested new
+one. Creation requires projects.mode=all; selected-project tokens cannot create projects.
+
+Schedule tools require an administrator role and token access to the project. Cron has five
+fields and uses UTC. Resolve the user's timezone before translating local times; ask if unknown.
+set_project_schedule creates or replaces settings and immediately enables the schedule.
+update_project_schedule preserves omitted fields and the enabled state; use
+set_project_schedule_enabled to enable or disable an existing schedule. After a schedule change,
+read get_project_schedule to verify the resulting settings and next_run_time. A schedule-only
+change does not require an immediate project run. Disabling prevents future scheduled attempts
+and cancels the retry chain according to Scheduler semantics; it is not a task STOP.
+Schedules are persistent project configuration and are not tied to the lifetime of this MCP token.
+
+Before editing a graph, inspect the project graph and search the
 available node catalog. Prefer specialized low-code source, transform, and sink nodes over generic
 code nodes, and build a readable left-to-right graph with meaningful display names and comments.
 Never add or replace a node with a deprecated node type. Deprecated nodes found in an existing
 graph may be inspected for compatibility, but must not be selected for new development.
 Generic code nodes are allowed only when justified by a non-empty comment. Always validate changes
-before applying them. After applying, run the full project (or the explicit target nodes), wait
-until a terminal state, and never claim success before SUCCESS. On ERROR, read task logs, fix the
-graph, validate, apply, run, and wait again. Project names are only for discovery; if a search
+before applying them. After applying graph changes, run the full project (or the explicit target
+nodes), wait until a terminal state, and never claim success before SUCCESS. On ERROR, read task
+logs, fix the graph, validate, apply, run, and wait again. Project names are only for discovery; if a search
 returns multiple projects, present the candidates instead of guessing, and use project_id for
-every mutation and execution. Never attempt to infer or expose connection credentials. Subgraphs
+every mutation or execution of an existing project. Never infer or expose connection credentials. Subgraphs
 may be inspected and existing membership may be changed, but subgraph entities must not be
 created, updated, or deleted.
 
@@ -175,6 +192,67 @@ CANCEL_EXECUTION = ToolAnnotations(
     idempotent_hint=True,
     open_world_hint=True,
 )
+
+
+WRITE_PROJECT = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False,
+)
+WRITE_SCHEDULE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=True,
+)
+
+
+@mcp.tool(annotations=WRITE_PROJECT)
+async def create_project(
+    name: Annotated[str, Field(min_length=1, pattern=r"\S")], folder_id: str | None = None,
+) -> dict[str, Any]:
+    """Create an empty named project; requires projects.mode=all. Clarify new vs existing intent."""
+    return await _call("create_project", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def list_project_schedules(
+    cursor: str | None = None, limit: int = 50,
+) -> dict[str, Any]:
+    """List accessible schedules, including disabled ones and recent runs; admin role required."""
+    return await _call("list_project_schedules", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_project_schedule(project_id: str) -> dict[str, Any]:
+    """Read UTC settings, next run and history; schedule is null if absent. Admin role required."""
+    return await _call("get_project_schedule", locals())
+
+
+@mcp.tool(annotations=WRITE_SCHEDULE)
+async def set_project_schedule(
+    project_id: str,
+    cron: Annotated[str, Field(min_length=1)],
+    force_exec: bool = False,
+    max_retries: Annotated[int, Field(ge=0, le=10)] = 0,
+    retry_delay_seconds: Annotated[int, Field(ge=1, le=86400)] = 60,
+    retry_backoff: Literal["fixed", "exponential"] = "fixed",
+    retry_max_delay_seconds: Annotated[int, Field(ge=1, le=86400)] = 3600,
+) -> dict[str, Any]:
+    """Create or replace and ENABLE a schedule (five-field UTC cron). Admin only; read back after."""
+    return await _call("set_project_schedule", locals())
+
+
+@mcp.tool(annotations=WRITE_SCHEDULE)
+async def update_project_schedule(
+    project_id: str, patch: SchedulePatch,
+) -> dict[str, Any]:
+    """Change supplied settings only; preserve enabled state. Admin only; read back after."""
+    return await _call(
+        "update_project_schedule",
+        {"project_id": project_id, "patch": patch.model_dump(mode="json", exclude_unset=True)},
+    )
+
+
+@mcp.tool(annotations=WRITE_SCHEDULE)
+async def set_project_schedule_enabled(project_id: str, enabled: bool) -> dict[str, Any]:
+    """Enable/disable an existing schedule, preserving settings. Admin only; read back after."""
+    return await _call("set_project_schedule_enabled", locals())
 
 
 @mcp.tool(annotations=READ_CLOSED)
