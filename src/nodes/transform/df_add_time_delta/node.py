@@ -1,14 +1,20 @@
-from datetime import timedelta
+from typing import Optional
 
 import pandas as pd
 from dask import dataframe as dd
-from src.node_dsl import BaseNode, InputField, OutputField, NodeValidationError, DFOutputBaseNode
 
+from src.node_dsl import DFOutputBaseNode, InputField, NodeValidationError, OutputField
 from src.node_dsl.hooks import on_validation
+from src.node_dsl.node_mixins.column_rules import ColumnRulesMixin
 from src.node_dsl.node_typing import IO
+from src.nodes.transform._shared.column_rules import OPERATIONS
 
 
-class AddTimeDeltaToDataFrame(DFOutputBaseNode):
+class AddTimeDeltaToDataFrame(ColumnRulesMixin, DFOutputBaseNode):
+    COLUMN_RULE_OPERATION = OPERATIONS["delta"]
+    LEGACY_RULE_INPUTS = ("column_with_time", "new_column_with_time", "years", "months", "days", "hours", "minutes", "seconds", "microseconds", "milliseconds", "weeks",)
+    LEGACY_REQUIRED = ("column_with_time", "new_column_with_time",)
+
     TITLE = "Add TimeDelta To Dataframe"
     ICON_KEY = "add-timedelta-to-dataframe"
     EMOJI = "⏳"
@@ -21,14 +27,14 @@ class AddTimeDeltaToDataFrame(DFOutputBaseNode):
             "timezone cases."
         ),
     )
-    column_with_time: IO.COLUMN_NAME = InputField(
+    column_with_time: Optional[IO.COLUMN_NAME] = InputField(
         agent_description=(
             "Choose an existing datetime/timedelta-typed column; strings must be converted first. "
             "Although validation accepts timedelta, verify the chosen calendar offset is supported "
             "by the actual values."
         ),
     )
-    new_column_with_time: str = InputField(
+    new_column_with_time: str | None = InputField(
         agent_description=(
             "Choose the result field name. An existing name is overwritten; use a new name when "
             "the original timestamp must be preserved."
@@ -104,19 +110,23 @@ class AddTimeDeltaToDataFrame(DFOutputBaseNode):
     @on_validation
     def validation_column_existing(self):
         """Проверяет, входит ли колонка в DataFrame """
+        if self.column_rules is not None:
+            return
         if not (self.column_with_time in self.df.columns):
             raise NodeValidationError(f'{self.column_with_time} not in {self.df.columns}')
 
     @on_validation
     def validation_column_type(self):
         """Проверяет, является ли Column временным полем (datetime, timedelta)"""
+        if self.column_rules is not None:
+            return
         if not (
                 pd.api.types.is_datetime64_any_dtype(self.df[self.column_with_time]) or
                 pd.api.types.is_timedelta64_dtype(self.df[self.column_with_time])):
             raise NodeValidationError(f"Input column {self.column_with_time} is not a datetime64 or timedelta64 dtype")
 
 
-    def process(self):
+    def process_legacy(self):
         # Создаем объект смещения Pandas
         # Он корректно обработает календарную логику (високосные года, разную длину месяцев)
         offset = pd.DateOffset(

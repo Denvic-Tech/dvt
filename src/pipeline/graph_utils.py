@@ -293,6 +293,9 @@ def build_node_kwargs(
     """
     Подготавливает входные данные для узла, используя информацию о выходах других узлов.
     """
+    input_selector = getattr(node_class, "runtime_inputs", None)
+    if input_selector is not None:
+        node_data = node_data.model_copy(update={"inputs": input_selector(node_data.inputs)})
     node_kwargs: dict[str, Any] = {}
     deferred_sql_templates: list[tuple[str, NodeInputExpressionValue, Any]] = []
     allow_unresolved = execution_mode == PipelineExecutionMode.METADATA_ONLY
@@ -352,6 +355,17 @@ def build_node_kwargs(
                         )
 
                     node_kwargs[attr_name] = variables
+                elif allow_multi and contains_exact_io(input_def.type, IO.COLUMN):
+                    columns = []
+                    for lv in link_values:
+                        output = node_outputs.get(lv.node_id, {}).get(lv.output_name)
+                        if output is None:
+                            raise NodeInputError(
+                                f"Node {node_id}: Missing Series output '{lv.output_name}' "
+                                f"from '{lv.node_id}'."
+                            )
+                        columns.append(output.value)
+                    node_kwargs[attr_name] = columns[0] if len(columns) == 1 else columns
                 elif allow_multi and is_signal:
                     for lv in link_values:
                         source_node_id = lv.node_id
