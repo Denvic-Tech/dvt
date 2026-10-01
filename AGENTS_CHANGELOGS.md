@@ -3659,3 +3659,14 @@
 
 ### 2026-09-30 17:20:03
 - Добавлены use case и стабильная нода CommitKafkaOffsets: явное монотонное подтверждение Kafka offsets, проверка JSON/кластера/границ, безопасная обработка ошибок и отмены, документация RU/EN. Исправлено преобразование JSON-результатов штатных выражений в обычные dict/list. Проверены сигналы, кеш, unresolved-входы, перенос JSON между процессами и полный Read → фильтрация → запись PostgreSQL → Commit на KafkaContainer KRaft; открытие MCP оставлено задаче 4.
+
+### 2026-09-30 19:23:28
+- Стабилизирован Kafka Connection и открыты Kafka-ноды и подключения в MCP с сохранением ACL; CA PEM скрыт в публичном каталоге. Добавлен безопасный preview binary/nested без изменения DataFrame, обновлены README RU/EN и проверки MCP, preview и KafkaContainer. Подготовлена матрица итоговой приёмки с ограничениями живого MCP/UI и локальной поставки db-connections.
+
+### 2026-09-30 20:03:16
+- Проведено ревью этапа 4 Kafka V1: проверены backend/UI и KafkaContainer, подготовлены отчёт tmp/kafka_nodes/reports/04_review.md и задача tmp/kafka_nodes/tasks/04_review_fixes.md на закрытие поставки зависимости и живой приёмки MCP/UI.
+
+### 2026-09-30 22:34:16
+- Добавлен явный source input db-connections в штатную Docker-сборку; описана воспроизводимая поставка Kafka V1 и согласование Orchestrator.
+- Исправлена видимость Kafka connection_id, добавлена регрессия и обновлены RU/EN README.
+- Выполнены живые MCP и браузерные проверки сервисного pipeline, SQL/offsets, redaction и Arrow preview; обновлены отчёты этапа 4.

@@ -96,6 +96,15 @@ Set offsets to the standard single expression `kafka_offsets`.
 For two mandatory writers, connect both success signals.
 Replaying the saved example at position 201 returns unchanged, with zero partitions advanced.
 
+In an MCP graph patch the normal offsets input is
+`{"kind":"expression","value":"kafka_offsets","expression_kind":"single"}`.
+For an independent commit use `{"kind":"constant","value":{...}}` with the saved envelope
+shown above. It is ordinary JSON and can be transferred to another process/project; the source
+consumer and original Read node need not exist. Access to the selected connection is still required.
+The stable catalog exposes this node through the existing search/definition/graph/task tools.
+Security profiles and custom CA requirements are the same as
+[Kafka Connection](../../connection/get_exist_kafka_connection/README.md).
+
 ## Common errors
 
 - Unresolved offsets: fully compute the original batch and finish each required destination.

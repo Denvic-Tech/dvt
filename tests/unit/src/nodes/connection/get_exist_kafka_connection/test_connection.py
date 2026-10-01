@@ -20,6 +20,7 @@ async def test_resolves_record_without_producer(monkeypatch, connection_id):
     result = await instance._get_connection_from_db()
     assert result.record is record
     service.get.assert_awaited_once_with(str(connection_id), actor=user)
+    assert not module.GetExistKafkaConnection.input_fields()["connection_id"].is_hidden
     assert (
         module.GetExistKafkaConnection.input_fields()["connection_id"].resolved_type
         == IO.KAFKA_CONNECTION_ID

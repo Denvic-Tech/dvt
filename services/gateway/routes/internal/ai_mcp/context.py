@@ -21,9 +21,7 @@ from .auth import MCPPrincipal
 from .errors import AIMCPHTTPError
 from .pagination import decode_cursor, encode_cursor
 
-EXCLUDED_AI_MCP_NODES = frozenset({
-    "GetExistKafkaConnection", "ReadQueueTopic", "ReadKafkaMessages", "CommitKafkaOffsets",
-})
+EXCLUDED_AI_MCP_NODES = frozenset({"ReadQueueTopic"})
 
 
 async def list_projects(

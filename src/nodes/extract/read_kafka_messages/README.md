@@ -7,7 +7,7 @@ Node type: `ReadKafkaMessages`.
 Read one finite Kafka topic snapshot as a lazy DataFrame. Use this node for scheduled batches
 with explicitly acknowledged offsets. It never commits, subscribes to a consumer group, creates
 topics, or waits for future messages. Use an existing Kafka Connection output.
-Kafka nodes remain excluded from the MCP catalog until their separate catalog rollout.
+Available as a stable node in UI and the ordinary MCP node catalog.
 
 ## Inputs and configuration
 
@@ -122,6 +122,20 @@ For a precise replay starting at position 100 of partition 0:
 
 Offsets 100..149 would produce next_offset=150 if all 50 messages exist and fit the byte limit.
 With gaps, message_count and next_offset-start_offset can differ.
+
+## Preview and connection security
+
+The metadata viewer shows BINARY/LIST/STRUCT and the recursive Arrow schema, even for an empty
+result. Cached-data preview represents each binary value as `<binary: N bytes>`, including values
+inside headers; it does not decode or expose those bytes. Lists, structs, order, repeated header
+names and null remain visible. This is a presentation summary, not a reversible export format;
+the execution DataFrame keeps its original Arrow types and bytes. Store a downstream result
+to inspect it: Read's own execution snapshot is disabled. Preview never acknowledges offsets.
+
+Use the saved connection's PLAINTEXT/SSL/SASL_PLAINTEXT/SASL_SSL settings. PLAIN and
+SCRAM-SHA-256/512 are supported, with optional custom CA PEM and certificate/hostname checking.
+See [Kafka Connection](../../connection/get_exist_kafka_connection/README.md) for runtime
+dependency and security limitations.
 
 ## Common errors
 

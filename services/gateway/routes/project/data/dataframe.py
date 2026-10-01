@@ -2,7 +2,6 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from urllib.parse import quote
 
-import orjson
 import pandas as pd
 from fastapi import APIRouter, Depends
 from fastapi.params import Query
@@ -22,6 +21,8 @@ from src.modules.pipeline_cache import ObjectStore, PipelineCacheFacade
 from src.modules.pipeline_cache.domain.dataframe_cache import DataFramePartitionDescriptor
 from src.modules.user.infra.fastapi.dependencies import UserAccessOnly
 from src.utils.access_control import get_access_scope
+
+from .preview import dataframe_preview_values
 
 r = router = APIRouter()
 
@@ -51,8 +52,7 @@ async def dataframe_data(
         raise project_exc.DataFrameNotFound(status_code=404, detail=detail) from exc
 
     df_metadata = get_df_metadata(result.dataframe)
-    part_data = result.dataframe.to_json(orient="split", date_format="iso", default_handler=str)
-    df_values = orjson.loads(part_data).get("data", [])
+    df_values = dataframe_preview_values(result.dataframe)
 
     return DataFrameData(
         columns=df_metadata.columns,

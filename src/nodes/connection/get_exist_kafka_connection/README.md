@@ -4,13 +4,14 @@ Node type: `GetExistKafkaConnection`.
 
 ## Purpose and selection
 
-Loads an existing Kafka connection available to the executing user. This node remains experimental
-and excluded from the MCP catalog until the Kafka read/commit nodes are ready.
+Loads an existing Kafka connection available to the executing user. This stable node is available
+in UI and MCP alongside Read Kafka Messages and Commit Kafka Offsets.
 
 ## Inputs and configuration
 
 `connection_id` is the catalog identifier (`IO.KAFKA_CONNECTION_ID`). Use a saved Kafka
 connection, not a topic name. Legacy numeric identifiers are converted to strings for lookup.
+The UI selector offers accessible Kafka connections and saves their catalog ID.
 Credentials belong in the connection catalog, never in graph variables.
 
 ## Outputs
@@ -37,6 +38,12 @@ Prerequisite: an accessible Kafka connection with catalog ID `kafka-orders`.
 
 Connect the `connection` output to the `connection` input of a compatible Kafka consumer.
 The expected output is the saved record, with no producer or offset side effects.
+
+In MCP, call list_connections/get_connection, then set this node's connection_id to
+`{"kind":"connection_ref","connection_id":"kafka-orders"}` in a graph patch.
+Wire its connection output to Read/Commit connection inputs; those object ports do not accept
+an ID string. User, organization and token scopes still apply. Passwords and CA PEM are not
+returned by the public connection catalog. Topic payload is not a catalog property.
 
 ## Common errors
 

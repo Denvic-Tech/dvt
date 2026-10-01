@@ -28,6 +28,7 @@ _SECRET_FIELD_PARTS = (
     "uri",
     "dsn",
     "ca_cert",
+    "ssl_ca_pem",
 )
 
 
@@ -78,7 +79,7 @@ def connection_public_payload(connection) -> dict[str, Any]:
 
 
 def is_excluded_connection(connection) -> bool:
-    return str(connection.kind).lower() == "queue" or str(connection.type).lower() == "kafka"
+    return str(connection.kind).lower() == "queue" and str(connection.type).lower() != "kafka"
 
 
 def _project_filters(principal: MCPPrincipal) -> list:

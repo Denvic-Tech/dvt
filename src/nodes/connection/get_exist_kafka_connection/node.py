@@ -23,18 +23,18 @@ class GetExistKafkaConnection(KafkaConnectionOutputBaseNode):
     ICON_KEY = "kafka-connection"
     CATEGORY = "Connections"
     CACHABLE = False
-    EXPERIMENTAL = True
+    EXPERIMENTAL = False
+    DESCRIPTION = "Load an accessible saved Kafka connection for explicit batch reading and commit."
 
 
     # --- Inputs ---
     connection_id: IO.KAFKA_CONNECTION_ID = InputField(
         agent_description=(
-            "Experimental connection node, currently outside the MCP-exposed Kafka catalog. Use "
+            "Use "
             "the catalog ID (a string) of an existing Kafka connection accessible to the executing user; do "
             "not use a topic ID or another connection type. Resolve the saved connection from "
             "available catalog information rather than inventing credentials or identifiers."
         ),
-        is_hidden=True,
     )
 
     # --- Outputs ---
