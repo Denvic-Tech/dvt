@@ -5,16 +5,31 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 import sqlalchemy as sa
 
 from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.extension_management.infra.state_manager import ExtensionStateManager
 
 
-def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -> None:
+@pytest.fixture
+def state_db_engine(tmp_path):
+    # Parallel sessions need separate connections to the same database.
+    engine = sa.create_engine(
+        sa.URL.create("sqlite+pysqlite", database=str(tmp_path / "extension-state.sqlite")),
+        poolclass=sa.pool.NullPool,
+    )
+    try:
+        ExtensionRecord.__table__.create(engine)
+        yield engine
+    finally:
+        engine.dispose()
+
+
+def test_update_state_serializes_parallel_updates(monkeypatch, state_db_engine) -> None:
     extension_name = f"extension-state-{uuid.uuid4()}"
 
-    with test_db_engine.begin() as conn:
+    with state_db_engine.begin() as conn:
         conn.execute(
             sa.insert(ExtensionRecord).values(
                 name=extension_name,
@@ -29,7 +44,7 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
 
     monkeypatch.setattr(
         "src.modules.extension_management.infra.state_manager.engine",
-        test_db_engine,
+        state_db_engine,
     )
 
     barrier = threading.Barrier(2)
@@ -54,7 +69,7 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
         first.result(timeout=10)
         second.result(timeout=10)
 
-    with test_db_engine.connect() as conn:
+    with state_db_engine.connect() as conn:
         state_json = conn.execute(
             sa.select(ExtensionRecord.state_json).where(ExtensionRecord.name == extension_name)
         ).scalar_one()
