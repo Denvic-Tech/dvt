@@ -3,11 +3,12 @@ from db_connection import AccessDeniedError, ConnectionNotFoundError
 
 from src.db import async_engine
 from src.logger import logger
-from src.modules.db_connection import build_resolve_connection_client_use_case
+from src.modules.db_connection import build_connection_service
 from src.modules.user import User, build_get_user_by_id_use_case
 from src.modules.user.flow.exceptions import UserNotFoundError
 from src.modules.user.infra.repositories import SQLAlchemyUserRepository
 from src.node_dsl import (
+    IO,
     InputField,
     KafkaConnectionOutputBaseNode,
     KafkaConnectionRecord,
@@ -22,18 +23,18 @@ class GetExistKafkaConnection(KafkaConnectionOutputBaseNode):
     ICON_KEY = "kafka-connection"
     CATEGORY = "Connections"
     CACHABLE = False
-    EXPERIMENTAL = True
+    EXPERIMENTAL = False
+    DESCRIPTION = "Load an accessible saved Kafka connection for explicit batch reading and commit."
 
 
     # --- Inputs ---
-    connection_id: int = InputField(
+    connection_id: IO.KAFKA_CONNECTION_ID = InputField(
         agent_description=(
-            "Experimental connection node, currently outside the MCP-exposed Kafka catalog. Use "
-            "the integer ID of an existing Kafka connection accessible to the executing user; do "
+            "Use "
+            "the catalog ID (a string) of an existing Kafka connection accessible to the executing user; do "
             "not use a topic ID or another connection type. Resolve the saved connection from "
             "available catalog information rather than inventing credentials or identifiers."
         ),
-        is_hidden=True,
     )
 
     # --- Outputs ---
@@ -55,12 +56,12 @@ class GetExistKafkaConnection(KafkaConnectionOutputBaseNode):
                     f"No DB connection found with ID {self.connection_id} for user {self._user_id}"
                 )
 
-            use_case = build_resolve_connection_client_use_case(
+            use_case = build_connection_service(
                 engine=async_engine,
                 fernet_key=config.SECURITY.FERNET_KEY,
                 user_repository_factory=SQLAlchemyUserRepository
             )
-            resolved = await use_case.execute(connection_id=self.connection_id, actor=user)
+            record = await use_case.get(str(self.connection_id), actor=user)
         except (UserNotFoundError, AccessDeniedError, ConnectionNotFoundError):
             logger.error(
                 f"No DB connection found with ID {self.connection_id} for user {self._user_id}"
@@ -69,8 +70,8 @@ class GetExistKafkaConnection(KafkaConnectionOutputBaseNode):
                 f"No DB connection found with ID {self.connection_id} for user {self._user_id}"
             ) from None
 
-        if resolved.connection.type in {"kafka"}:
-            return KafkaConnectionRecord(resolved.connection)
+        if str(record.type).lower() == "kafka":
+            return KafkaConnectionRecord(record)
 
         logger.error(f"Connection with ID {self.connection_id} is not a Kafka connection.")
         raise TypeError(f"Connection with ID {self.connection_id} is not a Kafka connection.")

@@ -1,7 +1,19 @@
 import pandas as pd
+import pyarrow as pa
 
 from core.metadata.df_metadata import get_df_metadata
 from core.types import DataType
+
+
+def test_get_df_metadata_preserves_legacy_arrow_dictionary():
+    dtype = pd.ArrowDtype(pa.dictionary(pa.int32(), pa.string()))
+    df = pd.DataFrame({"category": pd.Series(["a", "b"], dtype=dtype)})
+
+    metadata = get_df_metadata(df)
+
+    column = metadata.columns[0]
+    assert column.dtype_metadata.repr == str(dtype)
+    assert column.dtype_metadata.arrow_type is None
 
 
 def test_get_df_metadata_includes_named_index():

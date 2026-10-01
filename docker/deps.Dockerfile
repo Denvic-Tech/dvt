@@ -26,7 +26,7 @@ RUN mkdir -p /wheelhouse
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-py3.13 set -eux; \
     for f in /app/requirements.*.txt; do \
         echo ">>> Downloading wheels/sdists for $f"; \
-        python -m pip download -r "$f" -d /wheelhouse; \
+        python -m pip download --find-links=/wheelhouse -r "$f" -d /wheelhouse; \
     done
 
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-py3.13 set -eux; \

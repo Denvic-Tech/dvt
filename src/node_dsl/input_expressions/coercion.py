@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
+from src.node_dsl.node_typing import IO
 from src.node_dsl.variables.helpers import is_unresolved_value, make_unresolved_value
 from src.node_dsl.variables.type_system import (
     coerce_list_variable_value,
     coerce_scalar_variable_value,
     normalize_variable_scalar_target,
 )
+
+
+def _copy_json_containers(value: Any) -> Any:
+    # Expression variables stay immutable in the sandbox. Node inputs need plain
+    # JSON containers for hashing, transport validation and serialization.
+    if isinstance(value, Mapping):
+        return {key: _copy_json_containers(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_copy_json_containers(item) for item in value]
+    return value
 
 
 def normalize_target_type(target_type: Any):
@@ -40,6 +52,8 @@ def coerce_expression_result(
         raise ValueError(f"Expression result for {normalized_target_type} input cannot be null.")
 
     try:
+        if normalized_target_type == IO.JSON:
+            value = _copy_json_containers(value)
         if is_list_type:
             return coerce_list_variable_value(
                 value,

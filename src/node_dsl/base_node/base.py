@@ -8,6 +8,7 @@ from src import enums, utils
 from src.logger import logger
 from src.pipeline.execution_mode import PipelineExecutionMode
 
+from ..cancellation import CancellationToken
 from ..exceptions import NodeValidationError
 from ..field import InputField, OutputField
 from ..node_meta import BaseNodeMeta
@@ -88,6 +89,8 @@ class BaseNode(
     DISABLED: ClassVar[bool] = False
     ADDITIONAL_SCHEMA: ClassVar[dict | None] = None
     CACHABLE: ClassVar[bool] = True
+    # A live source forbids snapshot replay of itself and its dependent execution path.
+    REQUIRES_FRESH_EXECUTION: ClassVar[bool] = False
     TTL_CACHE: ClassVar[int | None] = False
     EXTENSION_NAME: ClassVar[str | None] = None
     EXTENSION_VERSION: ClassVar[str | None] = None
@@ -185,8 +188,14 @@ class BaseNode(
             execution_settings=execution_settings,
         )
 
+        self._cancellation = CancellationToken()
         self._set_kwargs(**input_kwargs)
         self._normalize_variable_ports()
+
+    @property
+    def cancellation(self) -> CancellationToken:
+        """Cooperative STOP signal, including for local delayed computations."""
+        return self._cancellation
 
     def _set_kwargs(self, **input_kwargs):
         input_field_names = {field.attr_name for field in self._input_field_instances.values()}
@@ -216,7 +225,7 @@ class BaseNode(
 
             **input_kwargs
     ):
-        return cls(
+        node = cls(
             node_id=node_id,
             user_id=pipeline_processor.task.user_id,
             project_id=pipeline_processor.task.project_id,
@@ -225,6 +234,7 @@ class BaseNode(
             on_process_start=on_process_start,
             on_process_success=on_process_success,
             on_progress_step=on_progress_step,
+            on_node_metadata=pipeline_processor.refresh_node_metadata,
 
             data_store=pipeline_processor.data_store,
             data_index_store=pipeline_processor.data_index_store,
@@ -242,6 +252,10 @@ class BaseNode(
 
             **input_kwargs
         )
+        stop_event = getattr(pipeline_processor, "stop_event", None)
+        if stop_event is not None:
+            node._cancellation = CancellationToken(stop_event.is_set)
+        return node
 
     @abstractmethod
     def process(self) -> None:

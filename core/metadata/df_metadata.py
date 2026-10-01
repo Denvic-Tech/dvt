@@ -1,22 +1,20 @@
 from collections.abc import Hashable
 from functools import lru_cache
-from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 from pandas.api.types import (
-    is_extension_array_dtype,
     is_datetime64_any_dtype,
-    is_timedelta64_dtype,
+    is_extension_array_dtype,
     is_float_dtype,
+    is_timedelta64_dtype,
 )
-from core.types import DataFrameLike
-from core.types import DataFrameMetadata
-from core.types import Column
+
+from core.types import Column, DataFrameLike, DataFrameMetadata, DataType
+from core.types.arrow_type import arrow_type_to_metadata
 from core.types.column import DTypeMetadata
-from core.types import DataType
-from core.utils import get_meta_df, iter_index_levels, is_internal_dvt_name
+from core.utils import get_meta_df, is_internal_dvt_name, iter_index_levels
 
 
 def _detect_dtype_origin(dtype: Any) -> Literal["numpy", "pandas", "python"]:
@@ -66,7 +64,17 @@ def _build_dtype_metadata(dtype: Any) -> DTypeMetadata:
         categories_count = len(categories)
         categories_dtype = _stringify_attr(getattr(categories, "dtype", None))
 
+    arrow_type = None
+    if isinstance(dtype, pd.ArrowDtype):
+        try:
+            arrow_type = arrow_type_to_metadata(dtype.pyarrow_dtype)
+        except (ValueError, NotImplementedError):
+            # Legacy Arrow types outside this transport (e.g. dictionary) retain
+            # their existing descriptive metadata; do not change their handling.
+            pass
+
     return DTypeMetadata(
+        arrow_type=arrow_type,
         name=getattr(dtype, "name", None) or str(dtype),
         class_name=dtype.__class__.__name__,
         origin=_detect_dtype_origin(dtype),
@@ -125,9 +133,9 @@ def get_df_metadata(df: DataFrameLike) -> DataFrameMetadata:
 
     meta_df = get_meta_df(df)
 
-    columns_types_map: Dict[str, Any] = meta_df.dtypes.to_dict()
-    columns: List[Column] = []
-    columns_name_to_idx: Dict[str, int] = {}
+    columns_types_map: dict[str, Any] = meta_df.dtypes.to_dict()
+    columns: list[Column] = []
+    columns_name_to_idx: dict[str, int] = {}
     for column_name, dtype in columns_types_map.items():
         if is_internal_dvt_name(column_name):
             continue
