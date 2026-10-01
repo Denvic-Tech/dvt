@@ -3670,3 +3670,6 @@
 - Добавлен явный source input db-connections в штатную Docker-сборку; описана воспроизводимая поставка Kafka V1 и согласование Orchestrator.
 - Исправлена видимость Kafka connection_id, добавлена регрессия и обновлены RU/EN README.
 - Выполнены живые MCP и браузерные проверки сервисного pipeline, SQL/offsets, redaction и Arrow preview; обновлены отчёты этапа 4.
+
+### 2026-10-01 13:06:35
+- Исправлены unit-тесты: в заглушку PipelineProcessor добавлен refresh_node_metadata; тест параллельного обновления состояния расширения переведён на отдельную файловую SQLite с независимыми соединениями вместо общего StaticPool.

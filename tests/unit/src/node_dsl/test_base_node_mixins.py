@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from src.node_dsl import (
     IO,
@@ -108,6 +109,7 @@ def test_base_node_from_pipeline_processor_passes_execution_settings() -> None:
         data_index_store=None,
         metadata_store=None,
         metadata_index_store=None,
+        refresh_node_metadata=AsyncMock(),
         execution_settings=execution_settings,
     )
 
