@@ -73,6 +73,14 @@ def replace_pairs(series, pairs):
     return series.map_partitions(replace, meta=(series.name, output_dtype))
 
 
+def _set_timezone_partition(partition, timezone: str, compatibility: bool):
+    if partition.dt.tz is None:
+        result = partition.dt.tz_localize(timezone, ambiguous="NaT", nonexistent="NaT")
+    else:
+        result = partition.dt.tz_convert(timezone)
+    return result if compatibility else result.astype(f"datetime64[ns, {timezone}]")
+
+
 def period_start(series, period, *, compatibility=False):
     if column_kind(series.dtype) != "datetime":
         series = dd.to_datetime(series, errors="coerce")
@@ -119,17 +127,11 @@ def transform_column(df, item: PlannedColumn, operation: str) -> dict:
         if column_kind(series.dtype) != "datetime":
             series = dd.to_datetime(series, errors="coerce")
 
-        def set_timezone(partition):
-            if partition.dt.tz is None:
-                result = partition.dt.tz_localize(
-                    params.timezone, ambiguous="NaT", nonexistent="NaT"
-                )
-            else:
-                result = partition.dt.tz_convert(params.timezone)
-            return result if legacy else result.astype(f"datetime64[ns, {params.timezone}]")
-
         result = series.map_partitions(
-            set_timezone, meta=(source, f"datetime64[ns, {params.timezone}]")
+            _set_timezone_partition,
+            params.timezone,
+            legacy,
+            meta=(source, f"datetime64[ns, {params.timezone}]"),
         )
     elif operation == "period":
         result = period_start(series, params.period, compatibility=legacy)
