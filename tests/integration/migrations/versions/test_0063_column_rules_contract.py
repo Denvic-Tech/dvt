@@ -1,10 +1,12 @@
 import importlib
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.engine import make_url
 
 from src.schemas.internal.node_data import NodeData
 
@@ -13,7 +15,21 @@ migration = importlib.import_module("migrations.versions.0063_column_rules_contr
 
 @pytest.mark.docker_required
 def test_postgresql_transaction_retry_roundtrip_and_runtime_payload(postgres_container):
-    engine = sa.create_engine(postgres_container.get_connection_url())
+    base_url = make_url(postgres_container.get_connection_url())
+    admin_db_name = base_url.database
+    assert admin_db_name
+    test_db_name = f"migration_0063_{uuid4().hex[:8]}"
+    admin_url = base_url.set(database=admin_db_name)
+    admin_engine = sa.create_engine(
+        admin_url.render_as_string(hide_password=False),
+        isolation_level="AUTOCOMMIT",
+    )
+    with admin_engine.connect() as connection:
+        connection.execute(sa.text(f'CREATE DATABASE "{test_db_name}"'))
+
+    engine = sa.create_engine(
+        base_url.set(database=test_db_name).render_as_string(hide_password=False)
+    )
     metadata = sa.MetaData()
     nodes = sa.Table(
         "graph_nodes",
@@ -91,3 +107,17 @@ def test_postgresql_transaction_retry_roundtrip_and_runtime_payload(postgres_con
     finally:
         metadata.drop_all(engine)
         engine.dispose()
+        with admin_engine.connect() as connection:
+            connection.execute(
+                sa.text(
+                    """
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = :db_name
+                      AND pid <> pg_backend_pid()
+                    """
+                ),
+                {"db_name": test_db_name},
+            )
+            connection.execute(sa.text(f'DROP DATABASE IF EXISTS "{test_db_name}"'))
+        admin_engine.dispose()
