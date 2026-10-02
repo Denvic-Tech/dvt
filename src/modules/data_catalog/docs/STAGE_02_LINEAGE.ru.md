@@ -1,6 +1,6 @@
 # Этап 2. Происхождение и наследование в сложном графе
 
-Зависит от завершённого [этапа 1](STAGE_01_MVP_UI.ru.md). Цель — расширить достоверное наследование и объяснить конфликтующие/неопределённые случаи, сохраняя простой Save.
+Зависит от завершённого [этапа 1](STAGE_01_MVP_IO.ru.md). Цель — расширить достоверное наследование и объяснить конфликтующие/неопределённые случаи, сохраняя простой Save.
 
 ## Работы
 
@@ -20,7 +20,21 @@
 
 ## API
 
-GET dataframes/{id}/lineage, schemaChanges; расширить DTO provenance/conflicts и preview. Добавить версионированную декларацию lineage к существующему контракту конфигурации графа либо узкий специальный ресурс после проверки владельца графа. Не вводить второй независимый API записи рёбер. Read-only column lineage export отложен до этапа 4.
+GET dataframes/{id}/lineage, schemaChanges; расширить DTO provenance/conflicts и preview. Добавить версионированную декларацию lineage к существующему контракту конфигурации графа либо узкий специальный ресурс после проверки владельца графа. Не вводить второй независимый API записи рёбер. Внешний export вне ТЗ; native snapshot сохраняет подтверждённые связи.
+
+## Execute Python: публичные методы меты
+
+В этом этапе обеспечить чтение и модификацию меты из Execute Python, без src/core imports и без ручных HTTP calls. В execution context добавить versioned facade; API имена ниже — проект контракта, уточнить до реализации:
+
+- read_input(port) / read_output(port): immutable typed schema, stream/field annotations, provenance и snapshot version.
+- patch_output(port, field_id, changes): SET/CLEAR/UNSET metadata delta выходного поля; patch_stream_output для описания потока.
+- declare_output(port, schema, lineage): явная карта rename/passthrough/derived для dataframe результата. Проверить наблюдаемую структуру, не считать её изменённой одной записью metadata.
+
+Input snapshot не мутируется. Output patch относится к текущей ноде/порту/запуску и наследуется только в downstream этого запуска до следующего изменения. Не сохранять каждый run как пользовательский design override; общий glossary/domain и мета чужих проектов не меняются. Термин/домен связывается с доступным существующим ID, создание/общая правка остаются авторизованными native operations.
+
+Snapshot runtime фиксирует code/graph/schema revisions. Черновая мета Python публикуется с успешным выходом ноды; error/cancel не выдаётся за успешную модификацию. Кеш/restored output несёт тот же snapshot reference. Само по себе изменение dataframe.attrs не является контрактом; нельзя потерять provenance при разветвлении. Limits/types/field existence и revisions валидируются.
+
+Приёмка: Python читает description из источника, меняет его для выхода, объявляет rename/новое поле, downstream видит изменение, input/соседняя ветвь остаются прежними. Error/cancel, unknown mapping, неверный ID/тип и cache restore проверены. Технику описать в документации Execute Python на русском и английском; stage 3 стабилизирует общий SDK.
 
 ## Не входит
 

@@ -3,7 +3,7 @@
 "info":
   "title": "DVT Data Catalog — draft native API"
   "version": "0.1.0-draft"
-  "description": "Проект контракта, не реализованный API. Стиль OpenMetadata; наследование и транзакционный Save — расширения DVT. Совместимая /api/openmetadata/v1 проекция не включена и требует отдельной спецификации/проверки SDK."
+  "description": "Draft native DVT metadata API in familiar OpenMetadata resource style. Not an OpenMetadata server or SDK-compatible facade. External Avro/OpenMetadata/Iceberg adapters and push are out of scope."
 "servers":
   -
     "url": "/api/v1/catalog"
@@ -234,118 +234,6 @@
       "parameters":
         -
           "name": "fqn"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/Glossary"
-          "headers":
-            "ETag":
-              "schema":
-                "type": "string"
-              "description": "Непрозрачная версия ресурса"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/glossaries/{id}/versions":
-    "get":
-      "operationId": "listGlossaryVersions"
-      "summary": "История"
-      "tags":
-        - "glossaries"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "limit"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "integer"
-            "minimum": 1
-            "maximum": 100
-            "default": 25
-        -
-          "name": "before"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "after"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "fields"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/History"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/glossaries/{id}/versions/{revision}":
-    "get":
-      "operationId": "getGlossaryVersion"
-      "summary": "Историческая версия"
-      "tags":
-        - "glossaries"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "revision"
           "in": "path"
           "required": true
           "schema":
@@ -646,118 +534,6 @@
       "parameters":
         -
           "name": "fqn"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/GlossaryTerm"
-          "headers":
-            "ETag":
-              "schema":
-                "type": "string"
-              "description": "Непрозрачная версия ресурса"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/glossaryTerms/{id}/versions":
-    "get":
-      "operationId": "listGlossaryTermVersions"
-      "summary": "История"
-      "tags":
-        - "glossaryTerms"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "limit"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "integer"
-            "minimum": 1
-            "maximum": 100
-            "default": 25
-        -
-          "name": "before"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "after"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "fields"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/History"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/glossaryTerms/{id}/versions/{revision}":
-    "get":
-      "operationId": "getGlossaryTermVersion"
-      "summary": "Историческая версия"
-      "tags":
-        - "glossaryTerms"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "revision"
           "in": "path"
           "required": true
           "schema":
@@ -1147,118 +923,6 @@
           "$ref": "#/components/responses/Error422"
         "428":
           "$ref": "#/components/responses/Error428"
-  "/domains/{id}/versions":
-    "get":
-      "operationId": "listDomainVersions"
-      "summary": "История"
-      "tags":
-        - "domains"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "limit"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "integer"
-            "minimum": 1
-            "maximum": 100
-            "default": 25
-        -
-          "name": "before"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "after"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "fields"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/History"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/domains/{id}/versions/{revision}":
-    "get":
-      "operationId": "getDomainVersion"
-      "summary": "Историческая версия"
-      "tags":
-        - "domains"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "revision"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/Domain"
-          "headers":
-            "ETag":
-              "schema":
-                "type": "string"
-              "description": "Непрозрачная версия ресурса"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
   "/domains/{id}/usage":
     "get":
       "operationId": "getDomainUsage"
@@ -1577,118 +1241,6 @@
           "$ref": "#/components/responses/Error422"
         "428":
           "$ref": "#/components/responses/Error428"
-  "/classifications/{id}/versions":
-    "get":
-      "operationId": "listClassificationVersions"
-      "summary": "История"
-      "tags":
-        - "classifications"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "limit"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "integer"
-            "minimum": 1
-            "maximum": 100
-            "default": 25
-        -
-          "name": "before"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "after"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "fields"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/History"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/classifications/{id}/versions/{revision}":
-    "get":
-      "operationId": "getClassificationVersion"
-      "summary": "Историческая версия"
-      "tags":
-        - "classifications"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "revision"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/Classification"
-          "headers":
-            "ETag":
-              "schema":
-                "type": "string"
-              "description": "Непрозрачная версия ресурса"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
   "/tags":
     "get":
       "operationId": "listTags"
@@ -1957,118 +1509,6 @@
       "parameters":
         -
           "name": "fqn"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/Tag"
-          "headers":
-            "ETag":
-              "schema":
-                "type": "string"
-              "description": "Непрозрачная версия ресурса"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/tags/{id}/versions":
-    "get":
-      "operationId": "listTagVersions"
-      "summary": "История"
-      "tags":
-        - "tags"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "limit"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "integer"
-            "minimum": 1
-            "maximum": 100
-            "default": 25
-        -
-          "name": "before"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "after"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "fields"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/History"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-  "/tags/{id}/versions/{revision}":
-    "get":
-      "operationId": "getTagVersion"
-      "summary": "Историческая версия"
-      "tags":
-        - "tags"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "revision"
           "in": "path"
           "required": true
           "schema":
@@ -2934,112 +2374,6 @@
           "application/json":
             "schema":
               "$ref": "#/components/schemas/SchemaObservation"
-  "/dataframes/{id}/exports/avro":
-    "get":
-      "operationId": "exportAvro"
-      "summary": "Экспорт разрешённой меты как Avro"
-      "tags":
-        - "dataframes"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "snapshotId"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-      "responses":
-        "200":
-          "description": "Успешно"
-          "headers":
-            "ETag":
-              "schema":
-                "type": "string"
-              "description": "Непрозрачная версия ресурса"
-          "content":
-            "application/json":
-              "schema":
-                "type": "object"
-                "additionalProperties": true
-                "description": "Avro record. Проверяется Avro-парсером; dtype unknown/ambiguous вызывает 422."
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
-      "description": "Не регистрирует схему и не сериализует Kafka сообщения."
-  "/dataframes/{id}/exports/openmetadata":
-    "get":
-      "operationId": "exportOpenMetadata"
-      "summary": "Документы и отчёт о потерях"
-      "tags":
-        - "dataframes"
-      "parameters":
-        -
-          "name": "id"
-          "in": "path"
-          "required": true
-          "schema":
-            "type": "string"
-            "format": "uuid"
-        -
-          "name": "snapshotId"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "string"
-        -
-          "name": "allowLossy"
-          "in": "query"
-          "required": false
-          "schema":
-            "type": "boolean"
-            "default": false
-      "responses":
-        "200":
-          "description": "Успешно"
-          "content":
-            "application/json":
-              "schema":
-                "$ref": "#/components/schemas/OpenMetadataExport"
-          "headers":
-            "ETag":
-              "schema":
-                "type": "string"
-              "description": "Непрозрачная версия ресурса"
-        "400":
-          "$ref": "#/components/responses/Error400"
-        "401":
-          "$ref": "#/components/responses/Error401"
-        "403":
-          "$ref": "#/components/responses/Error403"
-        "404":
-          "$ref": "#/components/responses/Error404"
-        "409":
-          "$ref": "#/components/responses/Error409"
-        "412":
-          "$ref": "#/components/responses/Error412"
-        "422":
-          "$ref": "#/components/responses/Error422"
-        "428":
-          "$ref": "#/components/responses/Error428"
   "/metadataChanges/preview":
     "post":
       "operationId": "previewMetadataChange"
@@ -3121,6 +2455,48 @@
           "application/json":
             "schema":
               "$ref": "#/components/schemas/MetadataSave"
+  "/metadataCapabilities":
+    "get":
+      "operationId": "getMetadataCapabilities"
+      "summary": "Read/write capabilities for DB/Parquet/source connection"
+      "tags":
+        - "metadataCapabilities"
+      "parameters":
+        -
+          "name": "connectionId"
+          "in": "query"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/MetadataCapabilities"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
 "components":
   "securitySchemes":
     "bearerAuth":
@@ -3725,11 +3101,24 @@
             - "confirmed"
             - "inferred"
             - "unknown"
+        "canonicalType":
+          "$ref": "#/components/schemas/FieldType"
+        "required":
+          "anyOf":
+            -
+              "type": "boolean"
+            -
+              "type": "null"
+        "default":
+          "$ref": "#/components/schemas/DefaultValue"
       "required":
         - "id"
         - "occurrenceId"
         - "name"
         - "dataType"
+        - "canonicalType"
+        - "required"
+        - "default"
     "Dataframe":
       "type": "object"
       "additionalProperties": false
@@ -3770,6 +3159,24 @@
             - "declared"
         "snapshotId":
           "type": "string"
+        "schema":
+          "$ref": "#/components/schemas/SchemaTree"
+        "streamDescription":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
+        "sourceMetadata":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/SourceMetadata"
+        "metadataWriteReport":
+          "anyOf":
+            -
+              "$ref": "#/components/schemas/MetadataWriteReport"
+            -
+              "type": "null"
       "required":
         - "id"
         - "projectId"
@@ -3779,6 +3186,7 @@
         - "graphRevision"
         - "schemaRevision"
         - "annotationRevision"
+        - "schema"
     "DataframeList":
       "type": "object"
       "additionalProperties": false
@@ -4093,23 +3501,40 @@
                 "type": "string"
               "dataType":
                 "type": "string"
-              "nullable":
+              "canonicalType":
+                "$ref": "#/components/schemas/FieldType"
+              "required":
                 "anyOf":
                   -
                     "type": "boolean"
                   -
                     "type": "null"
-              "dtypeMetadata":
-                "type": "object"
-                "additionalProperties": true
+              "default":
+                "$ref": "#/components/schemas/DefaultValue"
+              "sourceLocalId":
+                "type": "string"
+              "sourceAnnotations":
+                "$ref": "#/components/schemas/Annotations"
             "required":
               - "name"
-              - "dataType"
+              - "canonicalType"
+              - "required"
+              - "default"
         "evidence":
           "enum":
             - "observed"
             - "declared"
             - "inferred"
+        "sourceMetadata":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/SourceMetadata"
+        "streamDescription":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
       "required":
         - "dataframeId"
         - "graphRevision"
@@ -4378,34 +3803,276 @@
         - "clientIdMap"
         - "catalogRevision"
         - "effectiveAnnotations"
-    "OpenMetadataExport":
+    "DefaultValue":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "present":
+              "const": false
+          "required":
+            - "present"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "present":
+              "const": true
+            "value":
+              {}
+          "required":
+            - "present"
+            - "value"
+    "FieldDefinition":
       "type": "object"
       "additionalProperties": false
       "properties":
-        "profile":
+        "id":
           "type": "string"
-        "entities":
-          "type": "array"
-          "items":
-            "type": "object"
-            "additionalProperties": true
-        "losses":
-          "type": "array"
-          "items":
-            "type": "object"
-            "additionalProperties": false
-            "properties":
-              "path":
-                "type": "string"
-              "reason":
-                "type": "string"
-            "required":
-              - "path"
-              - "reason"
+          "format": "uuid"
+        "name":
+          "type": "string"
+        "type":
+          "$ref": "#/components/schemas/FieldType"
+        "required":
+          "anyOf":
+            -
+              "type": "boolean"
+            -
+              "type": "null"
+        "default":
+          "$ref": "#/components/schemas/DefaultValue"
       "required":
-        - "profile"
-        - "entities"
-        - "losses"
+        - "id"
+        - "name"
+        - "type"
+        - "required"
+        - "default"
+    "FieldType":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "kind":
+              "const": "primitive"
+            "logicalType":
+              "enum":
+                - "boolean"
+                - "integer"
+                - "float"
+                - "decimal"
+                - "string"
+                - "binary"
+                - "fixed"
+                - "uuid"
+                - "date"
+                - "time"
+                - "timestamp"
+                - "unknown"
+            "bitWidth":
+              "type": "integer"
+              "enum":
+                - 8
+                - 16
+                - 32
+                - 64
+            "signed":
+              "type": "boolean"
+            "precision":
+              "type": "integer"
+              "minimum": 1
+            "scale":
+              "type": "integer"
+              "minimum": 0
+            "length":
+              "type": "integer"
+              "minimum": 1
+            "timeUnit":
+              "enum":
+                - "s"
+                - "ms"
+                - "us"
+                - "ns"
+            "timezoneSemantics":
+              "enum":
+                - "local"
+                - "utc"
+                - "unknown"
+            "sourceTimezone":
+              "anyOf":
+                -
+                  "type": "string"
+                -
+                  "type": "null"
+            "sourceDtype":
+              "type": "string"
+          "required":
+            - "kind"
+            - "logicalType"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "kind":
+              "const": "struct"
+            "fields":
+              "type": "array"
+              "items":
+                "$ref": "#/components/schemas/FieldDefinition"
+          "required":
+            - "kind"
+            - "fields"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "kind":
+              "const": "list"
+            "element":
+              "$ref": "#/components/schemas/FieldDefinition"
+          "required":
+            - "kind"
+            - "element"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "kind":
+              "const": "map"
+            "key":
+              "$ref": "#/components/schemas/FieldDefinition"
+            "value":
+              "$ref": "#/components/schemas/FieldDefinition"
+          "required":
+            - "kind"
+            - "key"
+            - "value"
+      "description": "Recursive precise type tree. For decimal precision/scale, integer bitWidth/signed, temporal unit/semantics and fixed length, validate appropriate parameters in domain. Unknown information is explicit; not inferred from pandas null support. Map keys must be required. IDs unique within schema tree."
+    "SchemaTree":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "revision":
+          "type": "string"
+        "fields":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/FieldDefinition"
+      "required":
+        - "revision"
+        - "fields"
+    "SourceMetadata":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "kind":
+          "enum":
+            - "database"
+            - "parquet"
+            - "bitrix24"
+            - "python"
+            - "extension"
+        "sourceLocator":
+          "type": "string"
+        "sourceRevision":
+          "type": "string"
+        "sourceLocalId":
+          "type": "string"
+        "profileVersion":
+          "type": "string"
+        "streamDescription":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
+        "fieldAnnotations":
+          "type": "object"
+          "additionalProperties":
+            "$ref": "#/components/schemas/Annotations"
+        "rawMetadata":
+          "type": "object"
+          "additionalProperties": true
+      "required":
+        - "kind"
+        - "sourceLocator"
+        - "profileVersion"
+      "description": "Limits/version checks required. Locator must not contain credentials. Foreign IDs scoped to producer, not directly mapped to local privileges/glossary."
+    "MetadataWriteReport":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "status":
+          "enum":
+            - "written"
+            - "partial"
+            - "unsupported"
+            - "failed"
+            - "not_requested"
+        "dataStatus":
+          "enum":
+            - "not_written"
+            - "written"
+            - "partial"
+            - "failed"
+            - "unknown"
+        "profileVersion":
+          "type": "string"
+        "unsupportedProperties":
+          "type": "array"
+          "items":
+            "type": "string"
+        "warnings":
+          "type": "array"
+          "items":
+            "type": "string"
+        "retryMetadataOnly":
+          "type": "boolean"
+      "required":
+        - "status"
+        - "dataStatus"
+        - "unsupportedProperties"
+        - "warnings"
+    "MetadataCapabilities":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "connectionId":
+          "type": "string"
+          "format": "uuid"
+        "readComments":
+          "type": "boolean"
+        "writeComments":
+          "type": "boolean"
+        "readEnvelope":
+          "type": "boolean"
+        "writeEnvelope":
+          "type": "boolean"
+        "supportedProfiles":
+          "type": "array"
+          "items":
+            "type": "string"
+        "maxPayloadBytes":
+          "anyOf":
+            -
+              "type": "integer"
+              "minimum": 0
+            -
+              "type": "null"
+        "limitations":
+          "type": "array"
+          "items":
+            "type": "string"
+      "required":
+        - "connectionId"
+        - "readComments"
+        - "writeComments"
+        - "readEnvelope"
+        - "writeEnvelope"
+        - "supportedProfiles"
+        - "limitations"
   "responses":
     "Error400":
       "description": "Ошибка: 400"

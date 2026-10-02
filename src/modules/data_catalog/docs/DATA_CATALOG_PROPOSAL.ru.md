@@ -2,9 +2,9 @@
 
 Статус: проект изменений, без реализации backend и UI. Основа: локальная ветка `dev`, commit `0bd249b`; предложение подготовлено в `codex/data-catalog-inheritance-proposal`. Целевой интерфейс — существующий редактор проекта, а не отдельный каталог вместо графа.
 
-REST API: [план методов и профиля OpenMetadata](DATA_CATALOG_REST_API.ru.md). Native API следует соглашениям OpenMetadata; branch inheritance и атомарный Save имеют явные расширения DVT. Совместимость внешних клиентов проверяется отдельно для закреплённого подмножества.
+REST API: [план методов и профиля OpenMetadata](REST_CONTRACT.ru.md). Native API следует соглашениям OpenMetadata; branch inheritance и атомарный Save имеют явные расширения DVT. Совместимость внешних клиентов проверяется отдельно для закреплённого подмножества.
 
-Порядок реализации и границы MVP определены в [плане четырёх этапов](IMPLEMENTATION_PLAN.ru.md). Настоящий документ описывает целевую модель, а не обязательный полный объём первого релиза.
+Порядок реализации и границы MVP определены в [плане трёх этапов](MAIN_PLAN.ru.md). Настоящий документ описывает целевую модель, а не обязательный полный объём первого релиза.
 
 ## Что уже есть
 
@@ -25,7 +25,9 @@ REST API: [план методов и профиля OpenMetadata](DATA_CATALOG_
 | BusinessTermRevision | Версия термина: название, синонимы, определение; общий справочник |
 | AnnotationPatch | Изменённые свойства поля в выбранной точке графа: термин, описание, домен, теги |
 | EffectiveAnnotation | Вычисленный результат и источник каждого свойства; не новый пользовательский документ |
-| RegistryBinding | Внешний registry, subject, schemaType, schema ID, subject version; независимо от ID поля |
+| SourceAnnotation | Scoped источник/версия/достоверность меты таблицы и поля |
+| SchemaTree | Primitive/struct/list/map, вложенные IDs, точные параметры, required, явное присутствие default |
+| MetadataWriteReport | Результат переноса аннотаций в DB/Parquet, capabilities и ограничения |
 
 Домен — принадлежность/область ответственности, тег — классификационная метка, термин — бизнес-смысл. Синонимы принадлежат термину; технические aliases схемы решают другую задачу. В первой версии разрешить один домен и один основной термин на поле, несколько тегов. При расширении возможны дополнительные связи терминов.
 
@@ -104,61 +106,19 @@ HTML-макеты `dvt-catalog-view.html` и `dvt-catalog-modal.html` показ
 
 Предыдущий HTML-эскиз с формой в слайдере следует считать устаревшим в части редактирования. Требование этой версии: карточка только для чтения и отдельная модальная форма.
 
-## Профиль Schema Registry
+## Обязательная типизированная схема и источники
 
-Согласованный ориентир: формат Confluent Schema Registry + Avro. Требование пользователя — похожесть представления и лёгкий будущий перенос меты, а не управление версиями внешнего registry. В первой очереди нужен переносимый документ, без подключения к registry и без его compatibility checks. Локальные версии и снимки нужны для воспроизводимости наследования DVT независимо от этого требования.
+С этапа 1 обязательны независимые field IDs, дерево primitive/struct/list/map с вложенными IDs, точные type parameters, required/optional/unknown отдельно от pandas dtype, default absent/null, структура отдельно от annotations и versioned resolved snapshot. Legacy dtype сохраняется как source evidence; не заменяет дерево. Table/stream description хранится отдельно от field description.
 
-Структура экспортируется как Avro record с явно заданными name/namespace. Типы конвертируются через отдельную таблицу соответствий с логическими типами; неоднозначный OBJECT, timezone, unsigned и вложенные типы требуют явного решения. Нельзя молча преобразовывать неизвестное в string. `nullable=None` означает неизвестность, а не nullable=true. Default необходимо расширить состоянием «не задан»: текущий `default=None` не отличает отсутствие от явного null. Сохранить старую семантику для существующих потребителей через версионированный транспорт/экспорт, прежде чем менять domain default.
+Мета читается из комментариев БД, Parquet schema/footer/поддержанных conventions и source producer Битрикс24. Чтение comment не создаёт термин автоматически; source description ниже user override. При записи metadata writers переносят table/field descriptions и versioned DVT envelope в DB comments/Parquet metadata в поддержанном профиле. Точные требования, ограничения драйверов и roundtrip приёмка: [этап 1](STAGE_01_MVP_IO.ru.md).
 
-| DVT | Экспорт |
-|---|---|
-| Техническое имя и тип | Avro field name/type |
-| Итоговое описание | Avro doc |
-| Технические переименования | Avro aliases при подтверждённой истории |
-| Синонимы термина | Расширение dvt.*, не Avro aliases |
-| Термин, домен, теги, field ID | JSON-совместимые dvt.* аннотации; при поддержке Confluent — metadata properties/tags |
-| Schema revision | Локальная версия; внешний subject/version хранится отдельно |
-| Lineage | Данные DVT; Schema Registry references не заменяют происхождение по пайплайну |
-
-Профиль описывает namespaces и точные ключи расширений; например `dvt.term_id`, `dvt.term_version`, `dvt.domain_id`, `dvt.field_id`. Значения registry properties сериализуются в требуемые строки; сложные структуры — в отдельный JSON payload или локальный каталог. Путь field tags задаётся адаптером. Произвольный Python metadata из существующего mapper нельзя отправлять без JSON-валидации. Термин и локальное описание хранятся раздельно, чтобы обратный импорт doc не создавал выдуманный термин.
-
-Пример переносимого документа (иллюстрация, а не подтверждённая схема production):
-
-```json
-{
-  "type": "record",
-  "name": "SalesRow",
-  "namespace": "tech.denvic.dvt.demo",
-  "fields": [
-    {
-      "name": "region",
-      "type": "string",
-      "doc": "Регион продажи",
-      "dvt.field_id": "sales-region",
-      "dvt.term_id": "sales-region-term",
-      "dvt.term_version": 1,
-      "dvt.domain_id": "sales",
-      "dvt.tags": ["geography"]
-    }
-  ]
-}
-```
-
-Пользовательские свойства Avro несут аннотации, но стандартная сериализация данных их не переносит в каждую запись. Сохранять исходный документ схемы: инструменты, отдающие только canonical form, могут удалить расширения. На экспорт идёт разрешённая мета выбранного порта; patches и lineage остаются в DVT.
-
-Разделить structural revision и annotation revision: parsing canonical form Avro исключает описательную часть. Дополнительно учитывать semantic properties вроде logicalType в локальном structural hash; один canonical fingerprint не отражает все различия. Изменение doc/термина не считать доказательством структурной несовместимости. Но регистрация изменённого документа может создавать внешнюю версию — это решает конкретный registry и его нормализация.
-
-Для будущей интеграции: compatibility проверять отдельной операцией по настроенному режиму subject, а не через SchemaPolicy. Добавление nullable поля само по себе не заменяет корректный default для чтения старых данных. Registry schema ID и номер версии subject — разные значения. Эти проверки и внешние статусы не входят в текущую первую очередь.
-
-MVP: модель меты, близкая к Avro, и валидируемый экспорт с документированными dvt.* расширениями. REST, compatibility, регистрация и импорт — возможное последующее развитие, а не условие готовности каталога. Kafka serializer/deserializer и его wire format — отдельная задача. Не добавлять обязательный контейнер Schema Registry.
-
-Источники: [Avro specification](https://avro.apache.org/docs/1.12.0/specification/), [Confluent evolution](https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html), [Confluent data contracts](https://docs.confluent.io/platform/current/schema-registry/fundamentals/data-contracts.html), [Confluent REST API](https://docs.confluent.io/platform/current/schema-registry/develop/api.html). Расширения Confluent и доступность дополнительных функций необходимо сверить с версией установленного сервиса.
+Avro/Confluent, OpenMetadata и Iceberg — ориентиры будущих расширений вне этого ТЗ. Не требуются exports/push/registry/совместимый сервер. Native REST следует familiar OpenMetadata-style модели без потери typed меты.
 
 ## План файлов и границы
 
 1. `domain`: dataclasses происхождения, аннотаций и версий; resolver policy; contracts репозиториев и registry; именованные exceptions. Никаких Pydantic, ORM, Dask и HTTP.
-2. `flow/use_cases`: классы `ResolveAnnotations`, `SaveAnnotationPatch`, `CompareSchemaRevisions`, `ListDescriptionGaps`, `ExportRegistrySchema`; у каждого `execute`. Получают данные через domain contracts.
-3. `infra`: ORM и миграции, репозитории, JSON/API schemas, мапперы и Avro/Confluent adapter; не импортирует flow.
+2. `flow/use_cases`: классы `ResolveAnnotations`, `SaveAnnotationPatch`, `CompareSchemaRevisions`, `ListDescriptionGaps`, `ReadSourceMetadata`, `BuildMetadataWriteReport`; у каждого `execute`. Получают данные через domain contracts.
+3. `infra`: ORM и миграции, репозитории, JSON/API schemas, мапперы и source/target metadata adapters; не импортирует flow.
 4. Composition/facade связывает слои вне domain/flow/infra. Существующий фасад сборки TableSchema остаётся совместимым.
 5. Интеграция metadata mixin добавляет ссылки на schema/annotation snapshots к мета-событию, сохраняя нынешние поля ответа. Runtime наблюдение схемы не создаёт пользовательские patches. DB comments импортируются с provenance.
 6. Gateway: read-only resolved catalog, lineage и gaps; мутация patch с expected revision; справочник терминов отдельными операциями. Маршруты/DTO вне domain. После изменения OpenAPI выполнить предусмотренное проектом обновление клиента через Gateway.
@@ -174,7 +134,6 @@ MVP: модель меты, близкая к Avro, и валидируемый 
 - Новая колонка создаёт одну задачу описания в точке возникновения; повторное наблюдение той же схемы не создаёт новую задачу.
 - Старый запуск отображает прежний снимок меты; конкурентное сохранение не затирает чужую правку.
 - В панели нет редактора; Save/Cancel находятся в модальном окне. До Save мета не меняется.
-- Avro export валидируется реальным парсером; проверяются missing default/null, decimal, технические aliases, ограничения имён и сохранность бизнес-аннотаций. Подключение к registry и Kafka serialization не нужны для приёмки первой очереди.
 - Старые тесты TableSchema, ConvertToSchema, SchemaPolicy и dump/load продолжают проходить; новые тесты защищают resolver, branches/merge, revisions и adapter.
 
-Для этой ветки достаточны чтение источников и проверка согласованности предложения: исполняемое поведение не менялось. Реализацию начинать после согласования модели и профиля registry.
+Исполняемое поведение не менялось. Обязательные требования модели приняты пользователем; реализация следует трём этапам головного ТЗ. Registry profile и внешние adapters не являются условиями её начала.

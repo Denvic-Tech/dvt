@@ -1,25 +1,13 @@
-# Проект дата-каталога DVT
+# Метаданные потоков DVT
 
-Материалы для обсуждения и реализации; исполняемый backend не изменён.
+Начинать с [головного ТЗ](MAIN_PLAN.ru.md).
 
-Начинать с [головного плана четырёх этапов](IMPLEMENTATION_PLAN.ru.md). Он определяет объём MVP и порядок реализации; весь draft OpenAPI не требуется первому релизу.
+- [Этап 1: MVP с UI и metadata read/write](STAGE_01_MVP_IO.ru.md).
+- [Этап 2: происхождение и Execute Python](STAGE_02_LINEAGE.ru.md).
+- [Этап 3: public contracts расширений](STAGE_03_EXTENSION_API.ru.md).
+- [Модель](DATA_CATALOG_PROPOSAL.ru.md), [native REST](REST_CONTRACT.ru.md), [draft OpenAPI](openapi.draft.yaml).
+- [HTML просмотра](dvt-catalog-view.html), [HTML modal](dvt-catalog-modal.html), [тексты UI](real-project-developer-notes.ru.md).
 
-- [Этап 1: MVP с UI](STAGE_01_MVP_UI.ru.md).
-- [Этап 2: происхождение и сложное наследование](STAGE_02_LINEAGE.ru.md).
-- [Этап 3: управление и масштаб](STAGE_03_GOVERNANCE.ru.md).
-- [Этап 4: переносимость и интеграции](STAGE_04_INTEROPERABILITY.ru.md).
+Avro/OpenMetadata/Iceberg adapters, OpenMetadata push/facade и большой governance вне ТЗ. REST модель familiar OpenMetadata-style, совместимость SDK не обещается. Точная typed схема/IDs/default/required/snapshot обязательны с MVP. БД/Parquet metadata read/write и чтение producer меты Битрикс24 входят в MVP.
 
-Оценка применения технологии расширений DVT находится в головном плане: ядро каталога встроенное, адаптеры могут использовать механизм расширений после появления публичных контрактов.
-
-- [Модель, наследование, Avro и правила интерфейса](DATA_CATALOG_PROPOSAL.ru.md).
-- [План REST API и границы совместимости OpenMetadata](DATA_CATALOG_REST_API.ru.md).
-- [Draft OpenAPI 3.1 YAML](openapi.draft.yaml): native API `/api/v1/catalog`, 59 операций. Совместимая OpenMetadata-проекция требует отдельного контракта и проверки выбранной версии SDK.
-- [Каталог в редакторе: просмотр](dvt-catalog-view.html).
-- [Редактор меты в модальном окне](dvt-catalog-modal.html).
-- [Тексты и сценарии интерфейса](real-project-developer-notes.ru.md).
-
-HTML основаны на проекте «Для картинок на документацию», ревизия 11: 17 нод и 20 связей. Описательная разметка — предложение, не существующие production-аннотации. Пример схемы получен из кода нод, а не подтверждён запуском. Изменения макета живут в памяти страницы; сервер не вызывается. Слайдер только для просмотра, термины и домены редактируются внутри модального окна.
-
-OpenAPI — проект native DVT API в стиле OpenMetadata, не спецификация существующего сервиса и не заявление о полной SDK-совместимости. Типы Avro проверяются отдельным адаптером, не OpenAPI-валидатором. До реализации согласовать whitelist JSON Patch, словарь dataType, authorization и границы справочников.
-
-Проверено при подготовке: отсутствие дублирующихся operationId, разрешение локальных schema refs, соответствие path parameters шаблонам, синтаксис JS макетов и отсутствие редактируемых полей в панели. Интеграционные проверки SDK/HTTP и визуальная проверка макетов не выполнены. Тесты backend не нужны: изменения ограничены документацией и HTML-прототипами.
+HTML — локальные прототипы по проекту из 17 нод/20 связей, разметка предложенная; правки в памяти, сервер не вызывается. Новые source/target UI states в макетах ещё не показаны. Draft — будущий контракт, не существующие методы. Исполняемая реализация не изменена. Проверки документации/ссылок/refs не заменяют runtime/SDK/read-write интеграционные tests.
