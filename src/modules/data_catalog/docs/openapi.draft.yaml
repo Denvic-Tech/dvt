@@ -1,0 +1,4457 @@
+# Draft only: implementation and OpenMetadata compatibility are not claimed.
+"openapi": "3.1.0"
+"info":
+  "title": "DVT Data Catalog — draft native API"
+  "version": "0.1.0-draft"
+  "description": "Проект контракта, не реализованный API. Стиль OpenMetadata; наследование и транзакционный Save — расширения DVT. Совместимая /api/openmetadata/v1 проекция не включена и требует отдельной спецификации/проверки SDK."
+"servers":
+  -
+    "url": "/api/v1/catalog"
+"security":
+  -
+    "bearerAuth":
+      []
+"paths":
+  "/glossaries":
+    "get":
+      "operationId": "listGlossarys"
+      "summary": "Список/поиск glossaries"
+      "tags":
+        - "glossaries"
+      "parameters":
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "q"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "include"
+          "in": "query"
+          "required": false
+          "schema":
+            "enum":
+              - "non-deleted"
+              - "deleted"
+              - "all"
+            "default": "non-deleted"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GlossaryList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "post":
+      "operationId": "createGlossary"
+      "summary": "Создать Glossary"
+      "tags":
+        - "glossaries"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "201":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Glossary"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/CreateGlossary"
+  "/glossaries/{id}":
+    "get":
+      "operationId": "getGlossary"
+      "summary": "Карточка Glossary"
+      "tags":
+        - "glossaries"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Glossary"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "patch":
+      "operationId": "patchGlossary"
+      "summary": "Изменить Glossary"
+      "tags":
+        - "glossaries"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Glossary"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Whitelist: displayName, description; glossaryTerm также synonyms. name/FQN/id и принадлежность родителю неизменяемы."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json-patch+json":
+            "schema":
+              "$ref": "#/components/schemas/JsonPatch"
+  "/glossaries/name/{fqn}":
+    "get":
+      "operationId": "getGlossaryByName"
+      "summary": "Поиск по FQN"
+      "tags":
+        - "glossaries"
+      "parameters":
+        -
+          "name": "fqn"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Glossary"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/glossaries/{id}/versions":
+    "get":
+      "operationId": "listGlossaryVersions"
+      "summary": "История"
+      "tags":
+        - "glossaries"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/History"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/glossaries/{id}/versions/{revision}":
+    "get":
+      "operationId": "getGlossaryVersion"
+      "summary": "Историческая версия"
+      "tags":
+        - "glossaries"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "revision"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Glossary"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/glossaryTerms":
+    "get":
+      "operationId": "listGlossaryTerms"
+      "summary": "Список/поиск glossaryTerms"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "q"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "include"
+          "in": "query"
+          "required": false
+          "schema":
+            "enum":
+              - "non-deleted"
+              - "deleted"
+              - "all"
+            "default": "non-deleted"
+        -
+          "name": "glossary"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+            "format": "uuid"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GlossaryTermList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "post":
+      "operationId": "createGlossaryTerm"
+      "summary": "Создать GlossaryTerm"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "201":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GlossaryTerm"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/CreateGlossaryTerm"
+  "/glossaryTerms/{id}":
+    "get":
+      "operationId": "getGlossaryTerm"
+      "summary": "Карточка GlossaryTerm"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GlossaryTerm"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "patch":
+      "operationId": "patchGlossaryTerm"
+      "summary": "Изменить GlossaryTerm"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GlossaryTerm"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Whitelist: displayName, description; glossaryTerm также synonyms. name/FQN/id и принадлежность родителю неизменяемы."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json-patch+json":
+            "schema":
+              "$ref": "#/components/schemas/JsonPatch"
+    "delete":
+      "operationId": "deleteGlossaryTerm"
+      "summary": "Soft delete неиспользуемого объекта"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "204":
+          "description": "Успешно, без тела"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/glossaryTerms/name/{fqn}":
+    "get":
+      "operationId": "getGlossaryTermByName"
+      "summary": "Поиск по FQN"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "fqn"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GlossaryTerm"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/glossaryTerms/{id}/versions":
+    "get":
+      "operationId": "listGlossaryTermVersions"
+      "summary": "История"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/History"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/glossaryTerms/{id}/versions/{revision}":
+    "get":
+      "operationId": "getGlossaryTermVersion"
+      "summary": "Историческая версия"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "revision"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GlossaryTerm"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/glossaryTerms/{id}/usage":
+    "get":
+      "operationId": "getGlossaryTermUsage"
+      "summary": "Область использования"
+      "tags":
+        - "glossaryTerms"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/UsageList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/domains":
+    "get":
+      "operationId": "listDomains"
+      "summary": "Список/поиск domains"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "q"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "include"
+          "in": "query"
+          "required": false
+          "schema":
+            "enum":
+              - "non-deleted"
+              - "deleted"
+              - "all"
+            "default": "non-deleted"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/DomainList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "post":
+      "operationId": "createDomain"
+      "summary": "Создать Domain"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "201":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Domain"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/CreateDomain"
+  "/domains/{id}":
+    "get":
+      "operationId": "getDomain"
+      "summary": "Карточка Domain"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Domain"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "patch":
+      "operationId": "patchDomain"
+      "summary": "Изменить Domain"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Domain"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Whitelist: displayName, description; glossaryTerm также synonyms. name/FQN/id и принадлежность родителю неизменяемы."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json-patch+json":
+            "schema":
+              "$ref": "#/components/schemas/JsonPatch"
+    "delete":
+      "operationId": "deleteDomain"
+      "summary": "Soft delete неиспользуемого объекта"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "204":
+          "description": "Успешно, без тела"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/domains/name/{fqn}":
+    "get":
+      "operationId": "getDomainByName"
+      "summary": "Поиск по FQN"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "fqn"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Domain"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/domains/{id}/versions":
+    "get":
+      "operationId": "listDomainVersions"
+      "summary": "История"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/History"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/domains/{id}/versions/{revision}":
+    "get":
+      "operationId": "getDomainVersion"
+      "summary": "Историческая версия"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "revision"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Domain"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/domains/{id}/usage":
+    "get":
+      "operationId": "getDomainUsage"
+      "summary": "Область использования"
+      "tags":
+        - "domains"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/UsageList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/classifications":
+    "get":
+      "operationId": "listClassifications"
+      "summary": "Список/поиск classifications"
+      "tags":
+        - "classifications"
+      "parameters":
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "q"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "include"
+          "in": "query"
+          "required": false
+          "schema":
+            "enum":
+              - "non-deleted"
+              - "deleted"
+              - "all"
+            "default": "non-deleted"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/ClassificationList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "post":
+      "operationId": "createClassification"
+      "summary": "Создать Classification"
+      "tags":
+        - "classifications"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "201":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Classification"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/CreateClassification"
+  "/classifications/{id}":
+    "get":
+      "operationId": "getClassification"
+      "summary": "Карточка Classification"
+      "tags":
+        - "classifications"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Classification"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "patch":
+      "operationId": "patchClassification"
+      "summary": "Изменить Classification"
+      "tags":
+        - "classifications"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Classification"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Whitelist: displayName, description; glossaryTerm также synonyms. name/FQN/id и принадлежность родителю неизменяемы."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json-patch+json":
+            "schema":
+              "$ref": "#/components/schemas/JsonPatch"
+  "/classifications/name/{fqn}":
+    "get":
+      "operationId": "getClassificationByName"
+      "summary": "Поиск по FQN"
+      "tags":
+        - "classifications"
+      "parameters":
+        -
+          "name": "fqn"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Classification"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/classifications/{id}/versions":
+    "get":
+      "operationId": "listClassificationVersions"
+      "summary": "История"
+      "tags":
+        - "classifications"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/History"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/classifications/{id}/versions/{revision}":
+    "get":
+      "operationId": "getClassificationVersion"
+      "summary": "Историческая версия"
+      "tags":
+        - "classifications"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "revision"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Classification"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/tags":
+    "get":
+      "operationId": "listTags"
+      "summary": "Список/поиск tags"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "q"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "include"
+          "in": "query"
+          "required": false
+          "schema":
+            "enum":
+              - "non-deleted"
+              - "deleted"
+              - "all"
+            "default": "non-deleted"
+        -
+          "name": "classification"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+            "format": "uuid"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/TagList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "post":
+      "operationId": "createTag"
+      "summary": "Создать Tag"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "201":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Tag"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/CreateTag"
+  "/tags/{id}":
+    "get":
+      "operationId": "getTag"
+      "summary": "Карточка Tag"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Tag"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "patch":
+      "operationId": "patchTag"
+      "summary": "Изменить Tag"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Tag"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Whitelist: displayName, description; glossaryTerm также synonyms. name/FQN/id и принадлежность родителю неизменяемы."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json-patch+json":
+            "schema":
+              "$ref": "#/components/schemas/JsonPatch"
+    "delete":
+      "operationId": "deleteTag"
+      "summary": "Soft delete неиспользуемого объекта"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "204":
+          "description": "Успешно, без тела"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/tags/name/{fqn}":
+    "get":
+      "operationId": "getTagByName"
+      "summary": "Поиск по FQN"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "fqn"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Tag"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/tags/{id}/versions":
+    "get":
+      "operationId": "listTagVersions"
+      "summary": "История"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/History"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/tags/{id}/versions/{revision}":
+    "get":
+      "operationId": "getTagVersion"
+      "summary": "Историческая версия"
+      "tags":
+        - "tags"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "revision"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Tag"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes":
+    "get":
+      "operationId": "listDataframes"
+      "summary": "Потоки/порты проекта"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "projectId"
+          "in": "query"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "nodeId"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+            "format": "uuid"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/DataframeList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes/{id}":
+    "get":
+      "operationId": "getDataframe"
+      "summary": "Структура и разрешённая мета"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Dataframe"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes/{id}/columns":
+    "get":
+      "operationId": "listColumns"
+      "summary": "Поля потока"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "snapshotId"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/ColumnList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes/{id}/columns/{fieldId}":
+    "get":
+      "operationId": "getColumn"
+      "summary": "Поле и provenance"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fieldId"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "snapshotId"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Column"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes/{id}/lineage":
+    "get":
+      "operationId": "getDataframeLineage"
+      "summary": "Подтверждённое/неизвестное происхождение"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "upstreamDepth"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 0
+            "maximum": 20
+            "default": 1
+        -
+          "name": "downstreamDepth"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 0
+            "maximum": 20
+            "default": 1
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Lineage"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/annotationOverrides":
+    "get":
+      "operationId": "listOverrides"
+      "summary": "Только сохранённые пользовательские patches"
+      "tags":
+        - "annotationOverrides"
+      "parameters":
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "dataframeId"
+          "in": "query"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fieldId"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+            "format": "uuid"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/OverrideList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "post":
+      "operationId": "createOverride"
+      "summary": "Создать override"
+      "tags":
+        - "annotationOverrides"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "201":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/AnnotationOverride"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/CreateAnnotationOverride"
+  "/annotationOverrides/{id}":
+    "get":
+      "operationId": "getOverride"
+      "summary": "Прочитать override"
+      "tags":
+        - "annotationOverrides"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/AnnotationOverride"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+    "patch":
+      "operationId": "patchOverride"
+      "summary": "Изменить свойства override"
+      "tags":
+        - "annotationOverrides"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/AnnotationOverride"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Разрешены /overrides/term, /overrides/domain, /overrides/description, /overrides/displayName, /overrides/tags. remove свойства возвращает наследование, null задаёт CLEAR. Родительский /overrides запрещён. Проверять ссылки и актуальную схему."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json-patch+json":
+            "schema":
+              "$ref": "#/components/schemas/JsonPatch"
+    "delete":
+      "operationId": "deleteOverride"
+      "summary": "Вернуть наследование всех свойств"
+      "tags":
+        - "annotationOverrides"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "If-Match"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+          "description": "ETag объекта. Нет заголовка — 428; устаревший — 412."
+      "responses":
+        "204":
+          "description": "Успешно, без тела"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/projects/{projectId}/gaps":
+    "get":
+      "operationId": "listProjectGaps"
+      "summary": "Очередь без повторов downstream"
+      "tags":
+        - "projects"
+      "parameters":
+        -
+          "name": "projectId"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "reason"
+          "in": "query"
+          "required": false
+          "schema":
+            "enum":
+              - "new_field"
+              - "unannotated"
+              - "conflict"
+              - "review_required"
+              - "unknown_lineage"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/GapList"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes/{id}/schemaChanges":
+    "get":
+      "operationId": "compareSchemas"
+      "summary": "Изменения схемы"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "fromRevision"
+          "in": "query"
+          "required": true
+          "schema":
+            "type": "string"
+        -
+          "name": "toRevision"
+          "in": "query"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/SchemaChanges"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes/{id}/versions":
+    "get":
+      "operationId": "listDataframeVersions"
+      "summary": "Снимки потока"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "limit"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "integer"
+            "minimum": 1
+            "maximum": 100
+            "default": 25
+        -
+          "name": "before"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "after"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "fields"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/History"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/dataframes/{id}/versions/{snapshotId}":
+    "get":
+      "operationId": "getDataframeSnapshot"
+      "summary": "Исторический снимок"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "snapshotId"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Dataframe"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/schemaObservations":
+    "post":
+      "operationId": "observeSchema"
+      "summary": "Приём структуры от runtime"
+      "tags":
+        - "schemaObservations"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Dataframe"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Требуется отдельное runtime/ingestion право. Пользовательский редактор не вызывает этот метод."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/SchemaObservation"
+  "/dataframes/{id}/exports/avro":
+    "get":
+      "operationId": "exportAvro"
+      "summary": "Экспорт разрешённой меты как Avro"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "snapshotId"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+      "responses":
+        "200":
+          "description": "Успешно"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+          "content":
+            "application/json":
+              "schema":
+                "type": "object"
+                "additionalProperties": true
+                "description": "Avro record. Проверяется Avro-парсером; dtype unknown/ambiguous вызывает 422."
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Не регистрирует схему и не сериализует Kafka сообщения."
+  "/dataframes/{id}/exports/openmetadata":
+    "get":
+      "operationId": "exportOpenMetadata"
+      "summary": "Документы и отчёт о потерях"
+      "tags":
+        - "dataframes"
+      "parameters":
+        -
+          "name": "id"
+          "in": "path"
+          "required": true
+          "schema":
+            "type": "string"
+            "format": "uuid"
+        -
+          "name": "snapshotId"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "string"
+        -
+          "name": "allowLossy"
+          "in": "query"
+          "required": false
+          "schema":
+            "type": "boolean"
+            "default": false
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/OpenMetadataExport"
+          "headers":
+            "ETag":
+              "schema":
+                "type": "string"
+              "description": "Непрозрачная версия ресурса"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+  "/metadataChanges/preview":
+    "post":
+      "operationId": "previewMetadataChange"
+      "summary": "Проверить черновик без записи"
+      "tags":
+        - "metadataChanges"
+      "parameters":
+        []
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/Preview"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/MetadataChange"
+  "/metadataChanges":
+    "post":
+      "operationId": "saveMetadataChange"
+      "summary": "Атомарный Save всего модального окна"
+      "tags":
+        - "metadataChanges"
+      "parameters":
+        -
+          "name": "Idempotency-Key"
+          "in": "header"
+          "required": true
+          "schema":
+            "type": "string"
+            "minLength": 1
+      "responses":
+        "200":
+          "description": "Успешно"
+          "content":
+            "application/json":
+              "schema":
+                "$ref": "#/components/schemas/SaveResult"
+        "400":
+          "$ref": "#/components/responses/Error400"
+        "401":
+          "$ref": "#/components/responses/Error401"
+        "403":
+          "$ref": "#/components/responses/Error403"
+        "404":
+          "$ref": "#/components/responses/Error404"
+        "409":
+          "$ref": "#/components/responses/Error409"
+        "412":
+          "$ref": "#/components/responses/Error412"
+        "422":
+          "$ref": "#/components/responses/Error422"
+        "428":
+          "$ref": "#/components/responses/Error428"
+      "description": "Повторная проверка всех expected revisions и previewToken; транзакция включает общий термин/домен и patch. Никаких записей downstream."
+      "requestBody":
+        "required": true
+        "content":
+          "application/json":
+            "schema":
+              "$ref": "#/components/schemas/MetadataSave"
+"components":
+  "securitySchemes":
+    "bearerAuth":
+      "type": "http"
+      "scheme": "bearer"
+  "schemas":
+    "EntityReference":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "type":
+          "type": "string"
+        "name":
+          "type": "string"
+        "fullyQualifiedName":
+          "type": "string"
+        "displayName":
+          "type": "string"
+        "href":
+          "type": "string"
+          "format": "uri-reference"
+      "required":
+        - "id"
+        - "type"
+    "ReferenceInput":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "id":
+              "type": "string"
+              "format": "uuid"
+            "expectedRevision":
+              "type": "string"
+          "required":
+            - "id"
+            - "expectedRevision"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "clientId":
+              "type": "string"
+          "required":
+            - "clientId"
+    "Paging":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "before":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
+        "after":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
+        "total":
+          "type": "integer"
+          "minimum": 0
+      "required":
+        - "before"
+        - "after"
+        - "total"
+    "Error":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "code":
+          "type": "string"
+        "message":
+          "type": "string"
+        "details":
+          "type": "array"
+          "items":
+            "type": "object"
+            "additionalProperties": true
+      "required":
+        - "code"
+        - "message"
+    "JsonPatch":
+      "type": "array"
+      "items":
+        "oneOf":
+          -
+            "type": "object"
+            "additionalProperties": false
+            "properties":
+              "op":
+                "enum":
+                  - "add"
+                  - "replace"
+                  - "test"
+              "path":
+                "type": "string"
+              "value":
+                {}
+            "required":
+              - "op"
+              - "path"
+              - "value"
+          -
+            "type": "object"
+            "additionalProperties": false
+            "properties":
+              "op":
+                "const": "remove"
+              "path":
+                "type": "string"
+            "required":
+              - "op"
+              - "path"
+      "description": "Подмножество RFC 6902: add/replace/remove/test. move/copy не поддерживаются. Только разрешённые свойства."
+    "CreateGlossary":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+      "required":
+        - "name"
+        - "description"
+    "Glossary":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+        "fullyQualifiedName":
+          "type": "string"
+        "revision":
+          "type": "string"
+        "version":
+          "type": "number"
+        "updatedAt":
+          "type": "integer"
+          "format": "int64"
+        "updatedBy":
+          "type": "string"
+        "deleted":
+          "type": "boolean"
+        "href":
+          "type": "string"
+          "format": "uri-reference"
+      "required":
+        - "id"
+        - "name"
+        - "revision"
+    "GlossaryList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Glossary"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "CreateGlossaryTerm":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+        "glossary":
+          "$ref": "#/components/schemas/EntityReference"
+        "synonyms":
+          "type": "array"
+          "items":
+            "type": "string"
+      "required":
+        - "name"
+        - "description"
+        - "glossary"
+    "GlossaryTerm":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+        "glossary":
+          "$ref": "#/components/schemas/EntityReference"
+        "synonyms":
+          "type": "array"
+          "items":
+            "type": "string"
+        "fullyQualifiedName":
+          "type": "string"
+        "revision":
+          "type": "string"
+        "version":
+          "type": "number"
+        "updatedAt":
+          "type": "integer"
+          "format": "int64"
+        "updatedBy":
+          "type": "string"
+        "deleted":
+          "type": "boolean"
+        "href":
+          "type": "string"
+          "format": "uri-reference"
+      "required":
+        - "id"
+        - "name"
+        - "revision"
+    "GlossaryTermList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/GlossaryTerm"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "CreateDomain":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+      "required":
+        - "name"
+        - "description"
+    "Domain":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+        "fullyQualifiedName":
+          "type": "string"
+        "revision":
+          "type": "string"
+        "version":
+          "type": "number"
+        "updatedAt":
+          "type": "integer"
+          "format": "int64"
+        "updatedBy":
+          "type": "string"
+        "deleted":
+          "type": "boolean"
+        "href":
+          "type": "string"
+          "format": "uri-reference"
+      "required":
+        - "id"
+        - "name"
+        - "revision"
+    "DomainList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Domain"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "CreateClassification":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+      "required":
+        - "name"
+        - "description"
+    "Classification":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+        "fullyQualifiedName":
+          "type": "string"
+        "revision":
+          "type": "string"
+        "version":
+          "type": "number"
+        "updatedAt":
+          "type": "integer"
+          "format": "int64"
+        "updatedBy":
+          "type": "string"
+        "deleted":
+          "type": "boolean"
+        "href":
+          "type": "string"
+          "format": "uri-reference"
+      "required":
+        - "id"
+        - "name"
+        - "revision"
+    "ClassificationList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Classification"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "CreateTag":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+        "classification":
+          "$ref": "#/components/schemas/EntityReference"
+      "required":
+        - "name"
+        - "description"
+        - "classification"
+    "Tag":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "name":
+          "type": "string"
+          "minLength": 1
+        "displayName":
+          "type": "string"
+        "description":
+          "type": "string"
+          "minLength": 1
+        "classification":
+          "$ref": "#/components/schemas/EntityReference"
+        "fullyQualifiedName":
+          "type": "string"
+        "revision":
+          "type": "string"
+        "version":
+          "type": "number"
+        "updatedAt":
+          "type": "integer"
+          "format": "int64"
+        "updatedBy":
+          "type": "string"
+        "deleted":
+          "type": "boolean"
+        "href":
+          "type": "string"
+          "format": "uri-reference"
+      "required":
+        - "id"
+        - "name"
+        - "revision"
+    "TagList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Tag"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "TagLabel":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "tagFQN":
+          "type": "string"
+        "source":
+          "enum":
+            - "Classification"
+            - "Glossary"
+        "labelType":
+          "enum":
+            - "Manual"
+            - "Propagated"
+            - "Automated"
+            - "Derived"
+        "state":
+          "enum":
+            - "Suggested"
+            - "Confirmed"
+      "required":
+        - "tagFQN"
+        - "source"
+    "Annotations":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "term":
+          "anyOf":
+            -
+              "$ref": "#/components/schemas/EntityReference"
+            -
+              "type": "null"
+        "domain":
+          "anyOf":
+            -
+              "$ref": "#/components/schemas/EntityReference"
+            -
+              "type": "null"
+        "description":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
+        "displayName":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
+        "tags":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/TagLabel"
+    "Provenance":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "sourceDataframeId":
+          "anyOf":
+            -
+              "type": "string"
+              "format": "uuid"
+            -
+              "type": "null"
+        "sourceFieldId":
+          "anyOf":
+            -
+              "type": "string"
+              "format": "uuid"
+            -
+              "type": "null"
+        "overrideId":
+          "anyOf":
+            -
+              "type": "string"
+              "format": "uuid"
+            -
+              "type": "null"
+        "kind":
+          "enum":
+            - "local"
+            - "inherited"
+            - "database"
+            - "term"
+            - "none"
+            - "conflict"
+            - "unknown"
+        "revision":
+          "anyOf":
+            -
+              "type": "string"
+            -
+              "type": "null"
+      "required":
+        - "kind"
+    "Column":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "occurrenceId":
+          "type": "string"
+          "format": "uuid"
+        "name":
+          "type": "string"
+        "displayName":
+          "type": "string"
+        "dataType":
+          "type": "string"
+        "dataTypeDisplay":
+          "type": "string"
+        "nullable":
+          "anyOf":
+            -
+              "type": "boolean"
+            -
+              "type": "null"
+        "effectiveAnnotations":
+          "$ref": "#/components/schemas/Annotations"
+        "provenance":
+          "type": "object"
+          "additionalProperties":
+            "$ref": "#/components/schemas/Provenance"
+        "structuralStatus":
+          "enum":
+            - "added"
+            - "removed"
+            - "type_changed"
+            - "unchanged"
+            - "first_schema"
+            - "unknown"
+        "annotationStatus":
+          "type": "array"
+          "items":
+            "enum":
+              - "unannotated"
+              - "inherited"
+              - "overridden"
+              - "conflict"
+              - "review_required"
+        "lineageConfidence":
+          "enum":
+            - "declared"
+            - "confirmed"
+            - "inferred"
+            - "unknown"
+      "required":
+        - "id"
+        - "occurrenceId"
+        - "name"
+        - "dataType"
+    "Dataframe":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "projectId":
+          "type": "string"
+          "format": "uuid"
+        "nodeId":
+          "type": "string"
+          "format": "uuid"
+        "direction":
+          "enum":
+            - "input"
+            - "output"
+        "portName":
+          "type": "string"
+        "name":
+          "type": "string"
+        "fullyQualifiedName":
+          "type": "string"
+        "graphRevision":
+          "type": "string"
+        "schemaRevision":
+          "type": "string"
+        "annotationRevision":
+          "type": "string"
+        "columns":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Column"
+        "schemaEvidence":
+          "enum":
+            - "inferred"
+            - "observed"
+            - "declared"
+        "snapshotId":
+          "type": "string"
+      "required":
+        - "id"
+        - "projectId"
+        - "nodeId"
+        - "direction"
+        - "portName"
+        - "graphRevision"
+        - "schemaRevision"
+        - "annotationRevision"
+    "DataframeList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Dataframe"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "ColumnList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Column"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "AnnotationOverride":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "id":
+          "type": "string"
+          "format": "uuid"
+        "dataframeId":
+          "type": "string"
+          "format": "uuid"
+        "fieldId":
+          "type": "string"
+          "format": "uuid"
+        "revision":
+          "type": "string"
+        "overrides":
+          "$ref": "#/components/schemas/Annotations"
+      "required":
+        - "id"
+        - "dataframeId"
+        - "fieldId"
+        - "revision"
+        - "overrides"
+    "CreateAnnotationOverride":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "dataframeId":
+          "type": "string"
+          "format": "uuid"
+        "fieldId":
+          "type": "string"
+          "format": "uuid"
+        "expectedGraphRevision":
+          "type": "string"
+        "expectedSchemaRevision":
+          "type": "string"
+        "expectedAnnotationRevision":
+          "type": "string"
+        "overrides":
+          "$ref": "#/components/schemas/Annotations"
+      "required":
+        - "dataframeId"
+        - "fieldId"
+        - "expectedGraphRevision"
+        - "expectedSchemaRevision"
+        - "expectedAnnotationRevision"
+        - "overrides"
+    "OverrideList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/AnnotationOverride"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "HistoryEntry":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "revision":
+          "type": "string"
+        "snapshotId":
+          "type": "string"
+        "updatedAt":
+          "type": "integer"
+          "format": "int64"
+        "updatedBy":
+          "type": "string"
+      "required":
+        - "revision"
+    "History":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/HistoryEntry"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "Usage":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "projectId":
+          "type": "string"
+          "format": "uuid"
+        "nodeId":
+          "type": "string"
+          "format": "uuid"
+        "dataframeId":
+          "type": "string"
+          "format": "uuid"
+        "fieldId":
+          "type": "string"
+          "format": "uuid"
+        "explicit":
+          "type": "boolean"
+      "required":
+        - "projectId"
+        - "dataframeId"
+        - "fieldId"
+    "UsageList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Usage"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+        "occurrenceCount":
+          "type": "integer"
+          "minimum": 0
+        "explicitBindingCount":
+          "type": "integer"
+          "minimum": 0
+        "hasHiddenUsage":
+          "type": "boolean"
+      "required":
+        - "data"
+        - "paging"
+        - "hasHiddenUsage"
+    "Lineage":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "nodes":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Dataframe"
+        "edges":
+          "type": "array"
+          "items":
+            "type": "object"
+            "additionalProperties": false
+            "properties":
+              "fromDataframeId":
+                "type": "string"
+                "format": "uuid"
+              "toDataframeId":
+                "type": "string"
+                "format": "uuid"
+              "fromFieldIds":
+                "type": "array"
+                "items":
+                  "type": "string"
+                  "format": "uuid"
+              "toFieldId":
+                "type": "string"
+                "format": "uuid"
+              "operation":
+                "enum":
+                  - "passthrough"
+                  - "rename"
+                  - "derived"
+                  - "unknown"
+              "confidence":
+                "enum":
+                  - "confirmed"
+                  - "declared"
+                  - "inferred"
+                  - "unknown"
+            "required":
+              - "fromDataframeId"
+              - "toDataframeId"
+              - "operation"
+              - "confidence"
+      "required":
+        - "nodes"
+        - "edges"
+    "Gap":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "fieldId":
+          "type": "string"
+          "format": "uuid"
+        "originDataframeId":
+          "type": "string"
+          "format": "uuid"
+        "occurrenceIds":
+          "type": "array"
+          "items":
+            "type": "string"
+            "format": "uuid"
+        "reason":
+          "enum":
+            - "new_field"
+            - "unannotated"
+            - "conflict"
+            - "review_required"
+            - "unknown_lineage"
+      "required":
+        - "fieldId"
+        - "originDataframeId"
+        - "reason"
+    "GapList":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "data":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Gap"
+        "paging":
+          "$ref": "#/components/schemas/Paging"
+      "required":
+        - "data"
+        - "paging"
+    "SchemaChanges":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "fromRevision":
+          "type": "string"
+        "toRevision":
+          "type": "string"
+        "changes":
+          "type": "array"
+          "items":
+            "type": "object"
+            "additionalProperties": false
+            "properties":
+              "fieldId":
+                "type": "string"
+                "format": "uuid"
+              "name":
+                "type": "string"
+              "status":
+                "enum":
+                  - "added"
+                  - "removed"
+                  - "type_changed"
+                  - "unchanged"
+              "before":
+                "anyOf":
+                  -
+                    "$ref": "#/components/schemas/Column"
+                  -
+                    "type": "null"
+              "after":
+                "anyOf":
+                  -
+                    "$ref": "#/components/schemas/Column"
+                  -
+                    "type": "null"
+            "required":
+              - "fieldId"
+              - "status"
+      "required":
+        - "fromRevision"
+        - "toRevision"
+        - "changes"
+    "SchemaObservation":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "dataframeId":
+          "type": "string"
+          "format": "uuid"
+        "graphRevision":
+          "type": "string"
+        "observationId":
+          "type": "string"
+        "taskId":
+          "type": "string"
+          "format": "uuid"
+        "columns":
+          "type": "array"
+          "items":
+            "type": "object"
+            "additionalProperties": false
+            "properties":
+              "name":
+                "type": "string"
+              "dataType":
+                "type": "string"
+              "nullable":
+                "anyOf":
+                  -
+                    "type": "boolean"
+                  -
+                    "type": "null"
+              "dtypeMetadata":
+                "type": "object"
+                "additionalProperties": true
+            "required":
+              - "name"
+              - "dataType"
+        "evidence":
+          "enum":
+            - "observed"
+            - "declared"
+            - "inferred"
+      "required":
+        - "dataframeId"
+        - "graphRevision"
+        - "observationId"
+        - "columns"
+        - "evidence"
+    "RefChange":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "mode":
+              "const": "SET"
+            "reference":
+              "$ref": "#/components/schemas/ReferenceInput"
+          "required":
+            - "mode"
+            - "reference"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "mode":
+              "enum":
+                - "UNSET"
+                - "CLEAR"
+          "required":
+            - "mode"
+    "TextChange":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "mode":
+              "const": "SET"
+            "value":
+              "type": "string"
+          "required":
+            - "mode"
+            - "value"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "mode":
+              "enum":
+                - "UNSET"
+                - "CLEAR"
+          "required":
+            - "mode"
+    "TagsChange":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "mode":
+              "const": "SET"
+            "value":
+              "type": "array"
+              "items":
+                "$ref": "#/components/schemas/TagLabel"
+          "required":
+            - "mode"
+            - "value"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "mode":
+              "enum":
+                - "UNSET"
+                - "CLEAR"
+          "required":
+            - "mode"
+    "Changes":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "term":
+          "$ref": "#/components/schemas/RefChange"
+        "domain":
+          "$ref": "#/components/schemas/RefChange"
+        "description":
+          "$ref": "#/components/schemas/TextChange"
+        "displayName":
+          "$ref": "#/components/schemas/TextChange"
+        "tags":
+          "$ref": "#/components/schemas/TagsChange"
+      "description": "Отсутствующее свойство не меняется; UNSET возвращает наследование; CLEAR явно перекрывает предка."
+    "DomainDraft":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "clientId":
+              "type": "string"
+            "create":
+              "$ref": "#/components/schemas/CreateDomain"
+          "required":
+            - "clientId"
+            - "create"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "id":
+              "type": "string"
+              "format": "uuid"
+            "expectedRevision":
+              "type": "string"
+            "patch":
+              "$ref": "#/components/schemas/JsonPatch"
+          "required":
+            - "id"
+            - "expectedRevision"
+            - "patch"
+    "GlossaryTermDraft":
+      "oneOf":
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "clientId":
+              "type": "string"
+            "create":
+              "$ref": "#/components/schemas/CreateGlossaryTerm"
+          "required":
+            - "clientId"
+            - "create"
+        -
+          "type": "object"
+          "additionalProperties": false
+          "properties":
+            "id":
+              "type": "string"
+              "format": "uuid"
+            "expectedRevision":
+              "type": "string"
+            "patch":
+              "$ref": "#/components/schemas/JsonPatch"
+          "required":
+            - "id"
+            - "expectedRevision"
+            - "patch"
+    "ChangeTarget":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "dataframeId":
+          "type": "string"
+          "format": "uuid"
+        "fieldId":
+          "type": "string"
+          "format": "uuid"
+        "expectedGraphRevision":
+          "type": "string"
+        "expectedSchemaRevision":
+          "type": "string"
+        "expectedAnnotationRevision":
+          "type": "string"
+      "required":
+        - "dataframeId"
+        - "fieldId"
+        - "expectedGraphRevision"
+        - "expectedSchemaRevision"
+        - "expectedAnnotationRevision"
+    "MetadataChange":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "target":
+          "$ref": "#/components/schemas/ChangeTarget"
+        "termDrafts":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/GlossaryTermDraft"
+        "domainDrafts":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/DomainDraft"
+        "changes":
+          "$ref": "#/components/schemas/Changes"
+      "required":
+        - "target"
+        - "changes"
+    "MetadataSave":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "target":
+          "$ref": "#/components/schemas/ChangeTarget"
+        "termDrafts":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/GlossaryTermDraft"
+        "domainDrafts":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/DomainDraft"
+        "changes":
+          "$ref": "#/components/schemas/Changes"
+        "previewToken":
+          "type": "string"
+      "required":
+        - "target"
+        - "changes"
+        - "previewToken"
+    "Preview":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "previewToken":
+          "type": "string"
+        "expiresAt":
+          "type": "string"
+          "format": "date-time"
+        "affectedOccurrences":
+          "type": "array"
+          "items":
+            "$ref": "#/components/schemas/Usage"
+        "protectedOverrides":
+          "type": "array"
+          "items":
+            "type": "string"
+            "format": "uuid"
+        "hasHiddenUsage":
+          "type": "boolean"
+        "warnings":
+          "type": "array"
+          "items":
+            "type": "string"
+        "permissions":
+          "type": "object"
+          "additionalProperties":
+            "type": "boolean"
+      "required":
+        - "previewToken"
+        - "expiresAt"
+        - "affectedOccurrences"
+        - "hasHiddenUsage"
+        - "warnings"
+    "SaveResult":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "clientIdMap":
+          "type": "object"
+          "additionalProperties":
+            "type": "string"
+            "format": "uuid"
+        "catalogRevision":
+          "type": "string"
+        "override":
+          "anyOf":
+            -
+              "$ref": "#/components/schemas/AnnotationOverride"
+            -
+              "type": "null"
+        "effectiveAnnotations":
+          "$ref": "#/components/schemas/Annotations"
+      "required":
+        - "clientIdMap"
+        - "catalogRevision"
+        - "effectiveAnnotations"
+    "OpenMetadataExport":
+      "type": "object"
+      "additionalProperties": false
+      "properties":
+        "profile":
+          "type": "string"
+        "entities":
+          "type": "array"
+          "items":
+            "type": "object"
+            "additionalProperties": true
+        "losses":
+          "type": "array"
+          "items":
+            "type": "object"
+            "additionalProperties": false
+            "properties":
+              "path":
+                "type": "string"
+              "reason":
+                "type": "string"
+            "required":
+              - "path"
+              - "reason"
+      "required":
+        - "profile"
+        - "entities"
+        - "losses"
+  "responses":
+    "Error400":
+      "description": "Ошибка: 400"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+    "Error401":
+      "description": "Ошибка: 401"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+    "Error403":
+      "description": "Ошибка: 403"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+    "Error404":
+      "description": "Ошибка: 404"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+    "Error409":
+      "description": "Ошибка: 409"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+    "Error412":
+      "description": "Ошибка: 412"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+    "Error422":
+      "description": "Ошибка: 422"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
+    "Error428":
+      "description": "Ошибка: 428"
+      "content":
+        "application/json":
+          "schema":
+            "$ref": "#/components/schemas/Error"
