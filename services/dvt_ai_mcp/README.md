@@ -9,6 +9,44 @@ The adapter has no database, volumes, connection drivers, secret-decryption key,
 to Valkey and Orchestrator. Its Python 3.13 image installs only the dependencies from this
 directory, including `mcp==2.0.0`, so Gateway dependency versions remain isolated.
 
+## Projects and schedules
+
+If it is unclear whether the user wants an existing or a new project, ask before changing anything.
+Explicit intent needs no repeat confirmation. Never reuse a similar project in place of creating
+a requested new one. `create_project(name, folder_id=None)` creates an empty project owned by the
+token's user in their organization; the name must be non-empty. The token must have
+`projects.mode=all`; selected-project tokens receive `SCOPE_DENIED`. Folder access follows the
+ordinary Gateway rules. Read the new project's graph before validating/applying graph changes.
+
+Schedule tools require ADMIN/SUPERADMIN and access to the project through both the user and token:
+
+| Tool | Behavior |
+| --- | --- |
+| `list_project_schedules(cursor=None, limit=50)` | Paginated accessible schedules, including disabled ones. |
+| `get_project_schedule(project_id)` | Settings, next run, recent runs and latest retry chain; `schedule: null` if absent. |
+| `set_project_schedule(project_id, cron, ...)` | Create or replace settings and immediately enable the schedule. |
+| `update_project_schedule(project_id, patch)` | Change supplied settings, preserving omitted values and enabled state. |
+| `set_project_schedule_enabled(project_id, enabled)` | Enable or disable an existing schedule without replacing its settings. |
+
+Cron uses five fields in **UTC**. Ask for the user's timezone when local-time intent is ambiguous.
+Settings follow Scheduler defaults: `force_exec=false`,
+`max_retries=0` (0–10), `retry_delay_seconds=60` (1–86400),
+`retry_backoff="fixed"` (or `"exponential"`), `retry_max_delay_seconds=3600` (1–86400).
+For exponential backoff the maximum delay must be at least the base delay.
+An update patch must be non-empty; omit unchanged settings, never pass null.
+Use the enabled tool rather than a `disabled` patch field.
+
+Activation and changes to enabled schedules check graph connection access, as manual MCP runs do.
+Disabling remains possible when connections are unavailable. It cancels the scheduler retry chain
+and prevents future scheduled attempts; stopping a running task is a separate task operation.
+Schedules persist independently of the MCP token's lifetime, using existing Scheduler semantics.
+
+Mutations return Scheduler confirmation. Read back with `get_project_schedule` to verify settings
+and `next_run_time`; a schedule-only change does not require an immediate project run.
+Missing schedules on update/toggle return `SCHEDULE_NOT_FOUND`, invalid settings return
+`INVALID_ARGUMENTS`, insufficient role/scope returns `SCOPE_DENIED`, inaccessible projects return
+`PROJECT_NOT_FOUND_OR_DENIED`, and service failures return `SCHEDULER_UNAVAILABLE`.
+
 ## Node documentation
 
 Use `search_nodes` to discover suitable nodes, then read `get_node_definition` before first
@@ -107,8 +145,9 @@ default_tools_approval_mode = "writes"
 tool_timeout_sec = 60
 ```
 
-The MVP contains 22 tools for project and graph discovery, node search, atomic graph validation
+The service contains 28 tools for project and graph discovery, node search, atomic graph validation
 and patching, SQL/file catalogs, bounded read-only previews, scoped idempotent creation of missing
-databases/schemas/tables for `WriteDataFrameToDBV4`, and project task lifecycle. It does not expose
-arbitrary write SQL, MCP resources or prompts, OAuth, stdio, legacy SSE, project CRUD, subgraph
-CRUD, schedules, connection CRUD, Kafka/queue connectors, or file writes.
+databases/schemas/tables for `WriteDataFrameToDBV4`, project creation, scheduling, and task lifecycle.
+It does not expose arbitrary write SQL, MCP resources or prompts, OAuth, stdio, legacy SSE,
+project update/deletion, folder management, subgraph CRUD, schedule deletion, connection CRUD,
+Kafka/queue connectors, or file writes.
