@@ -3683,3 +3683,6 @@
 ### 2026-10-01 23:13:00
 - Синхронизирован `RELEASE` с Alembic revision `0063`.
 - Integration-тест миграции `0063` изолирован в отдельной временной PostgreSQL database, чтобы исключить зависимость от общей test schema и порядка запуска тестов.
+
+### 2026-10-02 17:11:24
+- Реализованы реальные Kafka metadata через общий runtime-конфиг подключения и admin client без чтения payload/offset side effects; fresh `ReadKafkaMessages` теперь сохраняет вычисленный DataFrame в новую cache generation, оставаясь недоступной для restore. Добавлены регрессии metadata/security, повторного fresh execution и viewer cache, обновлены EN/RU README.

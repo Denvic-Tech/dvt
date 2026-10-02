@@ -17,11 +17,18 @@ Credentials belong in the connection catalog, never in graph variables.
 ## Outputs
 
 `connection` contains a `KafkaConnectionRecord`, suitable for Kafka consumers.
-Loading the record does not create a producer or read messages.
+Loading the record does not create a producer or read messages. Metadata resolution may open a
+short-lived Kafka admin connection to fetch cluster, broker and topic metadata; it does not create
+a consumer, read message payloads, commit offsets, enable autocommit or create topics.
 
 ## Behavior and limitations
 
-Access checks use the existing connection service. The node does not commit offsets.
+Access checks use the existing connection service. Kafka metadata uses the same shared runtime
+connection configuration as Read/Commit, including timeouts and TLS/SASL settings. Returned
+`KafkaMetadata` contains brokers, controller when available, topics, partition counts, replication
+factor when available, internal-topic markers, bootstrap servers and a credential-free connection
+string. Passwords, SASL secrets and CA PEM bodies are never included in serialized metadata.
+The node does not commit offsets.
 The connection supports PLAINTEXT, SSL, SASL_PLAINTEXT and SASL_SSL, with PLAIN,
 SCRAM-SHA-256 or SCRAM-SHA-512. Optional `ssl_ca_pem` contains a custom CA in PEM;
 certificate and hostname verification remain enabled. mTLS is not supported by this configuration.
