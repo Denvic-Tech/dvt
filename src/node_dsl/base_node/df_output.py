@@ -287,7 +287,7 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
         cache = self._dataframe_execution_cache
         generation_id = self._dataframe_cache_generation_id
         if (
-            self.REQUIRES_FRESH_EXECUTION or not self._store_enabled
+            not self._store_enabled
             or cache is None or generation_id is None
         ):
             return
@@ -430,7 +430,7 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
 
             cache: DataFrameExecutionCache | None = None
             generation_id: str | None = None
-            if self._store_enabled and not self.REQUIRES_FRESH_EXECUTION:
+            if self._store_enabled:
                 if self.data_store is None:
                     logger.warning(
                         "store_enabled=True but data store is not configured; dataframe cache will be skipped."

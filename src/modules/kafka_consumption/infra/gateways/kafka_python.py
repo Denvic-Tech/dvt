@@ -138,6 +138,16 @@ class KafkaPythonGateway:
         finally:
             admin.close()
 
+    def describe_metadata(self) -> Mapping[str, object]:
+        """Load cluster/topic metadata without creating a consumer or touching offsets."""
+        admin = self._retry(lambda: KafkaAdminClient(**self._config), "connect")
+        try:
+            cluster = self._retry(admin.describe_cluster, "cluster metadata")
+            topics = self._retry(lambda: admin.describe_topics(), "topic metadata")
+            return {"cluster": cluster, "topics": topics}
+        finally:
+            admin.close()
+
     def bounds(
         self, partitions: Sequence[TopicPartition], isolation_level: IsolationLevel
     ) -> Mapping[TopicPartition, tuple[int, int]]:

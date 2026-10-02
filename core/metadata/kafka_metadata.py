@@ -1,12 +1,14 @@
+import contextlib
 import re
-from typing import List, Optional, Any, Set
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from cachetools import TTLCache, cached  # type: ignore
 
-from core.types import KafkaMetadata
-from core.types import KafkaBroker, KafkaTopic, KafkaCluster
+from core.types import KafkaBroker, KafkaCluster, KafkaMetadata, KafkaTopic
 
 
-def _normalize_bootstrap(value: Optional[str | List[str]]) -> List[str]:
+def _normalize_bootstrap(value: str | list[str] | None) -> list[str]:
     if not value:
         return []
     if isinstance(value, list):
@@ -15,16 +17,88 @@ def _normalize_bootstrap(value: Optional[str | List[str]]) -> List[str]:
         servers = [s.strip() for s in value.split(",") if s.strip()]
 
     def _clean(s: str) -> str:
-        return re.sub(r"\s+", "", s)
+        cleaned = re.sub(r"\s+", "", s)
+        if "://" in cleaned:
+            cleaned = cleaned.split("://", 1)[1]
+        if "@" in cleaned:
+            cleaned = cleaned.rsplit("@", 1)[1]
+        return cleaned
 
-    return sorted(set(_clean(s) for s in servers))
+    return sorted({_clean(s) for s in servers})
 
 
-def _mk_conn_str(bootstrap: List[str]) -> str:
+def _mk_conn_str(bootstrap: list[str]) -> str:
     return "kafka://" + ("bootstrap=" + ",".join(bootstrap) if bootstrap else "bootstrap=<unknown>")
 
 
-def _get_bootstrap_from_producer(producer: Any) -> List[str]:
+def build_kafka_metadata(
+    *,
+    cluster_metadata: Mapping[str, Any],
+    topics_metadata: Sequence[Mapping[str, Any]],
+    bootstrap_servers: str | list[str] | None = None,
+) -> KafkaMetadata:
+    """Build transport-safe Kafka metadata from Kafka Admin API responses."""
+    brokers: list[KafkaBroker] = []
+    for broker in cluster_metadata.get("brokers", []) or []:
+        if not isinstance(broker, Mapping):
+            continue
+        node_id = broker.get("node_id", broker.get("nodeId"))
+        host = broker.get("host")
+        port = broker.get("port")
+        if node_id is None or host is None or port is None:
+            continue
+        brokers.append(
+            KafkaBroker(
+                node_id=int(node_id),
+                host=str(host),
+                port=int(port),
+                rack=None if broker.get("rack") is None else str(broker["rack"]),
+            )
+        )
+
+    topics: list[KafkaTopic] = []
+    for topic in topics_metadata:
+        if not isinstance(topic, Mapping):
+            continue
+        error_code = topic.get("error_code", 0)
+        if error_code not in (None, 0):
+            continue
+        name = topic.get("topic", topic.get("name"))
+        if name is None:
+            continue
+        partitions = topic.get("partitions", []) or []
+        partitions_count = len(partitions) if isinstance(partitions, Sequence) else 0
+        replication_factor = 0
+        if partitions_count:
+            first_partition = partitions[0]
+            if isinstance(first_partition, Mapping):
+                replicas = first_partition.get("replicas", []) or []
+                if isinstance(replicas, Sequence):
+                    replication_factor = len(replicas)
+        topic_name = str(name)
+        topics.append(
+            KafkaTopic(
+                name=topic_name,
+                partitions_count=partitions_count,
+                replication_factor=replication_factor,
+                is_internal=bool(topic.get("is_internal", topic_name.startswith("_"))),
+            )
+        )
+
+    controller_id = cluster_metadata.get("controller_id")
+    bootstrap = _normalize_bootstrap(bootstrap_servers)
+    return KafkaMetadata(
+        cluster=KafkaCluster(
+            controller_id=None if controller_id is None else int(controller_id),
+            brokers=brokers,
+        ),
+        topics=sorted(topics, key=lambda topic: topic.name),
+        bootstrap_servers=bootstrap,
+        connection_string=_mk_conn_str(bootstrap),
+    )
+
+
+def _get_bootstrap_from_producer(producer: Any) -> list[str]:
     """
     Пытается извлечь bootstrap_servers из KafkaProducer.
     """
@@ -54,7 +128,7 @@ kafka_metadata_cache = TTLCache(maxsize=100, ttl=2)  # 5 минут, как у �
 )
 def load_kafka_metadata(
         producer: Any,
-        topics_filter: Optional[List[str]] = None,
+        topics_filter: list[str] | None = None,
         timeout: float = 5.0,
 ) -> KafkaMetadata:
     """
@@ -66,15 +140,13 @@ def load_kafka_metadata(
     :param timeout: таймаут ожидания обновления метадаты (сек)
     """
     # Обновим локальную метадату продьюсера
-    try:
+    with contextlib.suppress(Exception):
         producer._client.poll(timeout_ms=int(timeout * 1000))
-    except Exception:
-        pass
 
     cluster = producer._client.cluster
 
     # --- brokers ---
-    brokers: List[KafkaBroker] = []
+    brokers: list[KafkaBroker] = []
     try:
         for node in cluster.brokers():
             brokers.append(
@@ -90,18 +162,18 @@ def load_kafka_metadata(
 
     # --- topics ---
     try:
-        all_names: Set[str] = set(cluster.topics())
+        all_names: set[str] = set(cluster.topics())
     except Exception:
         all_names = set()
 
-    names: List[str]
+    names: list[str]
     if topics_filter is None:
         names = sorted(all_names)
     else:
         tf = set(topics_filter)
         names = sorted(n for n in all_names if n in tf)
 
-    topics: List[KafkaTopic] = []
+    topics: list[KafkaTopic] = []
     for name in names:
         try:
             parts = cluster.partitions_for_topic(name) or set()
