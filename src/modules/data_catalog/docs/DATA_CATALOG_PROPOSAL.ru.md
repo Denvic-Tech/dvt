@@ -4,6 +4,8 @@
 
 REST API: [план методов и профиля OpenMetadata](DATA_CATALOG_REST_API.ru.md). Native API следует соглашениям OpenMetadata; branch inheritance и атомарный Save имеют явные расширения DVT. Совместимость внешних клиентов проверяется отдельно для закреплённого подмножества.
 
+Порядок реализации и границы MVP определены в [плане четырёх этапов](IMPLEMENTATION_PLAN.ru.md). Настоящий документ описывает целевую модель, а не обязательный полный объём первого релиза.
+
 ## Что уже есть
 
 `src/modules/data_catalog/domain/value_objects.py` содержит `ColumnSchema` и `TableSchema`: название, dtype, описание, nullable, default, ограничения и произвольный metadata. `BuildSchema` собирает контракт, `DataFrameSchemaMapper` читает **таблицу описания схемы**, а не произвольный поток данных. Фасад используется нодами TableSchema и ConvertToSchema; SchemaPolicy применяет отдельные правила обработки данных.
