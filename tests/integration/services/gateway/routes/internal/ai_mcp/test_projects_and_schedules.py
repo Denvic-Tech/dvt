@@ -68,16 +68,36 @@ async def project_context(test_db_async_engine):
             name="Hidden", user_id=user.id, organization_id=other_org.id,
         )
         session.add_all([folder, hidden_folder])
-        await session.commit()
-        scope = MCPAccessScope(
-            projects=ResourceScope(ResourceScopeMode.ALL),
-            db_connections=ResourceScope(ResourceScopeMode.ALL),
-        )
-        token = MCPToken(
-            id=str(uuid4()), user_id=user.id, token_digest="unused", name="test",
-            access_scope=scope, created_at=datetime.now(UTC),
-        )
-        yield session, MCPPrincipal(user=user, token=token), folder, hidden_folder
+        user_id = user.id
+        organization_ids = (org.id, other_org.id)
+        try:
+            await session.commit()
+            scope = MCPAccessScope(
+                projects=ResourceScope(ResourceScopeMode.ALL),
+                db_connections=ResourceScope(ResourceScopeMode.ALL),
+            )
+            token = MCPToken(
+                id=str(uuid4()), user_id=user.id, token_digest="unused", name="test",
+                access_scope=scope, created_at=datetime.now(UTC),
+            )
+            yield session, MCPPrincipal(user=user, token=token), folder, hidden_folder
+        finally:
+            # HTTP handlers commit through separate connections, so a rollback alone
+            # cannot clean up this fixture's data.
+            await session.rollback()
+            async with factory.begin() as cleanup:
+                project_ids = sa.select(ProjectRecord.id).where(ProjectRecord.user_id == user_id)
+                for model, condition in (
+                    (TaskRecord, TaskRecord.user_id == user_id),
+                    (ProjectScheduleRecord, ProjectScheduleRecord.project_id.in_(project_ids)),
+                    (GraphNodeRecord, GraphNodeRecord.user_id == user_id),
+                    (ProjectRecord, ProjectRecord.user_id == user_id),
+                    (ProjectFolderRecord, ProjectFolderRecord.user_id == user_id),
+                    (UserRecord, UserRecord.id == user_id),
+                    (OrganizationRecord, OrganizationRecord.id.in_(organization_ids)),
+                ):
+                    # Schedule runs are deleted by their schedule's ON DELETE CASCADE.
+                    await cleanup.execute(sa.delete(model).where(condition))
 
 
 async def test_create_empty_project_and_enforce_scope(project_context):

@@ -47,6 +47,25 @@ async def test_hard_delete_user_cleans_project_dependencies_without_relationship
     test_db_async_session.add(user)
     await test_db_async_session.flush()
 
+    other_user = UserRecord(
+        email=f"retained-{suffix}@example.com",
+        hashed_password="hashed",
+        auth_provider="email",
+        is_verified=True,
+        is_active=True,
+        role=DVTDefaultRoles.ADMIN.value,
+        organization_id=organization.id,
+    )
+    test_db_async_session.add(other_user)
+    await test_db_async_session.flush()
+    other_folder = ProjectFolderRecord(
+        name="Retained folder",
+        user_id=other_user.id,
+        organization_id=organization.id,
+    )
+    test_db_async_session.add(other_folder)
+    await test_db_async_session.flush()
+
     folder = ProjectFolderRecord(
         name="Hard delete folder",
         user_id=user.id,
@@ -92,42 +111,39 @@ async def test_hard_delete_user_cleans_project_dependencies_without_relationship
     test_db_async_session.add(task)
     await test_db_async_session.flush()
 
-    test_db_async_session.add(
-        GraphNodeRecord(
-            ui_id=f"node-{suffix}",
-            type="input",
-            position_x=0.0,
-            position_y=0.0,
-            selected=False,
-            name="Hard delete node",
-            display_name="Hard delete node",
-            input_values={},
-            project_id=project.id,
-            organization_id=organization.id,
-            user_id=user.id,
-        )
+    node = GraphNodeRecord(
+        ui_id=f"node-{suffix}",
+        type="input",
+        position_x=0.0,
+        position_y=0.0,
+        selected=False,
+        name="Hard delete node",
+        display_name="Hard delete node",
+        input_values={},
+        project_id=project.id,
+        organization_id=organization.id,
+        user_id=user.id,
     )
+    test_db_async_session.add(node)
     await test_db_async_session.flush()
 
-    test_db_async_session.add(
-        AIAnalysisRequestRecord(
-            task_id=task.task_id,
-            project_id=project.id,
-            user_id=user.id,
-            organization_id=organization.id,
-        )
+    analysis = AIAnalysisRequestRecord(
+        task_id=task.task_id,
+        project_id=project.id,
+        user_id=user.id,
+        organization_id=organization.id,
     )
+    test_db_async_session.add(analysis)
     await test_db_async_session.flush()
 
-    test_db_async_session.add(
-        DVTServiceFileObjectRecord(
-            organization_id=organization.id,
-            project_id=project.id,
-            parent_path="",
-            name="input.csv",
-            is_dir=False,
-        )
+    file_object = DVTServiceFileObjectRecord(
+        organization_id=organization.id,
+        project_id=project.id,
+        parent_path="",
+        name="input.csv",
+        is_dir=False,
     )
+    test_db_async_session.add(file_object)
     await test_db_async_session.flush()
 
     test_db_async_session.add(
@@ -148,21 +164,32 @@ async def test_hard_delete_user_cleans_project_dependencies_without_relationship
             sa.select(LogRecord).where(LogRecord.task_id == task.task_id)
         )
     ).scalar_one()
+    deleted_records = (
+        (ProjectFolderRecord.id, folder.id),
+        (ProjectRecord.id, project.id),
+        (ProjectScheduleRecord.id, schedule.id),
+        (ProjectScheduleRunRecord.id, run.id),
+        (TaskRecord.task_id, task.task_id),
+        (GraphNodeRecord.id, node.id),
+        (AIAnalysisRequestRecord.id, analysis.id),
+        (DVTServiceFileObjectRecord.id, file_object.id),
+    )
     await delete_users(test_db_async_session, [user], soft_delete=False)
     await test_db_async_session.commit()
 
     assert await test_db_async_session.get(UserRecord, user.id) is None
-    for model in (
-        ProjectFolderRecord,
-        ProjectRecord,
-        ProjectScheduleRecord,
-        ProjectScheduleRunRecord,
-        TaskRecord,
-        GraphNodeRecord,
-        AIAnalysisRequestRecord,
-        DVTServiceFileObjectRecord,
-    ):
-        assert (await test_db_async_session.execute(sa.select(model))).scalars().all() == []
+    for id_column, record_id in deleted_records:
+        remaining_id = await test_db_async_session.scalar(
+            sa.select(id_column).where(id_column == record_id)
+        )
+        assert remaining_id is None
+
+    assert await test_db_async_session.scalar(
+        sa.select(UserRecord.id).where(UserRecord.id == other_user.id)
+    ) == other_user.id
+    assert await test_db_async_session.scalar(
+        sa.select(ProjectFolderRecord.id).where(ProjectFolderRecord.id == other_folder.id)
+    ) == other_folder.id
 
     persisted_log = await test_db_async_session.get(LogRecord, log.id)
     assert persisted_log is not None
