@@ -1,15 +1,16 @@
 import decimal
-import traceback
 import re
-from datetime import datetime, date
-from enum import Enum
+import traceback
+from datetime import date, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 import pandas as pd
+import pyarrow as pa
 
 
-class DataType(str, Enum):
+class DataType(StrEnum):
     """Типы данных, поддерживаемые для колонок DataFrame в метаданных."""
     INT = "INT"
     FLOAT = "FLOAT"
@@ -21,11 +22,26 @@ class DataType(str, Enum):
     DICTIONARY = "DICTIONARY"  # Для словарей, если они представлены в DataFrame
     OBJECT = "OBJECT"          # Общий тип для смешанных или неизвестных данных
     UNKNOWN = "UNKNOWN"
+    BINARY = "BINARY"
+    LIST = "LIST"
+    STRUCT = "STRUCT"
 
     @classmethod
     def from_type(cls, dtype: Any) -> 'DataType':
         """Преобразует любой type или строковое описание SQL-типа в DataType."""
         try:
+            arrow = dtype.pyarrow_dtype if isinstance(dtype, pd.ArrowDtype) else dtype
+            if isinstance(arrow, pa.DataType):
+                if (pa.types.is_binary(arrow) or pa.types.is_large_binary(arrow)
+                        or pa.types.is_fixed_size_binary(arrow)):
+                    return cls.BINARY
+                if (pa.types.is_list(arrow) or pa.types.is_large_list(arrow)
+                        or pa.types.is_fixed_size_list(arrow)):
+                    return cls.LIST
+                if pa.types.is_struct(arrow):
+                    return cls.STRUCT
+            if dtype is bytes:
+                return cls.BINARY
             # --- 1️⃣ Обработка строковых SQL / ClickHouse типов ---
             if isinstance(dtype, str):
                 dtype_low = dtype.lower().strip()
@@ -53,6 +69,12 @@ class DataType(str, Enum):
                             return cls.INT
                     return cls.FLOAT
 
+                if dtype_low.startswith(("list<", "large_list<", "fixed_size_list<")):
+                    return cls.LIST
+                if dtype_low.startswith("struct<"):
+                    return cls.STRUCT
+                if dtype_low in {"binary[pyarrow]", "large_binary[pyarrow]"}:
+                    return cls.BINARY
                 if "int" in dtype_low:
                     return cls.INT
                 if any(token in dtype_low for token in ("decimal", "float", "double", "real", "numeric")):

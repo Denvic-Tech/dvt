@@ -17,6 +17,7 @@ from src.modules.extension_management.domain.policies import (
     extension_readiness_reasons,
 )
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.identity import resolve_record
 from src.modules.extension_management.infra.packages.dependencies import (
     build_extension_pip_install_command,
 )
@@ -75,9 +76,9 @@ class ExtensionDependencyManager:
         """
         async with AsyncSessionLocal() as session, session.begin():
             result = await session.execute(
-                select(ExtensionRecord).where(ExtensionRecord.name == extension_name).with_for_update()
+                select(ExtensionRecord).with_for_update()
             )
-            extension = result.scalars().first()
+            extension = resolve_record(result.scalars().all(), extension_name)
             if extension is None:
                 logger.warning(
                     "Extension not found for deps status update",
@@ -85,6 +86,8 @@ class ExtensionDependencyManager:
                 )
                 return False
 
+            if extension.deps_status == status:
+                return True
             extension.deps_status = status
             extension.updated_at = datetime.now(UTC)
             session.add(extension)
@@ -95,23 +98,31 @@ class ExtensionDependencyManager:
             )
             return True
 
-    async def install_dependencies(self, extension_name: str) -> ExtensionDependencyResult:
+    async def install_dependencies(
+        self, extension_name: str, *, publish_status: bool = True,
+    ) -> ExtensionDependencyResult:
         """Устанавливает зависимости расширения.
         
         Выполняет установку через pip install в окружение воркера.
         
         Args:
             extension_name: Имя расширения для установки.
+            publish_status: False для локальной подготовки контейнера без изменения БД.
             
         Returns:
             Результат операции установки.
         """
         log = logger.bind(extension_name=extension_name)
 
+        async def update_status(status: ExtensionDepsStatus) -> None:
+            # Preparing one container must not invalidate other workers' readiness.
+            if publish_status:
+                await self.update_deps_status(extension_name, status)
+
         extension = await self._load_extension(extension_name)
         if extension is None:
             log.error("Extension not found in DB")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.ERROR)
+            await update_status(ExtensionDepsStatus.ERROR)
             return ExtensionDependencyResult(
                 success=False,
                 extension_name=extension_name,
@@ -122,7 +133,7 @@ class ExtensionDependencyManager:
         requirements = self._extract_requirements(extension)
         if not isinstance(requirements, list):
             log.error("Invalid manifest requirements type")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.ERROR)
+            await update_status(ExtensionDepsStatus.ERROR)
             return ExtensionDependencyResult(
                 success=False,
                 extension_name=extension_name,
@@ -135,7 +146,7 @@ class ExtensionDependencyManager:
         ]
         if not requirements:
             log.info("No dependencies to install")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.READY)
+            await update_status(ExtensionDepsStatus.READY)
             return ExtensionDependencyResult(
                 success=True,
                 extension_name=extension_name,
@@ -147,7 +158,7 @@ class ExtensionDependencyManager:
             "Installing extension requirements"
         )
         try:
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.INSTALLING)
+            await update_status(ExtensionDepsStatus.INSTALLING)
             install_root = Path(extension.install_path) if extension.install_path else None
             if install_root is None:
                 raise RuntimeError("Extension install path is not configured")
@@ -165,7 +176,7 @@ class ExtensionDependencyManager:
                 stderr = (completed.stderr or completed.stdout or "").strip()
                 raise RuntimeError(stderr or "pip install failed")
 
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.READY)
+            await update_status(ExtensionDepsStatus.READY)
             log.info("Extension dependencies installed")
             return ExtensionDependencyResult(
                 success=True,
@@ -175,7 +186,7 @@ class ExtensionDependencyManager:
             )
         except Exception as exc:
             log.exception("Failed to install extension dependencies")
-            await self.update_deps_status(extension_name, ExtensionDepsStatus.ERROR)
+            await update_status(ExtensionDepsStatus.ERROR)
             return ExtensionDependencyResult(
                 success=False,
                 extension_name=extension_name,
@@ -253,9 +264,13 @@ class ExtensionDependencyManager:
 
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(ExtensionRecord).where(ExtensionRecord.name.in_(extension_names))
+                select(ExtensionRecord)
             )
-            extensions = {item.name: item for item in result.scalars().all()}
+            records = result.scalars().all()
+            extensions = {
+                name: record for name in extension_names
+                if (record := resolve_record(records, name)) is not None
+            }
 
         missing = sorted(extension_names - set(extensions.keys()))
         not_ready = []
@@ -291,9 +306,9 @@ class ExtensionDependencyManager:
         """Загружает расширение из БД."""
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(ExtensionRecord).where(ExtensionRecord.name == extension_name)
+                select(ExtensionRecord)
             )
-            return result.scalars().first()
+            return resolve_record(result.scalars().all(), extension_name)
 
     def _extract_requirements(self, extension: ExtensionRecord) -> list:
         """Извлекает требования из манифеста расширения."""

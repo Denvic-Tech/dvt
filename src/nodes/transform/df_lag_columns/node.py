@@ -9,20 +9,41 @@ from src.node_dsl.node_typing import IO
 
 class DataFrameLagColumns(DFOutputBaseNode):
     TITLE = "Lag Columns (сдвиг значений по строке)"
+    ICON_KEY = "dataframe-lag-columns"
     EMOJI = "⏪"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Establish the intended row order upstream before applying lag. This node shifts "
+            "across the DataFrame and does not group by an entity key; do not use it as a "
+            "per-customer lag without arranging that behavior."
+        ),
+    )
 
     columns_to_lag: List[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Select existing source columns and check for collisions with generated names such as "
+            "amount_lag1 or amount_lag-1. All requested fields must exist even if validation finds "
+            "at least one."
+        ),
         description="Колонки для создания лагов"
     )
 
     lag_steps: IO.INT = InputField(
+        agent_description=(
+            "Use a non-zero row offset: positive shifts toward later rows, negative reads "
+            "following values. This is a row shift, not a time-duration offset; check ordering and "
+            "partition-boundary behavior on representative data."
+        ),
         description='Количество шагов сдвига (положительное - сдвиг вниз, отрицательное - вверх)'
     )
 
     fill_value: IO.PRIMITIVE = InputField(
+        agent_description=(
+            "Omit to retain missing shifted values. If provided, use a dtype-compatible scalar; "
+            "fillna also fills shifted source nulls, not only the newly introduced boundary gaps."
+        ),
         default=None,
         description="Значение для заполнения пустых мест после сдвига (по умолчанию NaN)"
     )

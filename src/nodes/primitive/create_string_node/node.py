@@ -6,7 +6,13 @@ class CreateStringNode(PrimitiveBaseNode):
     CATEGORY = "Primitive"
     DISABLED = True
 
-    string: str = InputField()
+    string: str = InputField(
+        agent_description=(
+            "Disabled legacy primitive. If maintaining an existing graph, supply the string to "
+            "emit unchanged after normal input resolution; this node performs no parsing or "
+            "formatting."
+        ),
+    )
 
     output: str = OutputField()
 

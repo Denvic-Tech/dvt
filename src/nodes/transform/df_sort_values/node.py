@@ -12,9 +12,24 @@ class DataFrameSortValues(DFOutputBaseNode):
     CATEGORY = "Transform"
     EXPERIMENTAL = True
 
-    df: dd.DataFrame = InputField()
-    by: List[IO.COLUMN_NAME] = InputField()  # Список колонок для сортировки
-    ascending: Optional[List[bool]] = InputField()  # Список булевых значений
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Experimental sorting node: estimate distributed shuffle cost and provide all "
+            "necessary tie-breaker columns for deterministic order."
+        ),
+    )
+    by: List[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Supply existing columns in priority order. Include a stable tie-breaker when later "
+            "first/last/lag operations require reproducible ordering."
+        ),
+    )  # Список колонок для сортировки
+    ascending: Optional[List[bool]] = InputField(
+        agent_description=(
+            "Omit for ascending order on every key, or provide one boolean per by entry. A length "
+            "mismatch falls back to ascending for all keys, so validate lengths explicitly."
+        ),
+    )  # Список булевых значений
 
     output: dd.DataFrame = OutputField()
 

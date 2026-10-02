@@ -12,27 +12,27 @@ from core.types import (
     DBTableType,
 )
 
-from src.nodes.extract.read_table_from_db_v3 import node as read_table_module
 from src.node_dsl import ExecutionDateTimePrecision, ExecutionSettings, get_definition
 from src.node_dsl.variables import make_unresolved_value
-from src.nodes.extract.read_table_from_db_v3 import ReadTableFromDBV3
+from src.nodes.extract.read_table_from_db_v3 import ReadTableFromDBV3, node as read_table_module
 
 
-def test_read_table_from_db_v3_documents_mcp_safe_column_configuration() -> None:
-    definition = get_definition("ReadTableFromDBV3")
-    english_definition = get_definition("ReadTableFromDBV3", lang="en")
-    russian_definition = get_definition("ReadTableFromDBV3", lang="ru")
-
-    assert "explicit non-empty" in definition.input_definitions["columns"].description.lower()
-    assert "without sql quotes or backticks" in (
-        definition.input_definitions["partition_col"].description.lower()
-    )
-    assert "explicit non-empty" in (
-        english_definition.input_definitions["columns"].description.lower()
-    )
-    assert "обязательный непустой" in (
-        russian_definition.input_definitions["columns"].description.lower()
-    )
+def test_read_table_from_db_v3_separates_ui_and_agent_guidance() -> None:
+    definitions = [
+        get_definition("ReadTableFromDBV3", lang=locale)
+        for locale in ("default", "en", "ru")
+    ]
+    for definition in definitions:
+        columns = definition.input_definitions["columns"]
+        key = definition.input_definitions["partition_col"]
+        grouping = definition.input_definitions["partition_grouping"]
+        assert "explicit non-empty" in columns.agent_description.lower()
+        assert "without sql quotes or backticks" in key.agent_description.lower()
+        assert "profile" in grouping.agent_description.lower()
+        assert "comment" in grouping.agent_description.lower()
+        assert grouping.description != grouping.agent_description
+    assert len({d.input_definitions["partition_col"].agent_description for d in definitions}) == 1
+    assert "Колонка" in definitions[-1].input_definitions["partition_col"].description
 
 
 def test_read_table_from_db_v3_forwards_partitioning_params_to_planner(monkeypatch):
@@ -46,6 +46,9 @@ def test_read_table_from_db_v3_forwards_partitioning_params_to_planner(monkeypat
     monkeypatch.setattr(read_table_module, "resolve_planner", lambda mode="table": _Planner())
     monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine: "executor")
     monkeypatch.setattr(read_table_module, "frame_from_executor", lambda executor, plan: "output")
+    monkeypatch.setattr(read_table_module, "load_db_table_metadata", lambda *args, **kwargs: DBTable(
+        name="events", columns=[], type=DBTableType.BASE_TABLE,
+    ))
 
     node = ReadTableFromDBV3(
         user_id="user",
@@ -84,6 +87,9 @@ def test_read_table_from_db_v3_passes_none_npartitions_to_planner(monkeypatch):
     monkeypatch.setattr(read_table_module, "resolve_planner", lambda mode="table": _Planner())
     monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine: "executor")
     monkeypatch.setattr(read_table_module, "frame_from_executor", lambda executor, plan: "output")
+    monkeypatch.setattr(read_table_module, "load_db_table_metadata", lambda *args, **kwargs: DBTable(
+        name="events", columns=[], type=DBTableType.BASE_TABLE,
+    ))
 
     node = ReadTableFromDBV3(
         user_id="user",

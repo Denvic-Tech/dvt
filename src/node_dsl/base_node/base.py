@@ -8,6 +8,7 @@ from src import enums, utils
 from src.logger import logger
 from src.pipeline.execution_mode import PipelineExecutionMode
 
+from ..cancellation import CancellationToken
 from ..exceptions import NodeValidationError
 from ..field import InputField, OutputField
 from ..node_meta import BaseNodeMeta
@@ -76,6 +77,7 @@ class BaseNode(
     # --- Атрибуты класса для метаданных ---
     TITLE: ClassVar[str | None] = None
     EMOJI: ClassVar[str | None] = None
+    ICON_KEY: ClassVar[str | None] = None
     CATEGORY: ClassVar[str] = "Custom"
     TAGS: ClassVar[list[str]] = []
     TYPE: ClassVar[enums.NodeType] = enums.NodeType.BASE
@@ -87,6 +89,8 @@ class BaseNode(
     DISABLED: ClassVar[bool] = False
     ADDITIONAL_SCHEMA: ClassVar[dict | None] = None
     CACHABLE: ClassVar[bool] = True
+    # A live source forbids snapshot replay of itself and its dependent execution path.
+    REQUIRES_FRESH_EXECUTION: ClassVar[bool] = False
     TTL_CACHE: ClassVar[int | None] = False
     EXTENSION_NAME: ClassVar[str | None] = None
     EXTENSION_VERSION: ClassVar[str | None] = None
@@ -97,11 +101,21 @@ class BaseNode(
     DISABLED_OUTPUTS: ClassVar[Sequence[str] | None] = None
 
     input_variables: dict[str, IO.VARIABLE] = InputField(
+        agent_description=(
+            "Connect VARIABLE outputs or provide typed variable records, not arbitrary business "
+            "columns. Check names, types and nullability before using variables in input "
+            "expressions; variables can also come from project scope."
+        ),
         default={},
         description="Input variables",
         allow_multiple_connections=True
     )
     signal_in: Optional[IO.SIGNAL] = InputField(
+        agent_description=(
+            "Use incoming SIGNAL edges for explicit execution dependencies or conditional "
+            "branches. Do not put business data in this port. Leave unconnected when ordinary data "
+            "dependencies provide the intended execution order."
+        ),
         default=None,
         description="Execution signal input",
         allow_multiple_connections=True
@@ -174,8 +188,14 @@ class BaseNode(
             execution_settings=execution_settings,
         )
 
+        self._cancellation = CancellationToken()
         self._set_kwargs(**input_kwargs)
         self._normalize_variable_ports()
+
+    @property
+    def cancellation(self) -> CancellationToken:
+        """Cooperative STOP signal, including for local delayed computations."""
+        return self._cancellation
 
     def _set_kwargs(self, **input_kwargs):
         input_field_names = {field.attr_name for field in self._input_field_instances.values()}
@@ -205,7 +225,7 @@ class BaseNode(
 
             **input_kwargs
     ):
-        return cls(
+        node = cls(
             node_id=node_id,
             user_id=pipeline_processor.task.user_id,
             project_id=pipeline_processor.task.project_id,
@@ -214,6 +234,7 @@ class BaseNode(
             on_process_start=on_process_start,
             on_process_success=on_process_success,
             on_progress_step=on_progress_step,
+            on_node_metadata=pipeline_processor.refresh_node_metadata,
 
             data_store=pipeline_processor.data_store,
             data_index_store=pipeline_processor.data_index_store,
@@ -231,6 +252,10 @@ class BaseNode(
 
             **input_kwargs
         )
+        stop_event = getattr(pipeline_processor, "stop_event", None)
+        if stop_event is not None:
+            node._cancellation = CancellationToken(stop_event.is_set)
+        return node
 
     @abstractmethod
     def process(self) -> None:

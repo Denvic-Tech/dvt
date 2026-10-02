@@ -678,13 +678,21 @@ def _build_mock_metadata(connection_type: str, engine: sa.Engine) -> DBMetadata:
 
 class GetMockDBConnection(SqlConnectionOutputBaseNode):
     TITLE = "Get Mock DB Connection"
+    ICON_KEY = "get-mock-db-connection"
     EMOJI = "🔌"
     CATEGORY = "Mock Data"
     CACHABLE = False
     TAGS = frozenset({"Testing"})
 
     # --- Inputs ---
-    connection_type: Literal[tuple(_MOCK_METADATA_BUILDERS.keys())] = InputField()
+    connection_type: Literal[tuple(_MOCK_METADATA_BUILDERS.keys())] = InputField(
+        agent_description=(
+            "Testing-only node: choose one of the declared dialect names to generate a mock SQL "
+            "engine and synthetic catalog metadata. It does not connect to a real data source or "
+            "provide real table contents; use an actual saved connection for executable production "
+            "pipelines."
+        ),
+    )
 
     # --- Outputs ---
     connection: sa.Engine = OutputField()

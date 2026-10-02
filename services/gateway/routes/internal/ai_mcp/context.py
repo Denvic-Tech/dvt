@@ -21,7 +21,7 @@ from .auth import MCPPrincipal
 from .errors import AIMCPHTTPError
 from .pagination import decode_cursor, encode_cursor
 
-EXCLUDED_AI_MCP_NODES = frozenset({"GetExistKafkaConnection", "ReadQueueTopic"})
+EXCLUDED_AI_MCP_NODES = frozenset({"ReadQueueTopic"})
 
 
 async def list_projects(
@@ -193,4 +193,5 @@ async def get_node_definition(
     definition = get_definition(node_name=node_name, lang=locale)
     payload = definition.model_dump(mode="json")
     payload["documentation"] = await _node_documentation(node_name, locale) or None
+    payload["documentation_available"] = bool(payload["documentation"])
     return payload

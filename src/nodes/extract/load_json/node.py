@@ -14,10 +14,17 @@ from src.nodes.extract._shared.ftp_file import localized_ftp_file
 
 class LoadJSON(FileConnectionInputMixin, JSONOutputBaseNode):
     TITLE = "Load JSON"
+    ICON_KEY = "load-json"
     EMOJI = "{ }"
     CATEGORY = "Extraction"
 
     path: str = InputField(
+        agent_description=(
+            "Set a connection-relative path or glob to complete JSON documents. One matching file "
+            "returns its parsed document; multiple files return a list of documents without "
+            "flattening nested arrays. Files are fully read into memory, including during metadata "
+            "inference; this reader is not a JSON Lines stream."
+        ),
         description=(
             "Поддерживаются glob-паттерны, например:\n"
             "  'reports/01-01-*.json' — все файлы за 1 января\n"
@@ -25,6 +32,11 @@ class LoadJSON(FileConnectionInputMixin, JSONOutputBaseNode):
         )
     )
     encoding: str = InputField(
+        agent_description=(
+            "Choose the actual text encoding used by the JSON files, normally utf-8. Decoding and "
+            "JSON syntax errors fail the read; use utf-8-sig only when appropriate for a UTF-8 "
+            "BOM."
+        ),
         default="utf-8",
         is_hidden=True,
     )

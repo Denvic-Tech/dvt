@@ -1,4 +1,4 @@
-"""Утилиты для работы с расширениями."""
+"""Prepare extension dependencies in the local runtime under a process lock."""
 import os
 
 from sqlmodel import select
@@ -7,8 +7,6 @@ from src.db import AsyncSessionLocal
 from src.logger import logger
 from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.extension_management.infra.errors import stage_error
-from src.node_dsl.registry import definitions as definitions_registry
-from src.pipeline.types import Pipeline
 
 
 def lock_file(file):
@@ -30,34 +28,14 @@ def unlock_file(file):
         import fcntl
         fcntl.flock(file, fcntl.LOCK_UN)
 
-def collect_extension_names(pipeline: Pipeline) -> set[str]:
-    """Собирает имена расширений, используемых в пайплайне.
-
-    Args:
-        pipeline: Словарь {node_id: NodeData} с узлами пайплайна.
-
-    Returns:
-        Множество имен расширений, которые используются в узлах пайплайна.
-    """
-    extension_names: set[str] = set()
-    for node in pipeline.values():
-        node_name = getattr(node, "name", None)
-        if not node_name:
-            continue
-        try:
-            node_def = definitions_registry.get(node_name)
-        except Exception:
-            continue
-        if node_def.extension_name:
-            extension_names.add(node_def.extension_name)
-    return extension_names
-
-
-async def ensure_extension_deps_installed(*, raise_on_failure: bool = False) -> None:
+async def ensure_extension_deps_installed(
+    *, raise_on_failure: bool = False, publish_status: bool = True,
+) -> None:
     """Устанавливает зависимости расширений локально в текущей среде.
 
     ``raise_on_failure`` используется execution barrier Task Worker: в этом режиме
     локальная установка обязана завершиться успешно до reload node registry.
+    ``publish_status=False`` оставляет общие статусы и ошибки расширений неизменными.
     """
     from src.modules.extension_management.infra.dependency_manager import (
         ExtensionDependencyManager,
@@ -70,6 +48,8 @@ async def ensure_extension_deps_installed(*, raise_on_failure: bool = False) -> 
         *,
         clear_only_dependency_error: bool = False,
     ) -> None:
+        if not publish_status:
+            return
         async with AsyncSessionLocal() as session:
             db_manager = ExtensionDBManager(session)
             current = await db_manager.get_extension(extension_name)
@@ -114,10 +94,9 @@ async def ensure_extension_deps_installed(*, raise_on_failure: bool = False) -> 
                 failures: list[str] = []
                 for extension in extensions:
                     try:
-                        # ВАЖНО: внутри install_dependencies обязательно должна быть
-                        # проверка, нужно ли реально что-то ставить (например через pip check),
-                        # чтобы второй воркер не переустанавливал то, что уже поставил первый.
-                        res = await dependency_manager.install_dependencies(extension.name)
+                        res = await dependency_manager.install_dependencies(
+                            extension.name, publish_status=publish_status,
+                        )
 
                         if res.success:
                             logger.info(f"Extension '{extension.name}' deps ready.")

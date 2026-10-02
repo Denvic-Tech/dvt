@@ -5,11 +5,14 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateSchema, DropSchema
 
-from src.db import async_engine
+from src.db import async_engine, engine as default_engine
+from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.identity import resolve_record
 
 _PG_IDENTIFIER_MAX_LENGTH = 63
 _SIMPLE_NAME_RE = re.compile(r"^[a-z0-9_]+$")
@@ -35,6 +38,24 @@ def extension_schema_name(extension_name: str) -> str:
     return f"{prefix}{slug}{suffix}"
 
 
+def resolve_storage_schema(extension_name: str, *, _engine=None) -> str:
+    """Resolve aliases to the persisted physical schema, never derive it from an alias."""
+    with Session(_engine or default_engine) as session:
+        record = resolve_record(session.scalars(select(ExtensionRecord)).all(), extension_name)
+        if record is None:
+            raise ValueError(f"Extension '{extension_name}' not found")
+        return record.storage_schema or extension_schema_name(record.name)
+
+
+async def _resolve_storage_schema_async(extension_name: str, engine: AsyncEngine) -> str:
+    async with AsyncSession(engine) as lookup:
+        records = (await lookup.execute(select(ExtensionRecord))).scalars().all()
+        record = resolve_record(records, extension_name)
+        if record is None:
+            raise ValueError(f"Extension '{extension_name}' not found")
+        return record.storage_schema or extension_schema_name(record.name)
+
+
 def _quoted_search_path(schema_name: str, dialect) -> str:
     quoted = dialect.identifier_preparer.quote(schema_name)
     return f"{quoted}, public"
@@ -52,8 +73,8 @@ async def extension_async_session(
     extension search_path into a later core request. The ``after_begin`` hook is
     invoked again after both commit and rollback when a new transaction starts.
     """
-    schema_name = extension_schema_name(extension_name)
     engine = _engine or async_engine
+    schema_name = await _resolve_storage_schema_async(extension_name, engine)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     session = session_factory()
 
@@ -72,8 +93,8 @@ async def extension_async_session(
 async def ensure_extension_schema(
     extension_name: str, *, _engine: AsyncEngine | None = None
 ) -> str:
-    schema_name = extension_schema_name(extension_name)
     engine = _engine or async_engine
+    schema_name = await _resolve_storage_schema_async(extension_name, engine)
     async with engine.begin() as connection:
         await connection.execute(CreateSchema(schema_name, if_not_exists=True))
     return schema_name
@@ -82,8 +103,8 @@ async def ensure_extension_schema(
 async def drop_extension_schema(
     extension_name: str, *, _engine: AsyncEngine | None = None
 ) -> None:
-    schema_name = extension_schema_name(extension_name)
     engine = _engine or async_engine
+    schema_name = await _resolve_storage_schema_async(extension_name, engine)
     async with engine.begin() as connection:
         await connection.execute(DropSchema(schema_name, cascade=True, if_exists=True))
 

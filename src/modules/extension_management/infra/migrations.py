@@ -8,7 +8,7 @@ from sqlalchemy import Engine
 from sqlalchemy.schema import CreateSchema, DropSchema
 
 from src.db import engine as default_engine
-from src.modules.extension_management.infra.database import extension_schema_name
+from src.modules.extension_management.infra.database import resolve_storage_schema
 from src.modules.extension_management.infra.runtime.loader import _temporary_sys_path
 from src.modules.extension_management.infra.runtime.registry import RegisteredExtension
 
@@ -47,7 +47,7 @@ class ExtensionMigrationManager:
         self._script_location = Path(__file__).with_name("alembic_runtime")
 
     def ensure_schema(self, extension_name: str) -> str:
-        schema_name = extension_schema_name(extension_name)
+        schema_name = resolve_storage_schema(extension_name, _engine=self.engine)
         with self.engine.begin() as connection:
             connection.execute(CreateSchema(schema_name, if_not_exists=True))
         return schema_name
@@ -78,7 +78,7 @@ class ExtensionMigrationManager:
                 connection.commit()
 
     def drop_schema(self, extension_name: str) -> None:
-        schema_name = extension_schema_name(extension_name)
+        schema_name = resolve_storage_schema(extension_name, _engine=self.engine)
         with self.engine.begin() as connection:
             connection.execute(DropSchema(schema_name, cascade=True, if_exists=True))
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import hashlib
 import json
 import re
@@ -63,7 +61,7 @@ class PositionSchema(BaseModel):
 class InputValueSchema(BaseModel):
     kind: Literal["constant", "expression", "connection_ref"] = Field(
         description=(
-            "connection_ref is valid for *_CONNECTION_ID inputs on GetExist*Connection nodes; "
+            "connection_ref is valid for inputs whose schema type is *_CONNECTION_ID; "
             "consumer *_CONNECTION object inputs require graph edges."
         )
     )
@@ -82,8 +80,8 @@ class AddNodeSchema(BaseModel):
     inputs: dict[str, InputValueSchema | None] = Field(
         default_factory=dict,
         description=(
-            "Initial node inputs. ReadTableFromDBV3 requires explicit partition_col and columns. "
-            "Connection object inputs must be supplied by edges from GetExist*Connection nodes."
+            "Initial node inputs. Consult the node schema, input agent_description and "
+            "documentation. Connection object inputs require edges from compatible outputs."
         ),
     )
     store_enabled: bool = False

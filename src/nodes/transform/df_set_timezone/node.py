@@ -1,22 +1,49 @@
+from typing import Optional
+
 import dask.dataframe as dd
 
 from src.logger import logger
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
+from src.node_dsl.node_mixins.column_rules import ColumnRulesMixin
 from src.node_dsl.node_typing import IO
+from src.nodes.transform._shared.column_rules import OPERATIONS
 
 
-class DataFrameSetTimezone(DFOutputBaseNode):
+class DataFrameSetTimezone(ColumnRulesMixin, DFOutputBaseNode):
+    COLUMN_RULE_OPERATION = OPERATIONS["timezone"]
+    LEGACY_RULE_INPUTS = ("column", "timezone",)
+    LEGACY_REQUIRED = ("column",)
+
     TITLE = "Set Timezone"
+    ICON_KEY = "dataframe-set-timezone"
     EMOJI = "🌐"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    column: IO.COLUMN_NAME = InputField()
-    timezone: str = InputField(default="Europe/Moscow")
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect data with known source timezone semantics. Do not assume a naive timestamp is "
+            "already local time; inspect representative values before conversion."
+        ),
+    )
+    column: Optional[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Select the datetime field to update. Non-datetime values are parsed with errors "
+            "coerced to NaT; inspect parsing loss and daylight-saving boundary cases."
+        ),
+    )
+    timezone: str = InputField(
+        agent_description=(
+            "Use an explicit timezone supported by the runtime. Naive values are localized without "
+            "shifting clock time; aware values are converted preserving instants. "
+            "Ambiguous/nonexistent local times become NaT. For naive UTC input, localize to UTC "
+            "before converting to a local zone."
+        ),
+        default="Europe/Moscow",
+    )
 
     output: dd.DataFrame = OutputField()
 
-    def process(self):
+    def process_legacy(self):
         target_col = self.column
         tz = self.timezone
         logger.info(f"Setting timezone '{tz}' for column '{self.column}'")

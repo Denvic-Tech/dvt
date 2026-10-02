@@ -15,6 +15,11 @@ def test_db_catalog_openapi_exposes_paged_summary_and_targeted_detail_contracts(
     components = schema["components"]["schemas"]
     assert "columns" not in components["CatalogTableSummarySchema"]["properties"]
     assert "columns" in components["CatalogTableDetailsSchema"]["properties"]
+    for name in ("CatalogTableSummarySchema", "CatalogTableDetailsSchema", "CatalogColumnSchema",
+                 "Column", "DataFrameMetadata"):
+        model = components[name]
+        assert model["properties"]["comment"]["anyOf"] == [{"type": "string"}, {"type": "null"}]
+        assert "comment" not in model.get("required", [])
     assert "next_cursor" in components["CatalogTablePageSchema"]["properties"]
     assert "total" not in components["CatalogTablePageSchema"]["properties"]
     preview = components["CatalogTablePreviewResponseSchema"]["properties"]

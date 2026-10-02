@@ -14,7 +14,14 @@ class ValidationErrorNode(TestingBaseNode):
     def validate_input(self) -> None:
         raise NodeValidationError("Intentional validation error for testing purposes.")
 
-    value_in: IO.ANY = InputField(default="test")
+    value_in: IO.ANY = InputField(
+        agent_description=(
+            "Experimental validation-failure fixture. Validation deliberately raises "
+            "NodeValidationError regardless of this value; changing the input will not make the "
+            "node pass. Use only to test validation error handling."
+        ),
+        default="test",
+    )
     value_out: IO.ANY = OutputField()
 
     def process(self):

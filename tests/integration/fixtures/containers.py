@@ -128,14 +128,12 @@ def mssql_container() -> Generator[SqlServerContainer, Any, None]:
 
 
 @pytest.fixture(scope="session")
-def kafka_container() -> Generator[KafkaContainer, Any, None]:
-    """
-    Kafka test container
-    """
-    with KafkaContainer(
-            "confluentinc/cp-kafka:7.6.0",
-            docker_client_kw={"timeout": CONTAINERS_TIMEOUT}
-    ) as kafka:
+def kafka_container(request) -> Generator[KafkaContainer, Any, None]:
+    """A single resource-bounded KRaft broker; Docker failures fail the test."""
+    from .kafka import assert_serial_kafka, running_kafka
+
+    assert_serial_kafka(request)
+    with running_kafka() as kafka:
         yield kafka
 
 

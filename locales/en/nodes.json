@@ -3237,7 +3237,7 @@
                 "partition_col": {
                     "display_name": "partition_col",
                     "display_type": "STRING",
-                    "description": "Required. Use an exact scalar column exposed by the query result; prefer a stable, non-null and indexed numeric/datetime column without SQL quotes."
+                    "description": "Required column of the query result used for partitioning."
                 },
                 "partition_grouping": {
                     "display_name": "partition_grouping",
@@ -3456,62 +3456,62 @@
                 "TTL_CACHE": {
                     "display_name": "TTL_CACHE",
                     "display_type": "INT",
-                    "description": "Время жизни кеша"
+                    "description": "Cache lifetime in seconds; 0 disables caching."
                 },
                 "connection": {
                     "display_name": "connection",
                     "display_type": "DB_CONNECTION",
-                    "description": null
+                    "description": "Database connection."
                 },
                 "table_name": {
                     "display_name": "table_name",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "Name of the source table."
                 },
                 "database_name": {
                     "display_name": "database_name",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "Source database; omit to use the connection default."
                 },
                 "schema_name": {
                     "display_name": "schema_name",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "Source schema, when supported by the database."
                 },
                 "columns": {
                     "display_name": "columns",
                     "display_type": "COLUMN_NAME",
-                    "description": "Explicit non-empty columns list. Pass every catalog column to read and display all columns; null is not an all-columns selection in a persisted graph."
+                    "description": "Columns to read; select every column to read the whole table."
                 },
                 "limit": {
                     "display_name": "limit",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Maximum rows to read; omit to read without a row limit."
                 },
                 "time_zone": {
                     "display_name": "time_zone",
                     "display_type": "STRING",
-                    "description": null
+                    "description": "Time zone; currently not applied by this reader."
                 },
                 "partition_col": {
                     "display_name": "partition_col",
                     "display_type": "COLUMN_NAME",
-                    "description": "Required for deterministic read_v3 execution. Use the exact raw catalog column name without SQL quotes or backticks."
+                    "description": "Column used to split table reading into partitions."
                 },
                 "partition_grouping": {
                     "display_name": "partition_grouping",
                     "display_type": "DICT",
-                    "description": "Optional custom partition grouping. Configure it only when column type, cardinality, and data distribution justify a non-default strategy."
+                    "description": "Read partitioning strategy; omit for automatic range/hash selection."
                 },
                 "npartitions": {
                     "display_name": "npartitions",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Target partition count; omit for automatic sizing."
                 },
                 "max_rows_per_partition": {
                     "display_name": "max_rows_per_partition",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Row ceiling per segment; exceeding it fails the read."
                 }
             },
             "output_definitions": {

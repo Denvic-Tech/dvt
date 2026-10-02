@@ -29,19 +29,47 @@ import config
 
 class ReadQueueTopic(DFOutputBaseNode):
     TITLE = "Read Queue Topic"
+    ICON_KEY = "queue-topic"
     EMOJI = "📦"
     CATEGORY = "Extraction"
 
-    topic_id: str = InputField(description="ID топика очереди")
+    topic_id: str = InputField(
+        agent_description=(
+            "Use an existing DVT queue-topic identifier whose configured column schema matches the "
+            "messages. Resolve it from project/catalog context rather than guessing. This reads "
+            "DVT Redis Streams, not a Kafka topic; message batches are materialized in worker "
+            "memory."
+        ),
+        description="ID топика очереди",
+    )
 
     stream_key: str | None = InputField(
+        agent_description=(
+            "Normally omit to use queue_topic:{topic_id}:stream. Override only for a verified "
+            "custom Redis Stream belonging to the selected topic and matching its schema; the "
+            "topic record is still required."
+        ),
         default=None,
         description="Ключ потока в Redis (если не указан, формируется как 'queue_topic:{topic_id}:stream')"
     )
 
-    delete_after_read: bool = InputField(default=False, description="Если True, удаляет прочитанные ID из Redis")
+    delete_after_read: bool = InputField(
+        agent_description=(
+            "Leave false for repeatable reads. True deletes fetched message IDs from Redis during "
+            "full execution before downstream processing completes, so a later pipeline failure "
+            "can lose those messages. Enable only when destructive consumption is intended and "
+            "that delivery behavior is acceptable."
+        ),
+        default=False, description="Если True, удаляет прочитанные ID из Redis",
+    )
 
     count_limit: int | None = InputField(
+        agent_description=(
+            "Optionally cap messages read, from 1 to 10000000. Null attempts the available stream. "
+            "Choose a bound from workload and memory constraints; the cap is distributed across ID "
+            "ranges, so do not interpret it as a guaranteed ordered prefix of exactly this many "
+            "messages."
+        ),
         default=None,
         min_value=1,
         max_value=10_000_000,
@@ -49,6 +77,11 @@ class ReadQueueTopic(DFOutputBaseNode):
     )
 
     chunk_size: int = InputField(
+        agent_description=(
+            "Choose 1..100000 messages per Redis XRANGE request based on message size and network "
+            "overhead. This is a fetch batch size, not the number of Dask partitions or a total "
+            "memory cap; all fetched batches are concatenated before output."
+        ),
         default=5000,
         min_value=1,
         max_value=100_000,
@@ -56,6 +89,12 @@ class ReadQueueTopic(DFOutputBaseNode):
     )
 
     index_col: Optional[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Optionally select a column retained in the topic's declared schema as the DataFrame "
+            "index. Verify its dtype and downstream purpose; a missing column is silently ignored. "
+            "Do not assume the internal _stream_id is retained unless it is part of the configured "
+            "output schema."
+        ),
         default=None,
         description="Колонка для использования в качестве индекса"
     )

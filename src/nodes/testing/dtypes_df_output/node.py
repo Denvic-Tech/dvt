@@ -10,7 +10,15 @@ class DTypesDataFrameOutputNode(DFOutputBaseNode):
     CATEGORY = "Testing"
     EXPERIMENTAL = True
 
-    num_rows: int = InputField(default=1000)
+    num_rows: int = InputField(
+        agent_description=(
+            "Experimental synthetic dtype fixture. Choose a small non-negative row count suitable "
+            "for testing; all data is generated in memory and put in one Dask partition. Inspect "
+            "the emitted schema rather than treating this as a real source or production-scale "
+            "benchmark."
+        ),
+        default=1000,
+    )
     output: dd.DataFrame = OutputField()
 
     def process(self):

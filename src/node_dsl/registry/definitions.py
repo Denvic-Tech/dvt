@@ -48,6 +48,7 @@ def _create_node_base_definition(
         system_variable_definitions=system_variable_definitions,
         name=node_cls.__name__,
         emoji=node_cls.EMOJI,
+        icon_key=node_cls.ICON_KEY,
         display_name=node_cls.TITLE or node_cls.__name__,
         description=(node_cls.DESCRIPTION or getattr(node_cls, "__doc__", "") or "").strip(),
         python_module=python_module or node_cls.__module__,

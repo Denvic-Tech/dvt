@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover
 
 class ExecutePython(DFOutputBaseNode):
     TITLE = "Execute Python"
+    ICON_KEY = "execute-python"
     EMOJI = "🐍"
     CATEGORY = "Tool"
     TERMINAL_OUTPUT_NAME = "signal_out"
@@ -29,9 +30,32 @@ class ExecutePython(DFOutputBaseNode):
         "Use df_out and json_out to populate typed outputs."
     )
 
-    df_in: Optional[dd.DataFrame] = InputField(default=None)
-    json_in: Optional[IO.JSON] = InputField(default=None)
+    df_in: Optional[dd.DataFrame] = InputField(
+        agent_description=(
+            "Optionally connect a DataFrame exposed to Python as df_in. Keep transformations lazy "
+            "for large inputs; calling compute materializes data in worker memory. Omit when the "
+            "code does not operate on a DataFrame."
+        ),
+        default=None,
+    )
+    json_in: Optional[IO.JSON] = InputField(
+        agent_description=(
+            "Optionally connect a parsed JSON value exposed as json_in. Inspect the actual "
+            "structure before indexing or flattening it. This is an in-memory value, not a file "
+            "path or automatically parsed JSON string."
+        ),
+        default=None,
+    )
     code: str = InputField(
+        agent_description=(
+            "Use only when built-in nodes cannot express the required operation, and explain that "
+            "reason in a short code comment. Write Python using df_in, json_in, pd, dd, "
+            "input_variables, project_variables, and output_variables. Assign df_out to a "
+            "pandas/Dask DataFrame and/or json_out to JSON-compatible data; unassigned outputs "
+            "remain null. DVT template expressions are disabled in code. Metadata mode does not "
+            "execute it or infer its real output schema; arbitrary code runs with worker "
+            "privileges."
+        ),
         multiline=True,
         allow_expressions=False,
         expression_policy="default",

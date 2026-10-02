@@ -3,6 +3,7 @@ from src.node_dsl import IO, InputField, OutputField, SignalOutputBaseNode
 
 class ConditionalSignalRouter(SignalOutputBaseNode):
     TITLE = "Conditional Signal Router"
+    ICON_KEY = "conditional-signal-router"
     EMOJI = "🔀"
     CATEGORY = "Tool"
     CACHABLE = False
@@ -10,12 +11,23 @@ class ConditionalSignalRouter(SignalOutputBaseNode):
     DISABLED_OUTPUTS = frozenset({"signal_out"})
 
     input_variables: dict[str, IO.VARIABLE] = InputField(
+        agent_description=(
+            "Connect variable maps containing the values used by condition. Multiple incoming maps "
+            "are accepted; avoid conflicting names. Use the normal DVT variable expression "
+            "contract rather than reading a DataFrame directly in a Boolean condition."
+        ),
         default={},
         description="Input variables",
         allow_multiple_connections=True,
         force_handle_visible=True,
     )
     condition: IO.BOOLEAN = InputField(
+        agent_description=(
+            "Provide a Boolean literal or canonical DVT expression resolving to a Boolean. True "
+            "activates then_signal; false activates else_signal. Connect downstream signal_in "
+            "ports to the intended branch. Metadata mode enables both branches for inspection and "
+            "therefore does not prove which branch full execution will take."
+        ),
         description="Boolean condition that selects the outgoing signal branch.",
         expression_policy="default",
     )

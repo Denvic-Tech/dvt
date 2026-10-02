@@ -1,3 +1,5 @@
+import pytest
+
 from src.modules.extension_management.domain.value_objects import ExtensionManifest
 from src.modules.extension_management.infra.runtime.loader import load_manifest
 
@@ -49,7 +51,7 @@ def test_load_manifest_uses_nodes_from_pyproject(tmp_path):
     ]
 
 
-def test_load_manifest_explicit_runtime_name_preserves_persistent_identity(tmp_path):
+def test_load_manifest_rejects_identity_override_and_ignores_directory_name(tmp_path):
     extension_root = tmp_path / "custom_alias"
     extension_root.mkdir(parents=True)
     (extension_root / "pyproject.toml").write_text(
@@ -64,10 +66,12 @@ def test_load_manifest_explicit_runtime_name_preserves_persistent_identity(tmp_p
         encoding="utf-8",
     )
 
-    manifest = load_manifest(extension_root, extension_name=extension_root.name)
+    with pytest.raises(ValueError, match="differs from package"):
+        load_manifest(extension_root, extension_name=extension_root.name)
+    manifest = load_manifest(extension_root)
 
     assert manifest is not None
-    assert manifest.name == "custom_alias"
+    assert manifest.name == "git-manifest-name"
     assert manifest.package_name == "git_manifest_name"
 
 

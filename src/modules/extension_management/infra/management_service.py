@@ -6,6 +6,7 @@ from typing import Any
 from src.logger import logger
 from src.modules.extension_management.domain.entities import ExtensionCreate
 from src.modules.extension_management.domain.policies import (
+    canonical_extension_name,
     extension_identity_set,
     filter_compatible_versions,
     normalize_extension_identity,
@@ -152,7 +153,7 @@ class ExtensionManager:
             raw_name = item.get("name")
             if not isinstance(raw_name, str) or not raw_name.strip():
                 continue
-            canonical_name = normalize_extension_identity(raw_name)
+            canonical_name = canonical_extension_name(raw_name)
             raw_versions = item.get("versions")
             version_strings = [
                 value
@@ -473,6 +474,8 @@ class ExtensionManager:
         if install_path:
             self.install_manager.uninstall(Path(install_path))
 
+        if drop_extension_data:
+            extension.state_json = {}
         extension = await self.db_manager.mark_uninstalled(extension)
         await self._refresh_runtime()
         logger.debug(f"Extension '{name}' uninstalled")
@@ -552,6 +555,11 @@ class ExtensionManager:
                 manifest = load_manifest_payload(root_dir)
                 if manifest is None:
                     raise ValueError(f"Manifest not found in '{root_dir}'")
+                if manifest.name in discovered or manifest.name in manifest_failures:
+                    discovered.pop(manifest.name, None)
+                    error = ValueError(f"Duplicate installed package '{manifest.name}'")
+                    manifest_failures[manifest.name] = error
+                    raise error
                 discovered[manifest.name] = {"root_dir": root_dir, "manifest": manifest}
             except Exception as exc:
                 manifest_failures[root_dir.name] = exc
@@ -628,7 +636,10 @@ class ExtensionManager:
     ):
         records = records if records is not None else await self.list_extensions()
         specs = [
-            ExtensionRuntimeSpec(name=item.name, root_dir=Path(item.install_path))
+            ExtensionRuntimeSpec(
+                name=item.name, root_dir=Path(item.install_path),
+                legacy_names=tuple((item.manifest_json or {}).get("legacy_names") or ()),
+            )
             for item in records
             if item.is_installed
             and item.is_enabled

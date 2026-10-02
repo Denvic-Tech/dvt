@@ -6,7 +6,10 @@ from typing import Any
 import sqlalchemy as sa
 
 from core.mapper import sa2py_types
-from core.types import DBColumn, DBTable, DBTableType, DataType
+from core.types import DataType, DBColumn, DBTable, DBTableType
+
+from .comments import load_table_comment, normalize_comment
+from .nullable import reflected_column_nullable
 
 
 def _safe_inspector_collection(
@@ -58,8 +61,9 @@ def load_db_table_metadata(
         columns.append(
             DBColumn(
                 name=column_name,
+                comment=normalize_comment(column_info.get('comment')),
                 dtype=DataType.from_type(sa2py_types.get_py_type(column_type)),
-                nullable=bool(column_info.get('nullable', True)),
+                nullable=reflected_column_nullable(column_info, engine.dialect.name),
                 index=bool(index_names),
                 indexes=index_names or None,
                 primary_key=column_name in primary_key_columns,
@@ -71,5 +75,6 @@ def load_db_table_metadata(
         schema_name=schema_name,
         name=table_name,
         columns=columns,
+        comment=load_table_comment(inspector, table_name, schema_name=schema_name),
         type=DBTableType.BASE_TABLE,
     )

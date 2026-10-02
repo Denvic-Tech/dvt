@@ -2,13 +2,13 @@
 
 from src import enums
 from src.exceptions import NodeInputError
-from src.node_dsl.core.input_values import NodeInputLinkValue, NodeInputConstantValue
-from src.pipeline.graph_utils import build_node_kwargs, topological_sort, find_all_dependents
-from src.schemas.internal.node_data import NodeData
-from src.node_dsl.types import NodeOutput
-from src.schemas.node_definition import InputDefinitionModel, NodeDefinition
+from src.node_dsl.core.input_values import NodeInputConstantValue, NodeInputLinkValue
 from src.node_dsl.node_typing import IO
+from src.node_dsl.types import NodeOutput
 from src.node_dsl.variables import VariableOutput
+from src.pipeline.graph_utils import build_node_kwargs, find_all_dependents, topological_sort
+from src.schemas.internal.node_data import NodeData
+from src.schemas.node_definition import InputDefinitionModel, NodeDefinition
 
 
 def _build_constant_input_node_definition() -> NodeDefinition:
@@ -682,3 +682,30 @@ def test_build_node_kwargs_raises_for_missing_project_variable():
             node_outputs={},
             project_variables={},
         )
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_build_node_kwargs_preserves_series_links(count):
+    import dask.dataframe as dd
+    import pandas as pd
+
+    from src.nodes.transform.df_set_column_to_dataframe import SetColumnToDataFrame
+
+    definition = _build_constant_input_node_definition().model_copy(update={
+        "input_definitions": {
+            "column_data": SetColumnToDataFrame.input_fields()["column_data"].get_definition(),
+        },
+    })
+    sources = [dd.from_pandas(pd.Series([i], name=f"source{i}"), 1) for i in range(count)]
+    links = [NodeInputLinkValue(node_id=f"n{i}", output_name="output") for i in range(count)]
+    kwargs = build_node_kwargs(
+        node_id="consumer", node_def=definition,
+        node_data=NodeData(name="ConsumerNode", inputs={"column_data": links}),
+        node_outputs={f"n{i}": {"output": NodeOutput(value=source)} for i, source in enumerate(sources)},
+    )
+    received = kwargs["column_data"]
+    if count == 1:
+        assert received is sources[0]
+    else:
+        assert len(received) == count
+        assert all(left is right for left, right in zip(received, sources))

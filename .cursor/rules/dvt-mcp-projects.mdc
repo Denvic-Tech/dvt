@@ -1,0 +1,6 @@
+---
+description: DVT user project and graph operations through MCP
+alwaysApply: false
+---
+
+When working with user-facing DVT projects, graphs, connection catalogs or task runs, read `.agents/skills/dvt-mcp-projects/SKILL.md` and the relevant references. For repository code development, follow `AGENTS.md`.

@@ -25,7 +25,7 @@ PyYAML==6.0.3
 
 pystructor==0.2.0
 UsrAK==0.5.0
-denvic-db-connection==1.1.6
+denvic-db-connection==1.2.0
 
 
 loguru==0.7.3
@@ -67,6 +67,7 @@ grpcio-tools==1.71.2
 grpcio-status==1.71.2
 mypy-protobuf==3.6.0
 
+python-dotenv==1.2.3
 python-multipart==0.0.20
 starlette==0.46.2
 prometheus-fastapi-instrumentator==7.1.0
@@ -75,3 +76,5 @@ ruff==0.15.13
 pre-commit==4.4.0
 
 fsspec==2025.9.0
+
+pyarrow==25.0.1

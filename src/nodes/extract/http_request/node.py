@@ -132,40 +132,80 @@ _HTTP_AUTH_CONFIG_ADAPTER = TypeAdapter(HTTPRequestAuthConfig)
 
 class HTTPRequest(BaseNode):
     TITLE = "HTTP Request"
+    ICON_KEY = "http-request"
     EMOJI = "🌐"
     CATEGORY = "API"
     DESCRIPTION = "Выполнение HTTP запросов"
 
     url: IO.STRING = InputField(
+        agent_description=(
+            "Provide the full endpoint URL reachable from the worker, including scheme and path. "
+            "Inspect the API contract and expected JSON response. Metadata inference can issue "
+            "this same request, so account for side effects and avoid treating metadata inspection "
+            "as a dry run."
+        ),
         description="URL для запроса"
     )
 
     method: HTTPMethod = InputField(
+        agent_description=(
+            "Select the verb required by the endpoint. Bodies are sent only for POST, PUT, and "
+            "PATCH; GET bodies are cleared. The response must be valid JSON even for DELETE/HEAD, "
+            "so an empty or non-JSON response can fail. The node performs one request without "
+            "automatic pagination."
+        ),
         default=HTTPMethod.GET,
         description="HTTP метод"
     )
 
     headers: IO.DICT = InputField(
+        agent_description=(
+            "Provide an object of header names and values; values are converted to strings. Use "
+            "the endpoint's required Accept/Content-Type and other headers. Configured "
+            "basic/digest/oauth2 authentication overrides a manually supplied Authorization "
+            "header."
+        ),
         default={},
         description="HTTP заголовки в формате JSON"
     )
 
     params: IO.DICT = InputField(
+        agent_description=(
+            "Provide URL query parameters as an object, separate from the request body. Encode "
+            "filters and page/cursor parameters according to the endpoint contract. This node does "
+            "not iterate pages, so explicitly design repeated requests when one response is "
+            "incomplete."
+        ),
         default={},
         description="Параметры запроса (query parameters) в формате JSON"
     )
 
     json_payload: dict[str, Any] | list[Any] | None = InputField(
+        agent_description=(
+            "For POST/PUT/PATCH, provide a JSON object or array rather than serialized JSON text. "
+            "Null omits JSON; empty {} and [] can be sent as bodies. Non-empty form data with {} "
+            "uses the legacy form-data fallback. Choose either JSON or form data deliberately."
+        ),
         default=None,
         description="JSON тело запроса: объект или массив (для POST, PUT, PATCH)"
     )
 
     data: IO.DICT = InputField(
+        agent_description=(
+            "Provide an object for form-encoded POST/PUT/PATCH data when the endpoint expects a "
+            "form. Leave empty for a JSON body; json_payload normally takes precedence. This is "
+            "not a multipart file-upload interface."
+        ),
         default={},
         description="Form-encoded данные (для POST)"
     )
 
     timeout: IO.INT = InputField(
+        agent_description=(
+            "Set a positive requests timeout in seconds, within 1..300, based on expected endpoint "
+            "latency. It applies to connection/read waiting, not an overall pipeline deadline. "
+            "Slow endpoints and large responses may need a higher value."
+        ),
         default=30,
         min_value=1,
         max_value=300,
@@ -173,11 +213,23 @@ class HTTPRequest(BaseNode):
     )
 
     verify_ssl: IO.BOOLEAN = InputField(
+        agent_description=(
+            "Keep true to verify HTTPS certificates. Set false only for a deliberately accepted "
+            "endpoint with an untrusted certificate; it disables verification rather than fixing "
+            "certificate configuration."
+        ),
         default=True,
         description="Проверять SSL сертификаты"
     )
 
     auth: HTTPRequestAuthInput = InputField(
+        agent_description=(
+            "Choose a typed authentication object: none; basic/digest with username/password; "
+            "oauth2 with an existing bearer token; or file_cert with worker-accessible certificate "
+            "and optional unencrypted key paths. This does not obtain or refresh OAuth tokens. "
+            "Auth strings support canonical DVT expressions/constants; use variable references for "
+            "credentials. Password-protected private keys are unsupported."
+        ),
         default={"type": HTTPAuthType.NONE.value},
         description="Настройки авторизации HTTP запроса"
     )

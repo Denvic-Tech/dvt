@@ -8,8 +8,22 @@ class BoolList(PrimitiveBaseNode):
     CATEGORY = "Primitive"
     DISABLED = True
 
-    values_string: str = InputField()  # Переименовано
-    delimiter: str = InputField(default=",")
+    values_string: str = InputField(
+        agent_description=(
+            "Disabled legacy primitive. Split this string into Boolean tokens: after trimming and "
+            "lowercasing, only true, 1, y, yes, and on become true. Every other token, including "
+            "an empty or misspelled token, becomes false without validation; inspect values before "
+            "using it."
+        ),
+    )  # Переименовано
+    delimiter: str = InputField(
+        agent_description=(
+            "Use a non-empty literal separator for Python string splitting, not a regular "
+            "expression. Leading, trailing, and adjacent separators create empty tokens that "
+            "become false."
+        ),
+        default=",",
+    )
 
     output: List[bool] = OutputField()
 

@@ -35,30 +35,92 @@ class WriteDataFrameToDBV3SystemVariables(BaseModel):
 class WriteDataFrameToDBV3(BaseNode):
     # Для Codex: не включай эту ноду в Changelog, пока у нее есть тег "Unstable".
     TITLE = "Write DataFrame To DB V3"
+    ICON_KEY = "write-to-db"
     EMOJI = "✍️"
     CATEGORY = "Writing"
     OUTPUT_NODE = True
     SYSTEM_VARIABLES_MODEL = WriteDataFrameToDBV3SystemVariables
 
-    connection: SqlConnectionRecord | Engine = InputField()
-    database_name: Optional[str] = InputField()
-    df: dd.DataFrame = InputField()
-    table_name: str = InputField()
-    schema_name: Optional[str] = InputField()
+    connection: SqlConnectionRecord | Engine = InputField(
+        agent_description=(
+            "Connect a real saved SQL connection object with write access to the intended target. "
+            "Inspect its dialect and catalog before configuring the write; do not supply a "
+            "connection ID in place of the object."
+        ),
+    )
+    database_name: Optional[str] = InputField(
+        agent_description=(
+            "Optionally select the verified target database; null uses the connection's default. "
+            "Oracle does not switch databases through this field. The database must already exist."
+        ),
+    )
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect a DataFrame with columns matching the target table by name. Inspect types, "
+            "nullability, missing/extra fields, and key duplicates first. Internal DVT columns are "
+            "removed before writing; rename other columns upstream or choose a writer with "
+            "explicit mapping."
+        ),
+    )
+    table_name: str = InputField(
+        agent_description=(
+            "Set the exact unqualified name of an existing target table and inspect its current "
+            "schema. This writer does not create tables, schemas, or databases. Keep "
+            "database_name/schema_name separate and prepare missing objects before running."
+        ),
+    )
+    schema_name: Optional[str] = InputField(
+        agent_description=(
+            "Optionally select the verified target schema using the dialect's catalog conventions. "
+            "It must already exist; null uses the writer/connection's default namespace."
+        ),
+    )
     write_mode: Literal["append", "truncate", "upsert"] = InputField(
+        agent_description=(
+            "Choose append to add rows, truncate to clear the target before inserting, or upsert "
+            "with upsert_config to replace matching rows. Append can duplicate reruns and truncate "
+            "removes existing data. The complete write is not guaranteed atomic; inspect partial "
+            "results after failure before retrying."
+        ),
         default="append",
         description="append | truncate | upsert",
     )
     on_extra_df_columns: Literal["ignore", "error"] = InputField(
+        agent_description=(
+            "Choose error when an unexpected source column should fail validation; ignore drops "
+            "columns absent from the existing target. Inspect the schema difference before "
+            "accepting the default ignore so required data is not silently discarded."
+        ),
         default="ignore",
         description="How to handle DataFrame columns that do not exist in the target table.",
     )
     on_missing_df_columns: Literal["ignore", "ignore_if_default", "error"] = InputField(
+        agent_description=(
+            "Choose error to require every target column, ignore_if_default to omit missing "
+            "columns only under the writer's default policy, or ignore to omit without that check. "
+            "Inspect target defaults and constraints. Omitting a column differs from providing "
+            "null and does not guarantee the database can insert a valid row."
+        ),
         default="ignore_if_default",
         description="How to handle target-table columns that are missing from the DataFrame.",
     )
-    chunksize: Optional[int] = InputField(default=1000, min_value=1, max_value=1_000_000)
-    upsert_config: Optional[UpsertConfig] = InputField(default=None)
+    chunksize: Optional[int] = InputField(
+        agent_description=(
+            "Choose a positive insertion batch size within the declared limits based on row width "
+            "and driver/database limits; keep the default when no evidence supports tuning. This "
+            "does not control source SQL read partitions or make the entire write one transaction."
+        ),
+        default=1000, min_value=1, max_value=1_000_000,
+    )
+    upsert_config: Optional[UpsertConfig] = InputField(
+        agent_description=(
+            "Required only for write_mode=upsert; omit for other modes. Provide the exact existing "
+            "target key_column. Inspect source duplicates, key semantics, and target dialect "
+            "support first. This is row replacement, not automatic input deduplication or a "
+            "selected-column update, and may require temporary-table permissions."
+        ),
+        default=None,
+    )
 
     @staticmethod
     def _drop_internal_columns(df: dd.DataFrame) -> dd.DataFrame:

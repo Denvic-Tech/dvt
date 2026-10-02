@@ -5,22 +5,37 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 import sqlalchemy as sa
 
 from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.extension_management.infra.state_manager import ExtensionStateManager
 
 
-def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -> None:
+@pytest.fixture
+def state_db_engine(tmp_path):
+    # Parallel sessions need separate connections to the same database.
+    engine = sa.create_engine(
+        sa.URL.create("sqlite+pysqlite", database=str(tmp_path / "extension-state.sqlite")),
+        poolclass=sa.pool.NullPool,
+    )
+    try:
+        ExtensionRecord.__table__.create(engine)
+        yield engine
+    finally:
+        engine.dispose()
+
+
+def test_update_state_serializes_parallel_updates(monkeypatch, state_db_engine) -> None:
     extension_name = f"extension-state-{uuid.uuid4()}"
 
-    with test_db_engine.begin() as conn:
+    with state_db_engine.begin() as conn:
         conn.execute(
             sa.insert(ExtensionRecord).values(
                 name=extension_name,
                 display_name="Extension State Test",
                 description="",
-                manifest_json={},
+                manifest_json={"legacy_names": ["Legacy State Test"]},
                 state_json={"bitrix_api_limits": {"counter": 0}},
                 is_enabled=True,
                 is_installed=True,
@@ -29,12 +44,12 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
 
     monkeypatch.setattr(
         "src.modules.extension_management.infra.state_manager.engine",
-        test_db_engine,
+        state_db_engine,
     )
 
     barrier = threading.Barrier(2)
 
-    def increment_counter() -> dict[str, int]:
+    def increment_counter(name: str) -> dict[str, int]:
         barrier.wait(timeout=5)
 
         def updater(current_state: dict[str, int]) -> dict[str, int]:
@@ -43,20 +58,22 @@ def test_update_state_serializes_parallel_updates(monkeypatch, test_db_engine) -
             return {"counter": current_counter + 1}
 
         return ExtensionStateManager.update_state(
-            extension_name=extension_name,
+            extension_name=name,
             key="bitrix_api_limits",
             updater=updater,
         )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        first = executor.submit(increment_counter)
-        second = executor.submit(increment_counter)
+        first = executor.submit(increment_counter, extension_name)
+        second = executor.submit(increment_counter, "Legacy State Test")
         first.result(timeout=10)
         second.result(timeout=10)
 
-    with test_db_engine.connect() as conn:
+    with state_db_engine.connect() as conn:
         state_json = conn.execute(
             sa.select(ExtensionRecord.state_json).where(ExtensionRecord.name == extension_name)
         ).scalar_one()
 
     assert state_json["bitrix_api_limits"] == {"counter": 2}
+
+    assert ExtensionStateManager.get_state("Legacy State Test", "bitrix_api_limits") == {"counter": 2}

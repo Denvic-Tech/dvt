@@ -63,6 +63,7 @@ def _table_summary(item) -> CatalogTableSummarySchema:
         kind=item.kind.value,
         database_name=item.database_name,
         schema_name=item.schema_name,
+        comment=item.comment,
     )
 
 
@@ -306,6 +307,7 @@ async def get_table(
                     indexed=column.indexed,
                     primary_key=column.primary_key,
                     indexes=list(column.indexes),
+                    comment=column.comment,
                 )
                 for column in item.columns
             ],

@@ -11,11 +11,24 @@ FillNAFunction = Literal["mean", "median", "mode", "min", "max", "ffill", "bfill
 
 class DataFrameFillNA(DFOutputBaseNode):
     TITLE = "Fill NA/Null Values"
+    ICON_KEY = "dataframe-fill-na"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect null counts and column types before filling. Statistical replacement can scan "
+            "the input, while forward/backward fill depends on row order and partition boundaries."
+        ),
+    )
     # Словарь функций: {"column_name": "func", ...}
-    fill_values: dict[str, FillNAFunction] = InputField()
+    fill_values: dict[str, FillNAFunction] = InputField(
+        agent_description=(
+            "Provide a non-empty mapping of exact column name to a supported method, such as mean "
+            "or ffill; values are method names, not literal replacements. Check numeric "
+            "compatibility for statistics and all-null columns for mode; use ordered input for "
+            "ffill/bfill."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

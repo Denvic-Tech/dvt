@@ -36,7 +36,7 @@ from src.node_dsl.core.input_values import (
     iter_node_input_link_values,
     resolve_node_input_value,
 )
-from src.node_dsl.exceptions import NodeValidationError
+from src.node_dsl.exceptions import NodeExecutionCancelled, NodeValidationError
 from src.node_dsl.execution_settings import ExecutionSettings
 from src.node_dsl.node_typing import contains_exact_io
 from src.node_dsl.types import (
@@ -252,11 +252,25 @@ class PipelineProcessor:
         self._completed_node_ids.add(node_id)
         self.restored_nodes.append(node_id)
 
+    async def refresh_node_metadata(self, *, node, metadata, **context) -> None:
+        """Refresh late local results before a dependent node builds its inputs."""
+        self.nodes_metadata[node.node_id] = metadata
+        for name, output in node.get_outputs().items():
+            self.nodes_output_hashes[node.node_id][name] = get_hash(output.value)
+        if self.on_node_metadata:
+            await utils.async_run_callable(
+                self.on_node_metadata, node=node, metadata=metadata, **context
+            )
+
     async def _prepare_cache_frontier(self) -> None:
         if not self._cache_frontier_enabled():
             return
 
         affected_node_ids = self._get_affected_metadata_nodes()
+        fresh_paths = find_all_dependents(self.pipeline, [
+            node_id for node_id, data in self.pipeline.items()
+            if registry.get_node(data.name).REQUIRES_FRESH_EXECUTION
+        ])
         required_node_ids: set[str] = set()
         visited_node_ids: set[str] = set()
 
@@ -270,6 +284,7 @@ class PipelineProcessor:
             node_def = registry.get_definition(node_data.name)
             can_restore = all((
                 node_id not in affected_node_ids,
+                node_id not in fresh_paths,
                 bool(node_data.store_enabled),
                 DFOutputBaseNode in node_class.__mro__,
                 not node_class.OUTPUT_NODE,
@@ -844,6 +859,8 @@ class PipelineProcessor:
             logger.debug(f"Processing node {node_id} ({current_node_name}).")
             await current_node_instance.execute(mode=self.task.mode)
         except Exception as node_exec_error:
+            if isinstance(node_exec_error, NodeExecutionCancelled) and self._stop_requested():
+                return True, False, False, None
             logger.exception(f"Error executing node {node_id} ({current_node_name}): {node_exec_error}")
             error_message = str(node_exec_error)
             if self.on_node_error:

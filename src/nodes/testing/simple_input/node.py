@@ -7,7 +7,14 @@ class SimpleInputNode(TestingBaseNode):
     CATEGORY = "Testing"
     EXPERIMENTAL = True
 
-    value_in: str = InputField(default="test")
+    value_in: str = InputField(
+        agent_description=(
+            "Experimental test input. The node emits a string formed by prefixing this value with "
+            "'Processed: '. Use only for simple pipeline wiring tests, not as a production data "
+            "source."
+        ),
+        default="test",
+    )
     value_out: str = OutputField()
 
     def process(self):

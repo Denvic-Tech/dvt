@@ -16,6 +16,8 @@ class ExtensionRecord(TimestampedModel, SQLModel, table=True):
 
     name: str = Field(nullable=False, index=True, unique=True)
     display_name: str = Field(nullable=False)
+    # Physical storage survives canonical-name migrations and package reinstalls.
+    storage_schema: str | None = Field(default=None, nullable=True)
     description: str = Field(default="", nullable=False)
     repository_url: str | None = Field(default=None, nullable=True)
 

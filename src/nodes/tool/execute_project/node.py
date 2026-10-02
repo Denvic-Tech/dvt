@@ -128,26 +128,77 @@ def _infer_dataframe_variable_type(value: Any, source_dtype: Any) -> IO:
 
 class ExecuteProject(SignalOutputBaseNode):
     TITLE = "Execute Project"
+    ICON_KEY = "execute-project"
     EMOJI = "🗂️"
     CATEGORY = "Tool"
 
-    target_project_id: str = InputField(description="ID of project to execute")
+    target_project_id: str = InputField(
+        agent_description=(
+            "Use the verified ID of the accessible child project to execute. Inspect its expected "
+            "variables and side effects first. This is the execution target; avoid accidental "
+            "self-recursion or cycles in project dependencies."
+        ),
+        description="ID of project to execute",
+    )
     target_project_name: str | None = InputField(
+        agent_description=(
+            "Optionally copy the target project's display name for UI rendering. It does not "
+            "select or resolve the target; target_project_id remains authoritative."
+        ),
         default=None,
         description="Display name of project to execute for UI snapshot rendering",
     )
     variables_df: dd.DataFrame | None = InputField(
+        agent_description=(
+            "Optionally connect a DataFrame to run the child once per row, sequentially. Requires "
+            "wait_for_completion=true. Unique non-empty column names become child variable names "
+            "and row values override input_variables of the same names. The full DataFrame is "
+            "computed in memory; an empty DataFrame launches no children and its index is not "
+            "forwarded."
+        ),
         default=None,
         description=("Rows to execute sequentially; column names become child project variables"),
     )
-    wait_for_completion: bool = InputField(default=False)
-    timeout_sec: int | None = InputField(default=None, min_value=1)
-    cancel_on_timeout: bool = InputField(default=False)
+    wait_for_completion: bool = InputField(
+        agent_description=(
+            "Set true when downstream work depends on child completion or variables_df is used. "
+            "False only enqueues the child before emitting the signal. Waiting occupies the "
+            "parent's worker slot and is subject to nested-execution capacity limits; ensure "
+            "sufficient workers and avoid cyclic waits."
+        ),
+        default=False,
+    )
+    timeout_sec: int | None = InputField(
+        agent_description=(
+            "Optionally set a positive timeout in seconds for waiting on each child when "
+            "wait_for_completion=true. Null leaves that wait without this deadline. In DataFrame "
+            "mode the limit applies per child, not to the total duration of all rows."
+        ),
+        default=None, min_value=1,
+    )
+    cancel_on_timeout: bool = InputField(
+        agent_description=(
+            "Choose whether a timed-out wait should request cancellation of the child task. "
+            "Applies when waiting with a timeout; false lets the child continue even though the "
+            "parent wait fails. Align this with the child project's side effects."
+        ),
+        default=False,
+    )
     unresolved_variables_policy: Literal["error", "skip"] = InputField(
+        agent_description=(
+            "Use error to fail when forwarded input variables cannot resolve. Use skip only when "
+            "the child can correctly run without those values; it omits unresolved variables "
+            "rather than substituting null."
+        ),
         default="error",
         description="How to handle unresolved input variables: error | skip",
     )
     system_variables_policy: Literal["error", "skip", "include"] = InputField(
+        agent_description=(
+            "Choose include, skip, or error for forwarding system input variables to the child. "
+            "Default include forwards them. Verify whether the child should receive the parent's "
+            "system context before relying on those names."
+        ),
         default="include",
         description="How to handle system input variables: error | skip | include",
     )

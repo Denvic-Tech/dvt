@@ -10,6 +10,7 @@ DIALECT_SA_TO_SG = {
     "postgresql": "postgres",
     "mssql": "tsql",
     "sqlserver": "tsql",
+    "mariadb": "mysql",
 }
 
 

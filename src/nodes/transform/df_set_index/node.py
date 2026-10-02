@@ -27,8 +27,21 @@ class DataFrameSetIndex(DFOutputBaseNode):
     EXPERIMENTAL = True
     TAGS = ["Unstable", "Not tested"]
 
-    df: dd.DataFrame = InputField()
-    index_col: IO.COLUMN_NAME = InputField(description="Колонки для индекса в DF")
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "This node is experimental/unstable. Inspect existing named indexes and the cost of "
+            "shuffling before choosing it; index changes may affect later joins and column "
+            "availability."
+        ),
+    )
+    index_col: IO.COLUMN_NAME = InputField(
+        agent_description=(
+            "Choose an existing non-null column; null keys fail during execution. Setting the "
+            "index can shuffle/repartition data and moves the selected field into the index, so "
+            "inspect downstream schema."
+        ),
+        description="Колонки для индекса в DF",
+    )
 
     output: dd.DataFrame = OutputField()
 

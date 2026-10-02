@@ -28,6 +28,7 @@ class CatalogTableSummarySchema(BaseModel):
     kind: Literal["table", "view"]
     database_name: str | None = None
     schema_name: str | None = None
+    comment: str | None = None
 
 
 class CatalogColumnSchema(BaseModel):
@@ -38,6 +39,7 @@ class CatalogColumnSchema(BaseModel):
     indexed: bool = False
     primary_key: bool = False
     indexes: list[str] = Field(default_factory=list)
+    comment: str | None = None
 
 
 class CatalogTableDetailsSchema(CatalogTableSummarySchema):

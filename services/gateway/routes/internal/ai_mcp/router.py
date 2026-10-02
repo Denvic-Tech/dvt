@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import time
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
@@ -34,7 +35,7 @@ from src.modules.file_storage.flow.exceptions import (
     UnsupportedTransferStrategyError,
 )
 
-from . import context, data, ddl, graph, tasks
+from . import context, data, ddl, graph, projects, schedules, tasks
 from .auth import MCPPrincipalDepends
 from .errors import AIMCPHTTPError
 from .schemas import AuthVerificationSchema, ToolCallSchema, ToolResultSchema
@@ -52,6 +53,16 @@ _CONTEXT_HANDLERS: dict[str, ToolHandler] = {
     "get_project": context.get_project,
     "search_nodes": context.search_nodes,
     "get_node_definition": context.get_node_definition,
+}
+_PROJECT_HANDLERS: dict[str, ToolHandler] = {
+    "create_project": projects.create_project,
+}
+_SCHEDULE_HANDLERS: dict[str, ToolHandler] = {
+    "list_project_schedules": schedules.list_project_schedules,
+    "get_project_schedule": schedules.get_project_schedule,
+    "set_project_schedule": schedules.set_project_schedule,
+    "update_project_schedule": schedules.update_project_schedule,
+    "set_project_schedule_enabled": schedules.set_project_schedule_enabled,
 }
 _GRAPH_HANDLERS: dict[str, ToolHandler] = {
     "get_project_graph": graph.get_project_graph,
@@ -131,6 +142,8 @@ async def call_tool(
         or _DATA_HANDLERS.get(tool_name)
         or _DDL_HANDLERS.get(tool_name)
         or _TASK_HANDLERS.get(tool_name)
+        or _PROJECT_HANDLERS.get(tool_name)
+        or _SCHEDULE_HANDLERS.get(tool_name)
     )
     if handler is None:
         raise AIMCPHTTPError(404, "NODE_NOT_AVAILABLE", "MCP tool is not available.")
@@ -142,12 +155,16 @@ async def call_tool(
     token_id = principal.token.id
     outcome = "success"
     try:
-        kwargs: dict[str, Any] = {"principal": principal, **payload.arguments}
+        new_tool = tool_name in _PROJECT_HANDLERS or tool_name in _SCHEDULE_HANDLERS
+        if new_tool and {"principal", "session"} & payload.arguments.keys():
+            raise AIMCPHTTPError(422, "INVALID_ARGUMENTS", "Reserved tool arguments.")
+        kwargs: dict[str, Any] = {**payload.arguments, "principal": principal}
         if tool_name in {"validate_graph_changes", "apply_graph_changes"}:
             kwargs["patch"] = graph.GraphPatchSchema.model_validate(kwargs.get("patch", {}))
         if (
             tool_name in _CONTEXT_HANDLERS
             or tool_name in _GRAPH_HANDLERS
+            or new_tool
             or tool_name
             in {
                 "list_connections",
@@ -169,6 +186,13 @@ async def call_tool(
         if tool_name == "cancel_task":
             kwargs["orchestrator"] = orchestrator
 
+        if new_tool:
+            try:
+                inspect.signature(handler).bind(**kwargs)
+            except TypeError as exc:
+                raise AIMCPHTTPError(
+                    422, "INVALID_ARGUMENTS", "Tool arguments are invalid.",
+                ) from exc
         result = await handler(**kwargs)
         if tool_name in {"apply_graph_changes", "run_project", "cancel_task"}:
             await session.commit()
@@ -238,11 +262,15 @@ async def call_tool(
         )
         raise AIMCPHTTPError(500, "GATEWAY_UNAVAILABLE", "Gateway operation failed.") from exc
     except (ValueError, ValidationError) as exc:
-        outcome = "GRAPH_VALIDATION_FAILED"
+        outcome = (
+            "INVALID_ARGUMENTS"
+            if tool_name in _PROJECT_HANDLERS or tool_name in _SCHEDULE_HANDLERS
+            else "GRAPH_VALIDATION_FAILED"
+        )
         await session.rollback()
         raise AIMCPHTTPError(
             422,
-            "GRAPH_VALIDATION_FAILED",
+            outcome,
             "Tool arguments or graph changes are invalid.",
         ) from exc
     except Exception as exc:

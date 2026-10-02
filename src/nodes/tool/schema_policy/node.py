@@ -217,11 +217,35 @@ class SchemaPolicy(DFOutputBaseNode):
     """Применяет к Dask DataFrame политики соответствия TableSchema."""
 
     TITLE = "Schema Policy"
+    ICON_KEY = "schema-policy"
     CATEGORY = "Tool"
 
-    df: dd.DataFrame = InputField()
-    schema: TableSchema = InputField()
-    policy: SchemaPolicySettings = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the business DataFrame to validate or adapt. Inspect existing names and "
+            "dtypes first; duplicate column names are rejected. Casts execute lazily per "
+            "partition, so successful metadata validation does not establish that all data values "
+            "can be converted."
+        ),
+    )
+    schema: TableSchema = InputField(
+        agent_description=(
+            "Connect a TableSchema describing desired fields, not DataFrameMetadata or a "
+            "DataFrame. This node enforces the configured presence/type policies; it does not "
+            "automatically enforce all schema properties such as uniqueness, nullability, or "
+            "defaults."
+        ),
+    )
+    policy: SchemaPolicySettings = InputField(
+        agent_description=(
+            "Provide columns policies for exactly every schema field, plus "
+            "on_extra_columns=error/drop/ignore. Each field accepts on_missing=error/fill/ignore "
+            "and on_type_mismatch=error/cast/soft_cast/ignore. fill_value adds an absent column, "
+            "not null cells in an existing column. Strict casts fail on invalid data; soft casts "
+            "turn invalid values into null, including fractional-to-integer conversions. Select "
+            "policies from data quality requirements and inspect resulting nulls."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

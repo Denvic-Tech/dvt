@@ -18,11 +18,18 @@ from src.nodes.extract._shared.ftp_file import localized_ftp_file
 
 class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
     TITLE = "Load Excel"
+    ICON_KEY = "load-excel"
     EMOJI = "📊"
     CATEGORY = "Extraction"
 
     # --- Inputs ---
     path: str = InputField(
+        agent_description=(
+            "Set a connection-relative path or glob to compatible Excel workbooks supported by "
+            "openpyxl. Each file is read into pandas as one partition; a large workbook must fit "
+            "in worker memory. The first file's sample determines the canonical columns/dtypes for "
+            "the combined output, so verify consistency across files."
+        ),
         description=(
             "Поддерживаются glob-паттерны, например:\n"
             "  'reports/01-01-*.excel' — все файлы за 1 января\n"
@@ -31,20 +38,42 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
     )
 
     sheet_name: str | None = InputField(
+        agent_description=(
+            "Specify an exact worksheet name or a zero-based sheet position encoded as a numeric "
+            "string. Blank or null selects the first sheet. Numeric strings are interpreted as "
+            "positions, so do not assume they select a sheet whose name consists of digits."
+        ),
         default="0",
     )
 
     usecols: list[str] | None = InputField(
+        agent_description=(
+            "Optionally list worksheet header names to read. A non-empty list takes precedence "
+            "over usecols_range. Use names from the selected sheet/header_row; null or an empty "
+            "list leaves range selection or all columns in effect."
+        ),
         default=None,
         is_hidden=True,
     )
 
     usecols_range: str | None = InputField(
+        agent_description=(
+            "Optionally use an Excel column-letter selection such as A:C,E:F. It is used only when "
+            "usecols is empty. Match the range to the actual worksheet layout and include all "
+            "downstream-required columns."
+        ),
         default=None,
         is_hidden=True,
     )
 
     dtypes: dict[str, str] | None = InputField(
+        agent_description=(
+            "Map selected header names to explicit pandas dtypes when inference is insufficient. "
+            "Supported coercion paths include string, nullable numeric/boolean, and datetime "
+            "types; invalid numeric/boolean/datetime cells become missing values, and fractional "
+            "values requested as integers become null. Unknown selected columns fail validation. "
+            "Check samples and resulting nulls after conversion."
+        ),
         default=None,
         description=(
             "Явные типы столбцов в формате {имя_столбца: dtype}, например {'amount': 'Float64'}"
@@ -52,21 +81,42 @@ class LoadExcel(FileConnectionInputMixin, DFOutputBaseNode):
     )
 
     thousands: str | None = InputField(
+        agent_description=(
+            "Optionally set one character used as the thousands separator in numbers stored as "
+            "text. It must differ from decimal. Choose it from actual cell contents, including "
+            "ordinary versus non-breaking spaces; numeric Excel cells do not require this setting."
+        ),
         default=None,
         description=("Разделитель тысяч для чисел, сохраненных в Excel как текст, например пробел"),
     )
 
     decimal: str = InputField(
+        agent_description=(
+            "Set the single-character decimal separator for numeric text, based on the source's "
+            "formatting. It must differ from thousands. Native numeric Excel cells are already "
+            "numeric; this setting chiefly affects parsing text values."
+        ),
         default=".",
         description=("Десятичный разделитель для чисел, сохраненных в Excel как текст"),
     )
 
     header_row: int = InputField(
+        agent_description=(
+            "Set the zero-based worksheet row containing column names. Rows before it are skipped "
+            "for header parsing. Verify the workbook layout before selecting columns by name; the "
+            "default 0 means the first row."
+        ),
         default=0,
         is_hidden=True,
     )
 
     read_timeout_sec: int | None = InputField(
+        agent_description=(
+            "Optionally bound each file/sample read in seconds with a positive value; null leaves "
+            "the read unbounded. Choose a limit appropriate to file size and storage latency. "
+            "Timing out reports failure but does not forcibly terminate an already-running read "
+            "thread."
+        ),
         default=None,
         min_value=1,
         description="Таймаут чтения одного Excel-файла в секундах",

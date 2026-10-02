@@ -8,12 +8,25 @@ from src.logger import logger
 
 class DataFrameRenameColumns(DFOutputBaseNode):
     TITLE = "Rename Columns"
+    ICON_KEY = "rename-columns"
     EMOJI = "✏️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect columns and the named index before renaming; update downstream references to "
+            "the new names."
+        ),
+    )
     # Словарь переименования: {"old_name": "new_name", ...}
-    mapping: Optional[Dict[str, str]] = InputField(default=None)
+    mapping: Optional[Dict[str, str]] = InputField(
+        agent_description=(
+            "Use {old_name: new_name}; omission passes the input through. A matching named index "
+            "is renamed too. Ensure final names are unique and verify all intended source names "
+            "exist rather than relying on silent handling of unknown keys."
+        ),
+        default=None,
+    )
 
     output: dd.DataFrame = OutputField()
 

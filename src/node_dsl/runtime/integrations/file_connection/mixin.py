@@ -32,8 +32,22 @@ def _normalize_connection_type(value: object) -> str:
 
 
 class FileConnectionInputMixin(NodeFieldsMixin):
-    connection: FileConnectionRecord = InputField()
-    connection_overrides: FileConnectionOverridesInput | None = InputField(default=None)
+    connection: FileConnectionRecord = InputField(
+        agent_description=(
+            "Connect a compatible file-connection object by an edge after inspecting the "
+            "accessible connection catalog. Do not insert a connection ID or credentials here; "
+            "paths are interpreted relative to that connection."
+        ),
+    )
+    connection_overrides: FileConnectionOverridesInput | None = InputField(
+        agent_description=(
+            "Omit to use saved connection settings. If needed, select the nested schema branch "
+            "matching the actual connection type: S3 permits bucket/prefix/verify, FTP/SFTP "
+            "initial_directory. SMB overrides are unsupported. These per-node overrides do not "
+            "edit the saved connection; do not use them for credentials."
+        ),
+        default=None,
+    )
 
     def _runtime_variables(self) -> dict[str, Any]:
         runtime_variables: dict[str, Any] = {}

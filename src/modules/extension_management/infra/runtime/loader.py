@@ -13,8 +13,8 @@ from urllib.parse import unquote, urlsplit
 
 from src.logger import logger
 from src.modules.extension_management.domain.policies import (
+    canonical_extension_name,
     is_dvt_version_compatible,
-    normalize_extension_identity,
 )
 from src.modules.extension_management.domain.value_objects import ExtensionManifest
 from src.modules.extension_management.infra.packages.deletion_queue import (
@@ -196,7 +196,7 @@ def load_manifest_payload(root_dir: Path) -> ExtensionManifest | None:
         if isinstance(value, str) and value.strip()
     ]
     manifest_payload = {
-        "name": normalize_extension_identity(project.get("name")),
+        "name": canonical_extension_name(project.get("name")),
         "version": project.get("version") or "",
         "package_name": project.get("name"),
         "legacy_names": legacy_names,
@@ -214,14 +214,19 @@ def load_manifest_payload(root_dir: Path) -> ExtensionManifest | None:
     return ExtensionManifest.model_validate(manifest_payload)
 
 
-def load_manifest(root_dir: Path, extension_name: str | None = None) -> RegisteredExtension | None:
+def load_manifest(
+    root_dir: Path, extension_name: str | None = None, *, legacy_names: tuple[str, ...] = (),
+) -> RegisteredExtension | None:
     manifest = load_manifest_payload(root_dir)
     if manifest is None:
         return None
 
-    effective_name = extension_name or manifest.name
+    if extension_name is not None and extension_name != manifest.name:
+        raise ValueError(
+            f"Runtime identity '{extension_name}' differs from package '{manifest.name}'"
+        )
     manifest_payload = manifest.model_dump()
-    manifest_payload["name"] = effective_name
+    manifest_payload["legacy_names"] = sorted(set(manifest.legacy_names) | set(legacy_names))
     backend_payload = dict(manifest_payload.get("backend") or {})
     # Legacy extensions historically relied on the conventional backend/nodes
     # directory even when nodes_dir was omitted from the manifest.
@@ -309,12 +314,17 @@ def init_extensions() -> dict[str, RegisteredExtension]:
         logger.info("Extensions are disabled by config.")
         return loaded
 
+    duplicate_names: set[str] = set()
     for root_dir in iter_extension_roots():
         try:
-            extension = load_manifest(root_dir, extension_name=root_dir.name)
+            extension = load_manifest(root_dir)
             if extension is None or not check_dvt_compatibility(extension):
                 continue
             resolve_nodes_dir_if_present(extension)
+            if extension.name in loaded or extension.name in duplicate_names:
+                duplicate_names.add(extension.name)
+                loaded.pop(extension.name, None)
+                raise ValueError(f"Duplicate extension package '{extension.name}'")
             loaded[extension.name] = extension
         except Exception:
             logger.exception("Failed to load extension manifest from {}", root_dir)

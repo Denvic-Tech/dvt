@@ -1,4 +1,5 @@
 import asyncio
+import json
 import multiprocessing
 import sys
 import time
@@ -6,6 +7,7 @@ from typing import Any
 
 import redis
 from billiard.exceptions import WorkerLostError
+from celery import current_task
 from celery.signals import (
     task_failure,
     worker_before_create_process,
@@ -15,7 +17,7 @@ from celery.signals import (
     worker_ready,
     worker_shutdown,
 )
-from celery.worker.control import control_command
+from celery.worker.control import control_command, inspect_command
 from kombu import Exchange, Queue
 from sqlmodel import Session, select
 
@@ -24,6 +26,12 @@ from core.db.connect import close_clickhouse_pool_managers
 from services.task_worker.deps import get_extension_manager
 from services.task_worker.deps.pipeline_callbacks import close_redis_clients
 from services.task_worker.execution_slot import mark_execution_slot_idle
+from services.task_worker.extension_refresh import (
+    ExtensionRuntimeRefresh,
+    consumer_is_ready,
+    pool_snapshot,
+    resume_task_queues,
+)
 from services.task_worker.heartbeat import HeartbeatSender
 from services.task_worker.helpers import get_async_runner, get_worker_id
 
@@ -38,10 +46,13 @@ from src.logger import (
 )
 from src.logger._multiprocessing.mp_child_sink import add_mp_queue_sink_child
 from src.logger._multiprocessing.mp_parent_listener import start_mp_log_listener
+from src.modules.extension_management.domain.value_objects import ExtensionManifest
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.dependency_bootstrap import (
+    ensure_extension_deps_installed,
+)
 from src.modules.task_execution.domain.types import TaskTerminationReason
 from src.runtime.async_runtime import shared_ws_forward
-from src.utils.extensions import ensure_extension_deps_installed
 from src.utils.waiting import wait_for_alembic_migrations, wait_for_db
 
 import config
@@ -103,8 +114,8 @@ _mp_log_queue: Any | None = None
 _mp_log_listener_thread: object | None = None
 _mp_log_stop_event: Any | None = None
 _CHILD_LOG_SINK_INIT_TIMEOUT_SEC = 3.0
-_EXTENSION_REFRESH_POLL_SEC = 0.1
-_extension_parent_refresh_in_progress = False
+_extension_parent_refresh: ExtensionRuntimeRefresh | None = None
+_worker_consumer: Any | None = None
 
 
 def _is_prefork_pool() -> bool:
@@ -357,9 +368,10 @@ async def _read_extension_runtime_generation(
     async with AsyncSessionLocal() as session:
         records = list((await session.execute(select(ExtensionRecord))).scalars().all())
 
-    by_name = {record.name: record for record in records}
+    from src.modules.extension_management.infra.identity import resolve_record
+
     for name in sorted(required_extension_names or ()):
-        record = by_name.get(name)
+        record = resolve_record(records, name)
         if record is None:
             raise RuntimeError(f"Required extension '{name}' is missing")
         if not record.is_installed:
@@ -383,10 +395,22 @@ async def _read_extension_runtime_generation(
                 str(record.install_path or ""),
                 "1" if record.is_installed else "0",
                 "1" if record.is_enabled else "0",
-                record.deps_status.value,
+                # Errors affect which extensions can be loaded into the registry.
                 str(record.error_message or ""),
                 record.installed_at.isoformat() if record.installed_at is not None else "",
-                record.updated_at.isoformat() if record.updated_at is not None else "",
+                json.dumps(
+                    {
+                        key: value
+                        for key, value in ExtensionManifest.from_mapping(
+                            record.manifest_json or {}
+                        ).model_dump(exclude_none=True).items()
+                        if key in (
+                            "package_name", "dvt_version", "backend", "nodes",
+                            "requirements", "state_schema",
+                        )
+                    },
+                    sort_keys=True,
+                ),
             )
             for record in records
             if record.is_installed or record.install_path
@@ -408,7 +432,7 @@ async def _initialize_extension_runtime_before_pool() -> None:
         )
 
     try:
-        await ensure_extension_deps_installed()
+        await ensure_extension_deps_installed(raise_on_failure=True, publish_status=False)
 
         logger.debug("Task worker startup: syncing installed extensions before pool init")
         async with AsyncSessionLocal() as session:
@@ -445,7 +469,7 @@ async def _ensure_extension_runtime_for_task_process_async(
     # the shared-volume runtime. Parent refreshes are requested only after a child
     # has already crossed that barrier, so they can skip pip work safely.
     if install_dependencies:
-        await ensure_extension_deps_installed(raise_on_failure=True)
+        await ensure_extension_deps_installed(raise_on_failure=True, publish_status=False)
     async with AsyncSessionLocal() as session:
         manager = await get_extension_manager(session=session)
         try:
@@ -453,19 +477,26 @@ async def _ensure_extension_runtime_for_task_process_async(
         finally:
             await manager.close()
 
-    _extension_runtime_generation = await _read_extension_runtime_generation(
-        required_extension_names=required_extension_names
-    )
+    # Revalidate readiness, but do not acknowledge a newer installation that may
+    # have arrived while this process was preparing the observed generation.
+    await _read_extension_runtime_generation(required_extension_names=required_extension_names)
+    _extension_runtime_generation = current_generation
     _extension_runtime_initialized = True
     return True
 
 
 def request_parent_extension_runtime_refresh() -> None:
-    """Ask prefork MainProcesses to refresh their warm node template best-effort."""
+    """Refresh only the parent whose container crossed the local dependency barrier."""
     if not _is_prefork_pool() or _is_main_process():
         return
     try:
-        celery_app.control.broadcast("dvt_refresh_extension_runtime", reply=False)
+        hostname = getattr(getattr(current_task, "request", None), "hostname", None)
+        if not hostname:
+            logger.warning("Cannot refresh extension runtime without the current worker hostname")
+            return
+        celery_app.control.broadcast(
+            "dvt_refresh_extension_runtime", destination=[hostname], reply=False,
+        )
     except Exception as exc:
         # The current child has already reloaded its own runtime, so failure to
         # refresh the warm parent must not invalidate the task being executed.
@@ -484,103 +515,66 @@ def ensure_extension_runtime_for_task_process(
         request_parent_extension_runtime_refresh()
 
 
+def _extension_queue_names() -> tuple[str, str]:
+    return (config.CELERY.CELERY_TASKS_QUEUE, config.CELERY.CELERY_DEPS_QUEUE)
+
+
 def _resume_extension_refresh_queues(consumer) -> None:
-    consumer.add_task_queue(config.CELERY.CELERY_TASKS_QUEUE)
-    consumer.add_task_queue(config.CELERY.CELERY_DEPS_QUEUE)
+    resume_task_queues(consumer, _extension_queue_names())
 
 
-def _finish_extension_parent_refresh(consumer) -> None:
-    global _extension_parent_refresh_in_progress
-
-    pool = consumer.pool
-    raw_pool = getattr(pool, "_pool", None)
-    if raw_pool is None:
-        _resume_extension_refresh_queues(consumer)
-        _extension_parent_refresh_in_progress = False
-        return
-
-    # Billiard removes the completed request from _cache only after the task
-    # result/ack path is settled in MainProcess. Do not shrink or import before
-    # that point, otherwise a generation refresh could race task finalization.
-    if getattr(raw_pool, "_cache", None):
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
+def _get_extension_parent_refresh(consumer) -> ExtensionRuntimeRefresh:
+    global _extension_parent_refresh  # noqa: PLW0603 - Parent process runtime binding.
+    if _extension_parent_refresh is None or _extension_parent_refresh.consumer is not consumer:
+        _extension_parent_refresh = ExtensionRuntimeRefresh(
+            consumer,
+            _extension_queue_names(),
+            submit_reload=lambda: get_async_runner().submit(
+                _ensure_extension_runtime_for_task_process_async(install_dependencies=False)
+            ),
+            on_refreshed=lambda: logger.info("Task worker warm extension runtime refreshed"),
         )
-        return
+    return _extension_parent_refresh
 
-    if getattr(raw_pool, "_processes", 0) > 0:
-        try:
-            pool.shrink(1)
-            consumer._update_prefetch_count(-1)
-        except ValueError:
-            consumer.timer.call_after(
-                _EXTENSION_REFRESH_POLL_SEC,
-                _finish_extension_parent_refresh,
-                (consumer,),
-            )
-            return
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
-        )
-        return
 
-    if any(process.is_alive() for process in getattr(raw_pool, "_pool", ())):
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
-        )
-        return
-
-    try:
-        changed = get_async_runner().run(
-            _ensure_extension_runtime_for_task_process_async(
-                install_dependencies=False,
-            )
-        )
-        if changed:
-            logger.info("Task worker warm extension runtime refreshed")
-    except Exception:
-        logger.exception("Failed to refresh Task Worker warm extension runtime")
-    finally:
-        try:
-            pool.grow(1)
-            consumer._update_prefetch_count(1)
-        finally:
-            _resume_extension_refresh_queues(consumer)
-            _extension_parent_refresh_in_progress = False
+def _execution_consumer_is_ready() -> bool:
+    if _extension_parent_refresh is not None and _extension_parent_refresh.in_progress:
+        return False
+    return consumer_is_ready(
+        _worker_consumer, _extension_queue_names(), prefork=_is_prefork_pool()
+    )
 
 
 @control_command(name="dvt_refresh_extension_runtime")
 def _refresh_extension_runtime_control(state, **_kwargs):
     """Drain the prefork pool, refresh the warm parent, then resume one execution slot."""
-    global _extension_parent_refresh_in_progress
-
     if not _is_prefork_pool() or not _is_main_process():
         return {"ok": "extension runtime refresh is not required for this pool"}
-    if _extension_parent_refresh_in_progress:
+    if not _get_extension_parent_refresh(state.consumer).request():
         return {"ok": "extension runtime refresh is already scheduled"}
-
-    consumer = state.consumer
-    _extension_parent_refresh_in_progress = True
-    try:
-        consumer.cancel_task_queue(config.CELERY.CELERY_TASKS_QUEUE)
-        consumer.cancel_task_queue(config.CELERY.CELERY_DEPS_QUEUE)
-        consumer.timer.call_after(
-            _EXTENSION_REFRESH_POLL_SEC,
-            _finish_extension_parent_refresh,
-            (consumer,),
-        )
-    except Exception:
-        _extension_parent_refresh_in_progress = False
-        _resume_extension_refresh_queues(consumer)
-        raise
-
     return {"ok": "extension runtime refresh scheduled after current task drain"}
+
+
+@inspect_command(name="dvt_runtime_state")
+def _inspect_extension_runtime(state, **_kwargs):
+    """Expose readiness and refresh progress without task payloads or configuration."""
+    result: dict[str, object] = {
+        "ready": _execution_consumer_is_ready(),
+        "active_queues": [
+            name for name in _extension_queue_names()
+            if state.consumer.task_consumer is not None
+            and state.consumer.task_consumer.consuming_from(name)
+        ],
+        "refresh": None,
+    }
+    if _is_prefork_pool():
+        refresh = _extension_parent_refresh
+        result["refresh"] = (
+            refresh.snapshot()
+            if refresh is not None and refresh.consumer is state.consumer
+            else {"phase": "idle", "failure": None, **pool_snapshot(state.consumer.pool._pool)}
+        )
+    return result
 
 
 async def _startup() -> None:
@@ -598,13 +592,14 @@ async def _startup() -> None:
     logger.info(f"LOG_TO_WS: {config.LOGGING.LOG_TO_WS}")
     logger.info(f"LOG_TO_DB: {config.LOGGING.LOG_TO_DB}")
 
-    _heartbeat = HeartbeatSender()
+    _heartbeat = HeartbeatSender(is_ready=_execution_consumer_is_ready)
     await _heartbeat.start()
     logger.info("Heartbeat started")
 
 
 async def _shutdown() -> None:
-    global _heartbeat
+    global _heartbeat, _worker_consumer  # noqa: PLW0603 - Worker shutdown signal.
+    _worker_consumer = None
 
     logger.info("Task worker service shutting down.")
 
@@ -641,7 +636,9 @@ def _init_extension_runtime_before_pool(**_kwargs) -> None:
 
 
 @worker_ready.connect
-def _init_worker_main(**_kwargs) -> None:
+def _init_worker_main(sender=None, **_kwargs) -> None:
+    global _worker_consumer  # noqa: PLW0603 - Worker ready signal.
+    _worker_consumer = sender
     runner = get_async_runner()
     runner.run(_startup())
 

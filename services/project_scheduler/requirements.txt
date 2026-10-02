@@ -13,7 +13,7 @@ clickhouse-connect==0.10.0
 
 pystructor==0.2.0
 UsrAK==0.5.0
-denvic-db-connection==1.1.6
+denvic-db-connection==1.2.0
 sqlglot==28.10.0
 
 

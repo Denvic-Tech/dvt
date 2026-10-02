@@ -113,13 +113,29 @@ def normalize_variable_value(value: Any) -> Any:
 
 class DataFrameSelectVariables(BaseNode):
     TITLE = "Select Variables From DataFrame"
+    ICON_KEY = "dataframe-select-variables"
     EMOJI = "☑️"
     CATEGORY = "Transform"
     CACHABLE = False
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the DataFrame whose columns should be reduced to scalar variables. "
+            "Aggregations run over the full input without grouping and can trigger computation; "
+            "inspect dtypes and avoid unnecessary repeated reductions. This node produces "
+            "variables, not a transformed DataFrame."
+        ),
+    )
 
     selected_variables: Dict[str, SelectedVariable] = InputField(
+        agent_description=(
+            "Map each output variable name to {source_column_name, agg_func}. Use an existing "
+            "column and a supported aggregation: first, last, min, max, sum, mean, count, nunique, "
+            "std, or var. Count counts non-null values. First/last depend on row and partition "
+            "order; do not use them to infer earliest/latest without establishing order. Output "
+            "types are inferred from results; empty or null results can yield null. An empty "
+            "mapping defines no variables."
+        ),
         default={},
         description="Переменные, выбранные из DataFrame",
         use_connection=False,

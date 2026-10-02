@@ -11,7 +11,14 @@ class CreateList(PrimitiveBaseNode):
     DISABLED = True
 
     # Используем **kwargs или JSON строку
-    json_string: str = InputField(default="[]", multiline=True)
+    json_string: str = InputField(
+        agent_description=(
+            "Disabled legacy primitive. If maintaining an existing graph, provide valid JSON text "
+            "whose top-level value is an array. Objects and scalar values are rejected; keep "
+            "elements compatible with the downstream primitive input."
+        ),
+        default="[]", multiline=True,
+    )
 
     output: List[node_typing.IO.PRIMITIVE] = OutputField()
 

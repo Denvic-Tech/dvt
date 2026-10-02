@@ -16,6 +16,7 @@ from src.modules.extension_management.infra.runtime.loader import (
     import_extension_nodes_for,
     iter_extension_roots,
     load_manifest,
+    load_manifest_payload,
     purge_extension_modules,
     purge_modules_from_root,
     resolve_nodes_dir_if_present,
@@ -29,6 +30,7 @@ import config
 class ExtensionRuntimeSpec:
     name: str
     root_dir: Path
+    legacy_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -107,7 +109,15 @@ def _restore_runtime_modules(snapshot: _RuntimeModulesSnapshot) -> None:
 
 
 def _default_specs() -> list[ExtensionRuntimeSpec]:
-    return [ExtensionRuntimeSpec(name=root.name, root_dir=root) for root in iter_extension_roots()]
+    specs = []
+    for root in iter_extension_roots():
+        try:
+            manifest = load_manifest_payload(root)
+            name = manifest.name if manifest else root.name
+        except Exception:
+            name = root.name  # The normal load path reports the manifest failure.
+        specs.append(ExtensionRuntimeSpec(name=name, root_dir=root))
+    return specs
 
 
 def _record_failure(
@@ -220,7 +230,9 @@ def _load_all_extension_runtimes_locked(
                         f"Extension root must be a direct child of '{extensions_root}': "
                         f"'{root_dir}'"
                     )
-                extension = load_manifest(root_dir, extension_name=spec.name)
+                extension = load_manifest(
+                    root_dir, extension_name=spec.name, legacy_names=spec.legacy_names,
+                )
                 if extension is None:
                     raise ValueError(f"Manifest not found in '{spec.root_dir}'")
                 if not check_dvt_compatibility(extension):
@@ -228,6 +240,8 @@ def _load_all_extension_runtimes_locked(
                         f"Extension '{spec.name}' is incompatible with DVT {config.APP.VERSION}"
                     )
                 resolve_nodes_dir_if_present(extension)
+                if spec.name in manifests:
+                    raise ValueError(f"Duplicate extension package '{spec.name}'")
                 manifests[spec.name] = extension
             except Exception as exc:
                 _record_failure(report, spec.name, "manifest", exc)
@@ -341,7 +355,10 @@ def load_all_extension_runtimes(
 def load_extension_runtime(
     root_dir: Path, extension_name: str | None = None
 ) -> RegisteredExtension | None:
-    name = extension_name or root_dir.name
+    manifest = load_manifest(root_dir, extension_name=extension_name)
+    if manifest is None:
+        return None
+    name = manifest.name
     specs = dict(_ACTIVE_SPECS)
     specs[name] = ExtensionRuntimeSpec(name=name, root_dir=root_dir)
     report = load_all_extension_runtimes(

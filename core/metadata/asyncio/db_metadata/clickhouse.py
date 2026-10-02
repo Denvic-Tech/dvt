@@ -23,7 +23,8 @@ async def load_clickhouse_metadata(engine: asa.AsyncEngine) -> DBMetadata:
                 c.name AS column_name,
                 -- Извлекаем базовый тип данных, если это Nullable или Enum
                 if(startsWith(c.type, 'Nullable'), substring(c.type, 10, length(type) - 10), c.type) AS data_type,
-                startsWith(c.type, 'Nullable') AS is_nullable,
+                (startsWith(c.type, 'Nullable(')
+                    OR startsWith(c.type, 'LowCardinality(Nullable(')) AS is_nullable,
                 NULL AS udt_name, -- В ClickHouse нет аналога udt_name
                 CASE
                     WHEN t.engine = 'View' THEN 'VIEW'

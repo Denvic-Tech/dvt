@@ -6,6 +6,9 @@ from sqlmodel import Session, create_engine
 
 from src.db import AsyncSessionLocal
 from src.logger import logger
+from src.modules.extension_management.infra.dependency_bootstrap import (
+    ensure_extension_deps_installed,
+)
 from src.modules.extension_management.infra.errors import stage_error
 from src.modules.extension_management.infra.migrations import ExtensionMigrationManager
 from src.modules.extension_management.infra.packages.deletion_queue import (
@@ -20,7 +23,6 @@ from src.modules.extension_management.infra.runtime.loader import (
     load_manifest,
 )
 from src.utils import waiting
-from src.utils.extensions import ensure_extension_deps_installed
 from src.utils.migrations import run_alembic_upgrade_head
 
 import config

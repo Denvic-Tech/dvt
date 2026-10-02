@@ -75,6 +75,9 @@ def test_sqlite_catalog_uses_paged_summaries_and_targeted_table_details(tmp_path
         {item.name for item in second_page.items}
     )
     assert all(not hasattr(item, "columns") for item in first_page.items)
+    assert all(item.comment is None for item in first_page.items)
+    assert detail.table.comment is None
+    assert all(column.comment is None for column in detail.table.columns)
     assert detail.table.name == "alpha"
     assert [column.name for column in detail.table.columns] == ["id", "value"]
     assert detail.table.columns[0].primary_key is True

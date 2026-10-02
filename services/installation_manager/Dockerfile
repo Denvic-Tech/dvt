@@ -41,6 +41,7 @@ COPY services/installation_manager/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
+COPY core /app/core
 COPY services/__init__.py /app/services/__init__.py
 COPY services/installation_manager /app/services/installation_manager
 RUN rm -rf /app/services/installation_manager/frontend

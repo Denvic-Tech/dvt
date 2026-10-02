@@ -10,19 +10,48 @@ from src.node_dsl.node_typing import IO
 
 class DataFrameNumericNormalizer(DFOutputBaseNode):
     TITLE = "Normalize numeric columns DataFrames"
+    ICON_KEY = "dataframe-numeric-normalizer"
     EMOJI = "📏"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect numeric data for clipping, not statistical normalization or rescaling. "
+            "Inspect ranges first: this node clips values to the configured interval."
+        ),
+    )
 
     columns_to_normalize: Optional[List[IO.COLUMN_NAME]] = InputField(
+        agent_description=(
+            "Select existing integer/float columns. Omission considers all columns but only "
+            "numeric ones are processed; an input with no suitable numeric fields fails."
+        ),
         description="Колонки для нормализации. Если пустые, то будут все колонки"
     )
 
-    lower_border: IO.FLOAT = InputField(default=0, description='Нижняя граница нормализации')
-    upper_border: IO.FLOAT = InputField(default=0, description='Верхняя граница нормализации')
+    lower_border: IO.FLOAT = InputField(
+        agent_description=(
+            "Choose the minimum allowed value from the business rule. Values below it are clipped, "
+            "and missing values are replaced with it when replace_empty_values is enabled. Must "
+            "not exceed upper_border."
+        ),
+        default=0, description='Нижняя граница нормализации',
+    )
+    upper_border: IO.FLOAT = InputField(
+        agent_description=(
+            "Choose the maximum allowed value. Both bounds default to 0, so configure a meaningful "
+            "interval to avoid clipping every numeric value to zero."
+        ),
+        default=0, description='Верхняя граница нормализации',
+    )
 
-    replace_empty_values: IO.BOOLEAN = InputField(default=True, description="Заполнять ли NaN/null значения")
+    replace_empty_values: IO.BOOLEAN = InputField(
+        agent_description=(
+            "Enable only when replacing null/NaN with lower_border is intended. Disable to "
+            "preserve missingness; this setting does not infer a statistical replacement."
+        ),
+        default=True, description="Заполнять ли NaN/null значения",
+    )
 
     output: dd.DataFrame = OutputField()
 

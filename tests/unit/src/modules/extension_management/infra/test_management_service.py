@@ -253,12 +253,14 @@ async def test_refresh_runtime_excludes_disabled_extensions(monkeypatch, tmp_pat
     disabled_root.mkdir()
     records = [
         SimpleNamespace(
+            manifest_json={},
             name="enabled",
             install_path=str(enabled_root),
             is_installed=True,
             is_enabled=True,
         ),
         SimpleNamespace(
+            manifest_json={},
             name="disabled",
             install_path=str(disabled_root),
             is_installed=True,
@@ -286,6 +288,7 @@ async def test_refresh_runtime_retries_persisted_node_runtime_error_without_stri
     extension_root = tmp_path / "sample-extension"
     extension_root.mkdir()
     record = SimpleNamespace(
+        manifest_json={},
         name="sample-extension",
         install_path=str(extension_root),
         is_installed=True,
@@ -321,6 +324,7 @@ async def test_refresh_runtime_does_not_retry_non_node_error_without_strict_mode
     extension_root = tmp_path / "sample-extension"
     extension_root.mkdir()
     record = SimpleNamespace(
+        manifest_json={},
         name="sample-extension",
         install_path=str(extension_root),
         is_installed=True,
@@ -355,6 +359,7 @@ async def test_gateway_refresh_reuses_preloaded_extension_module_generation(
     extension_root = tmp_path / "sample-extension"
     extension_root.mkdir()
     record = SimpleNamespace(
+        manifest_json={},
         name="sample-extension",
         install_path=str(extension_root),
         is_installed=True,
@@ -417,6 +422,7 @@ async def test_upsert_extension_loads_manifest_from_repository(monkeypatch) -> N
     session = _FakeAsyncSession()
     manager = get_mock_extension_manager(session)
     data = SimpleNamespace(
+        manifest_json={},
         name="yandex_metrica",
         display_name=None,
         description=None,
@@ -462,10 +468,11 @@ async def test_upsert_extension_loads_manifest_from_repository(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_upsert_extension_keeps_requested_extension_name(monkeypatch) -> None:
+async def test_upsert_extension_uses_package_identity(monkeypatch) -> None:
     session = _FakeAsyncSession()
     manager = get_mock_extension_manager(session)
     data = SimpleNamespace(
+        manifest_json={},
         name="custom_name",
         display_name=None,
         description=None,
@@ -473,7 +480,7 @@ async def test_upsert_extension_keeps_requested_extension_name(monkeypatch) -> N
     )
 
     async def fake_get_extension(name: str):
-        assert name == "custom_name"
+        assert name == "yandex-metrica"
 
     monkeypatch.setattr(manager, "get_extension", fake_get_extension)
     monkeypatch.setattr(manager.db_manager, "get_extension", fake_get_extension)
@@ -495,8 +502,8 @@ async def test_upsert_extension_keeps_requested_extension_name(monkeypatch) -> N
 
     extension = await manager.upsert_extension(data)
 
-    assert extension.name == "custom_name"
-    assert extension.manifest_json["name"] == "custom_name"
+    assert extension.name == "yandex-metrica"
+    assert extension.manifest_json["name"] == "yandex-metrica"
 
 
 def test_find_known_extension_for_manifest_ignores_repository_url(tmp_path: Path) -> None:

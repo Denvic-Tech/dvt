@@ -462,3 +462,21 @@ gateway_entrypoint = "backend.gateway:router"
     assert client.get("/extensions/auth-extension/api/admin").json() == {
         "user_id": "admin-1"
     }
+
+
+def test_canonical_route_and_legacy_alias_share_runtime_without_duplicate_openapi(tmp_path):
+    root = tmp_path / "Old Display Name"
+    _write_gateway_extension(root)
+    report = prepare_extension_gateway_runtime([
+        ExtensionRuntimeSpec("sample-extension", root, legacy_names=("Old Display Name",)),
+    ])
+    assert not report.failures
+    runtime = ExtensionGatewayRuntime()
+    runtime.swap(report.apps)
+    client = _client(runtime)
+    assert client.get("/extensions/sample-extension/api/ping").json() == {"message": "pong"}
+    assert client.get("/extensions/Old%20Display%20Name/api/ping").json() == {"message": "pong"}
+    paths = runtime.merge_openapi({"paths": {}})["paths"]
+    assert set(paths) == {"/extensions/sample-extension/api/ping"}
+    runtime.remove("sample-extension")
+    assert client.get("/extensions/Old%20Display%20Name/api/ping").status_code == 404

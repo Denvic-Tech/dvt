@@ -63,6 +63,7 @@ def _normalize_variable_value(value: Any) -> Any:
 
 class ExecuteSQL(SQLCodeInputFieldMixin, DFOutputBaseNode):
     TITLE = "Execute SQL"
+    ICON_KEY = "execute-sql"
     EMOJI = "🧩"
     CATEGORY = "Tool"
 
@@ -71,7 +72,15 @@ class ExecuteSQL(SQLCodeInputFieldMixin, DFOutputBaseNode):
         result_metadata_gateway=SQLAlchemyResultMetadataGateway(),
     ).create_extract_sql_code_metadata_use_case()
 
-    connection: SqlConnectionRecord | Engine = InputField()
+    connection: SqlConnectionRecord | Engine = InputField(
+        agent_description=(
+            "Connect a saved SQL connection authorized for the intended statement, and inspect its "
+            "dialect/catalog before configuring inherited sql_code. Queries are fully materialized "
+            "into one output partition; use a partitioned read for large results. Non-query "
+            "statements execute transactionally where supported and can mutate the database. A "
+            "single result row can also become output variables."
+        ),
+    )
 
     signal_out: IO.SIGNAL = OutputField(description="Execution signal output", force_handle_visible=True)
     output: dd.DataFrame = OutputField(description="DataFrame output", force_handle_visible=True)

@@ -5,6 +5,8 @@ from fastapi import APIRouter
 
 from core.db.connect.engine import build_engine_from_connection_string
 from core.db.ddl.column_actions import apply_table_column_actions
+from core.db.ddl.column_comments import column_comments_supported
+from core.metadata.db_metadata.comments import normalize_comment
 from core.db.ddl.schema import DIALECTS_WITHOUT_SCHEMA_SUPPORT, ensure_schema_exists
 from core.db.ddl.table import (
     create_typed_table_from_columns,
@@ -103,6 +105,7 @@ def _load_table_columns_for_resolution(
             column_info["name"],
             column_info.get("type") or sa.NullType(),
             nullable=column_info.get("nullable", True),
+            comment=normalize_comment(column_info.get("comment")),
         )
         for column_info in column_infos
     ]
@@ -314,6 +317,7 @@ def _resolve_write_columns_request(
             detail = safe_exception_message(exc)
             raise ResolveWriteColumnsError(f"Failed to resolve write columns: {detail}") from exc
 
+        result.column_comments_supported = column_comments_supported(engine.dialect)
         return ResolveWriteColumnsResponse.model_validate(result.model_dump())
     finally:
         engine.dispose()
@@ -565,17 +569,19 @@ async def create_table(
     redis: RedisBytes,
 ):
     connection = await resolve_ddl_connection(request.connection_id, user)
-    response = await asyncio.to_thread(
-        create_table_from_connection_string,
-        request,
-        connection.connection_string,
-    )
-    await invalidate_ddl_catalog(
-        connection_id=connection.connection_id,
-        user=user,
-        redis=redis,
-    )
-    return response
+    try:
+        return await asyncio.to_thread(
+            create_table_from_connection_string,
+            request,
+            connection.connection_string,
+        )
+    finally:
+        # Some dialects commit DDL before a later statement fails.
+        await invalidate_ddl_catalog(
+            connection_id=connection.connection_id,
+            user=user,
+            redis=redis,
+        )
 
 
 @r.post("/resolve-write-columns", response_model=ResolveWriteColumnsResponse)
@@ -597,18 +603,20 @@ async def apply_column_actions(
     redis: RedisBytes,
 ):
     connection = await resolve_ddl_connection(request.connection_id, user)
-    response = await asyncio.to_thread(
-        _apply_table_column_actions_request,
-        request,
-        connection.connection_string,
-    )
-    if not request.dry_run:
-        await invalidate_ddl_catalog(
-            connection_id=connection.connection_id,
-            user=user,
-            redis=redis,
+    try:
+        return await asyncio.to_thread(
+            _apply_table_column_actions_request,
+            request,
+            connection.connection_string,
         )
-    return response
+    finally:
+        # DDL may commit partially before an exception, depending on the dialect.
+        if not request.dry_run:
+            await invalidate_ddl_catalog(
+                connection_id=connection.connection_id,
+                user=user,
+                redis=redis,
+            )
 
 
 @r.post("/generate-table-ddl", response_model=GenerateTableDDLResponse)
@@ -631,17 +639,19 @@ async def recreate_table(
     redis: RedisBytes,
 ):
     connection = await resolve_ddl_connection(request.connection_id, user)
-    response = await asyncio.to_thread(
-        _recreate_table_request,
-        request,
-        connection.connection_string,
-    )
-    await invalidate_ddl_catalog(
-        connection_id=connection.connection_id,
-        user=user,
-        redis=redis,
-    )
-    return response
+    try:
+        return await asyncio.to_thread(
+            _recreate_table_request,
+            request,
+            connection.connection_string,
+        )
+    finally:
+        # Some dialects commit DDL before a later statement fails.
+        await invalidate_ddl_catalog(
+            connection_id=connection.connection_id,
+            user=user,
+            redis=redis,
+        )
 
 
 @r.post("/truncate-table", response_model=TableDDLActionResponse)

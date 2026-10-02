@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
 
 from core.types import DBColumn
 
@@ -130,6 +130,8 @@ TableColumnActionType: TypeAlias = Literal[
     "add_column",
     "drop_column",
     "recreate_column",
+    "set_column_comment",
+    "set_column_nullable",
 ]
 
 
@@ -137,6 +139,20 @@ class TableColumnAction(BaseModel):
     type: TableColumnActionType
     column_name: str = Field(min_length=1)
     column: DBColumn | None = None
+    comment: str | None = None
+    nullable: StrictBool | None = Field(
+        default=None,
+        description=(
+            "Required boolean for set_column_nullable. Changes nullability without replacing "
+            "the column. ClickHouse writes must be paused when setting nullable=false. "
+            "dry_run validates the schema only; existing NULL values are checked on apply."
+        ),
+    )
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        return None if value == "" else value
 
     @field_validator("column_name")
     @classmethod
@@ -148,6 +164,18 @@ class TableColumnAction(BaseModel):
 
     @model_validator(mode="after")
     def validate_action_contract(self) -> "TableColumnAction":
+        if self.type == "set_column_nullable":
+            if self.nullable is None:
+                raise ValueError("nullable must be an explicit boolean for set_column_nullable.")
+            if {"column", "comment"} & self.model_fields_set:
+                raise ValueError("column and comment are not allowed for set_column_nullable.")
+        elif self.nullable is not None:
+            raise ValueError("nullable is allowed only for set_column_nullable; use column.nullable.")
+        if self.type == "set_column_comment":
+            if "comment" not in self.model_fields_set:
+                raise ValueError("comment must be provided for set_column_comment (null deletes it).")
+            if self.column is not None:
+                raise ValueError("column is not allowed for set_column_comment.")
         if self.type in {"add_column", "recreate_column"}:
             if self.column is None:
                 raise ValueError(f"column is required for {self.type}.")

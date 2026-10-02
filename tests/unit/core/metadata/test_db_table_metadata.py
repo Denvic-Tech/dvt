@@ -24,6 +24,8 @@ def test_load_db_table_metadata_returns_target_table_snapshot() -> None:
         database_name='catalog',
     )
 
+    assert result.comment is None
+    assert all(column.comment is None for column in result.columns)
     assert result.name == 'items'
     assert result.database_name == 'catalog'
     assert result.type == DBTableType.BASE_TABLE
@@ -66,6 +68,10 @@ def test_load_db_table_metadata_maps_reflected_clickhouse_float_types(monkeypatc
             return []
 
         @staticmethod
+        def get_table_comment(table_name, schema=None):
+            raise NotImplementedError
+
+        @staticmethod
         def get_columns(table_name, schema=None):
             assert table_name == 'measurements'
             assert schema is None
@@ -80,11 +86,22 @@ def test_load_db_table_metadata_maps_reflected_clickhouse_float_types(monkeypatc
                     'type': clickhouse_types.Nullable(clickhouse_types.Float64),
                     'nullable': True,
                 },
+                {
+                    'name': 'nullable_low_cardinality',
+                    'type': clickhouse_types.LowCardinality(
+                        clickhouse_types.Nullable(clickhouse_types.String)
+                    ),
+                    # clickhouse-sqlalchemy only detects a top-level Nullable wrapper.
+                    'nullable': False,
+                },
             ]
 
     monkeypatch.setattr(table_metadata_module.sa, 'inspect', lambda engine: ClickHouseInspector())
 
-    result = load_db_table_metadata(object(), table_name='measurements')
+    engine = sa.create_mock_engine('clickhouse+http://', lambda *args, **kwargs: None)
+    result = load_db_table_metadata(engine, table_name='measurements')
 
-    assert [column.dtype for column in result.columns] == [DataType.FLOAT, DataType.FLOAT]
-    assert [column.nullable for column in result.columns] == [False, True]
+    assert [column.dtype for column in result.columns] == [
+        DataType.FLOAT, DataType.FLOAT, DataType.STRING,
+    ]
+    assert [column.nullable for column in result.columns] == [False, True, True]

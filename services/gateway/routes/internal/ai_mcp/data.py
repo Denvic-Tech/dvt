@@ -241,6 +241,7 @@ async def browse_database(
                 "kind": item.kind.value,
                 "database_name": item.database_name,
                 "schema_name": item.schema_name,
+                "comment": item.comment,
             }
             for item in response.result.items
         ]
@@ -283,6 +284,7 @@ async def get_database_table(
             "kind": table.kind.value,
             "database_name": table.database_name,
             "schema_name": table.schema_name,
+            "comment": table.comment,
             "columns": [
                 {
                     "name": column.name,
@@ -292,6 +294,7 @@ async def get_database_table(
                     "indexed": column.indexed,
                     "primary_key": column.primary_key,
                     "indexes": list(column.indexes),
+                    "comment": column.comment,
                 }
                 for column in table.columns
             ],

@@ -24,13 +24,26 @@ class _IntegerTruncateCastCallable:
 
 class DataFrameCastColumnType(DFOutputBaseNode):
     TITLE = "Cast Column Types"
+    ICON_KEY = "dataframe-cast-column-type"
     EMOJI = "🔀"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect representative values, nulls and source timezones before casting. A "
+            "successful metadata conversion alone does not verify all values can be converted."
+        ),
+    )
     # Типы задаются как словарь: {"col_name": "target_type"}
     # target_type может быть 'int', 'float', 'str', 'bool', 'datetime', 'category'
-    dtypes: Dict[str, str] = InputField()
+    dtypes: Dict[str, str] = InputField(
+        agent_description=(
+            "Map existing column names to target dtype strings. Integer conversion truncates "
+            "fractional values; choose nullable integer types if nulls must survive. Datetime "
+            "parsing coerces invalid values to NaT and uses UTC; timezone-free datetime output "
+            "loses timezone information. Verify conversion loss on actual data."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

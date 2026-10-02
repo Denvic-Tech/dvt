@@ -1,9 +1,12 @@
 from typing import Literal, Optional
+
 import dask.dataframe as dd
 
-from src.node_dsl import DFOutputBaseNode, InputField, OutputField
-from src.node_dsl.node_typing import IO
 from src.logger import logger
+from src.node_dsl import DFOutputBaseNode, InputField, OutputField
+from src.node_dsl.node_mixins.column_rules import ColumnRulesMixin
+from src.node_dsl.node_typing import IO
+from src.nodes.transform._shared.column_rules import OPERATIONS
 
 _FREQ = {
     "month": "MS",
@@ -16,21 +19,45 @@ _FREQ = {
 }
 
 
-class DataFrameConvertToPeriodStart(DFOutputBaseNode):
+class DataFrameConvertToPeriodStart(ColumnRulesMixin, DFOutputBaseNode):
+    COLUMN_RULE_OPERATION = OPERATIONS["period"]
+    LEGACY_RULE_INPUTS = ("column", "period", "new_column",)
+    LEGACY_REQUIRED = ("column",)
+
     TITLE = "Datetime → Period Start"
+    ICON_KEY = "dataframe-convert-to-period-start"
     EMOJI = "🗓️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    column: IO.COLUMN_NAME = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect source datetime types and timezone meaning before deriving reporting periods. "
+            "This transforms a column without aggregating rows."
+        ),
+    )
+    column: Optional[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Choose the date field; non-datetime input is parsed and invalid values become NaT. "
+            "Apply the intended source timezone before deriving local calendar boundaries."
+        ),
+    )
     period: Literal["month", "week", "year", "day", "hour", "minute", "second"] = InputField(
+        agent_description=(
+            "Choose the business period explicitly. Weeks start on Monday; month/year use calendar "
+            "boundaries. Output is timezone-naive, so verify local-versus-UTC reporting semantics."
+        ),
         default="month"
     )
-    new_column: Optional[str] = InputField()
+    new_column: Optional[str] = InputField(
+        agent_description=(
+            "Omit to overwrite the original date field, or supply a distinct name to preserve it. "
+            "The result is the beginning of each period, not an aggregated report."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 
-    def process(self):
+    def process_legacy(self):
         target_col = self.new_column or self.column
         logger.info(f"Converting '{self.column}' to start of '{self.period}', result -> '{target_col}'")
 

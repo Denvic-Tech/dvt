@@ -52,8 +52,20 @@ class ApplyTableColumnActionsRequest(BaseModel):
     table_name: str = Field(..., min_length=1)
     database_name: Optional[str] = None
     schema_name: Optional[str] = None
-    actions: List[TableColumnAction] = Field(min_length=1)
-    dry_run: bool = False
+    actions: List[TableColumnAction] = Field(
+        min_length=1,
+        description=(
+            "Ordered column actions. One set_column_nullable and one set_column_comment "
+            "may target the same existing column; other combinations on one column are rejected."
+        ),
+    )
+    dry_run: bool = Field(
+        default=False,
+        description=(
+            "Generate SQL without applying it or scanning data. Applying nullable=false "
+            "checks for existing NULL values before executing any action."
+        ),
+    )
 
 
 class ApplyTableColumnActionsResponse(BaseModel):

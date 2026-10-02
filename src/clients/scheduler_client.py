@@ -71,6 +71,8 @@ class SchedulerClient:
                         status_code=response.status, detail=error_message
                     )
                 return response_data
+        except HTTPException:
+            raise
         except aiohttp.ClientConnectionError as e:
             logger.error(f"SchedulerClient: Connection error for {full_url}: {e}")
             raise HTTPException(

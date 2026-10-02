@@ -1,25 +1,61 @@
-from dask import dataframe as dd
-import pandas as pd
+from typing import Optional
+
 import numpy as np
+import pandas as pd
+from dask import dataframe as dd
 
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
+from src.node_dsl.node_mixins.column_rules import ColumnRulesMixin
 from src.node_dsl.node_typing import IO
+from src.nodes.transform._shared.column_rules import OPERATIONS
 
 
-class DataFrameSplitColumn(DFOutputBaseNode):
+class DataFrameSplitColumn(ColumnRulesMixin, DFOutputBaseNode):
+    COLUMN_RULE_OPERATION = OPERATIONS["split"]
+    LEGACY_RULE_INPUTS = ("column", "delimiter", "max_splits", "drop_source",)
+    LEGACY_REQUIRED = ("column", "delimiter",)
+
     TITLE = "Split Column"
+    ICON_KEY = "dataframe-split-column"
     EMOJI = "✂️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    column: IO.COLUMN_NAME = InputField()
-    delimiter: str = InputField()
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Check row count, target values and existing names before splitting. The operation "
+            "adds columns while preserving rows and alignment within each partition."
+        ),
+    )
+    column: Optional[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Select the existing field to split. Values are converted to strings first; inspect "
+            "how source nulls appear after stringification."
+        ),
+    )
+    delimiter: str | None = InputField(
+        agent_description=(
+            "Choose the separator from real values and account for pandas str.split pattern "
+            "semantics for multi-character delimiters. Test separators containing regex "
+            "metacharacters instead of assuming literal matching."
+        ),
+    )
     max_splits: int = InputField(
+        agent_description=(
+            "Set the maximum split count n, producing exactly n+1 columns named source_1 through "
+            "source_(n+1). Check the largest required split and collisions with existing names; "
+            "missing pieces are filled with NaN."
+        ),
         default=1,
         min_value=1,
         description="Maximum number of splits (n). Produces n+1 columns."
     )
-    drop_source: bool = InputField(default=False)
+    drop_source: bool = InputField(
+        agent_description=(
+            "Enable only when downstream nodes no longer need the original field. The default "
+            "retains it alongside all generated split columns."
+        ),
+        default=False,
+    )
 
     output: dd.DataFrame = OutputField()
 
@@ -47,7 +83,7 @@ class DataFrameSplitColumn(DFOutputBaseNode):
 
         return pd.concat([pdf, split_df], axis=1)
 
-    def process(self):
+    def process_legacy(self):
         # Создаём meta для Dask
         meta_dict = {col: self.df._meta[col].dtype for col in self.df._meta.columns}
         if self.drop_source:

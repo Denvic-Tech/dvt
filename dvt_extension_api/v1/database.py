@@ -8,12 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.extension_management.infra.database import (
     extension_async_session,
-    extension_schema_name,
+    resolve_storage_schema,
 )
 
 
 def get_extension_schema_name(extension_name: str) -> str:
-    return extension_schema_name(extension_name)
+    return resolve_storage_schema(extension_name)
 
 
 async def _extension_session_dependency(request: Request) -> AsyncIterator[AsyncSession]:

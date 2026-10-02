@@ -179,6 +179,7 @@ def build_table_from_db_columns(
                 primary_key=is_single_pk,
                 nullable=nullable,
                 autoincrement=autoincrement,
+                comment=db_column.comment or None,
                 quote=True,
             )
         )

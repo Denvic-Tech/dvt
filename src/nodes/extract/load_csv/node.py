@@ -37,11 +37,18 @@ def _read_ftp_csv_file(
 
 class LoadCSV(FileConnectionInputMixin, DFOutputBaseNode):
     TITLE = "Load CSV"
+    ICON_KEY = "load-csv"
     EMOJI = "📄"
     CATEGORY = "Extraction"
 
     # --- Inputs ---
     path: str | None = InputField(
+        agent_description=(
+            "Set a path relative to the selected file connection, optionally with a glob for "
+            "multiple CSV files. Verify that matching files exist and have compatible "
+            "headers/dtypes. Dask reads files lazily; FTP downloads each matching file into a "
+            "temporary local file and creates a partition per file."
+        ),
         default="",
         description=(
             "Поддерживаются glob-паттерны, например:\n"
@@ -49,16 +56,39 @@ class LoadCSV(FileConnectionInputMixin, DFOutputBaseNode):
             "  'reports/2025-*/data-*.csv' — все файлы за 2025 год"
         ),
     )
-    delimiter: str = InputField(default=",")
+    delimiter: str = InputField(
+        agent_description=(
+            "Choose the separator from a sample of the actual file, not its extension. Escaped "
+            "separators such as \\t are decoded; an empty value falls back to comma. Verify parsed "
+            "headers when using nonstandard or multicharacter separators."
+        ),
+        default=",",
+    )
     encoding: str | None = InputField(
+        agent_description=(
+            "Specify the source file's text encoding, usually utf-8. Use another encoding only "
+            "when verified from the source; a delimiter or dtype change will not fix decoding "
+            "errors."
+        ),
         default="utf-8",
         is_hidden=True,
     )
     usecols: list[str] | None = InputField(
+        agent_description=(
+            "Optionally select existing CSV header names to reduce reading and memory use; null "
+            "reads all columns. Include all fields required for downstream keys, filters, and "
+            "calculations, and verify names after delimiter/encoding selection."
+        ),
         default=None,
         is_hidden=True,
     )
     dtypes: dict[str, str] | None = InputField(
+        agent_description=(
+            "Optionally map CSV column names to explicit pandas dtypes. Inspect representative "
+            "values across matched files, including nulls and late-appearing text, before choosing "
+            "types. Prefer nullable types where needed; sample-based inference alone can fail "
+            "during later partition computation."
+        ),
         default=None,
     )
 

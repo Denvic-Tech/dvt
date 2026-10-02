@@ -9,11 +9,25 @@ from src.logger import logger
 
 class DataFrameSelectColumns(DFOutputBaseNode):
     TITLE = "Select Columns"
+    ICON_KEY = "dataframe-select-columns"
     EMOJI = "☑️"
     CATEGORY = "Transform"
 
-    df: dd.DataFrame = InputField()
-    columns: List[IO.COLUMN_NAME] = InputField()  # Список колонок для выбора
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Inspect the actual upstream columns and named index before selecting. This is a "
+            "downstream projection and does not reduce the amount already fetched by an upstream "
+            "reader."
+        ),
+    )
+    columns: List[IO.COLUMN_NAME] = InputField(
+        agent_description=(
+            "Provide an explicit non-empty list in the desired output order. Missing names and the "
+            "named index are filtered out; verify output metadata instead of assuming every "
+            "requested name survives. An empty list currently exits without producing an output, "
+            "so do not use it to mean all columns."
+        ),
+    )  # Список колонок для выбора
 
     output: dd.DataFrame = OutputField()
 

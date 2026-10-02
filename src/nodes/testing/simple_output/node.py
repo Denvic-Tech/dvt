@@ -8,7 +8,12 @@ class SimpleOutputNode(TestingBaseNode):
     EXPERIMENTAL = True
     OUTPUT_NODE = True
 
-    value_final: str = InputField()
+    value_final: str = InputField(
+        agent_description=(
+            "Experimental terminal test input: the string is logged and no data output is "
+            "produced. Use to verify graph execution, not to persist results."
+        ),
+    )
 
     def process(self):
         logger.debug(f"SimpleOutputNode received final value: {self.value_final}")

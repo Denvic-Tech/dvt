@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
@@ -17,7 +17,7 @@ class Position(StrictModel):
 class InputValue(StrictModel):
     kind: Literal["constant", "expression", "connection_ref"] = Field(
         description=(
-            "Use connection_ref only for a *_CONNECTION_ID input on a GetExist*Connection node. "
+            "Use connection_ref only for an input whose schema type is *_CONNECTION_ID. "
             "A consumer *_CONNECTION object input must be supplied by an edge from that node."
         )
     )
@@ -42,9 +42,9 @@ class AddNode(StrictModel):
     inputs: dict[str, InputValue | None] = Field(
         default_factory=dict,
         description=(
-            "Initial node inputs. For ReadTableFromDBV3, provide partition_col and an explicit "
-            "non-empty columns list; list every catalog column to select all. Connection object "
-            "inputs must be supplied through add_connections from a GetExist*Connection node."
+            "Initial node inputs. Read get_node_definition for the schema, input "
+            "agent_description guidance and node documentation before configuring them. "
+            "Supply connection object inputs through add_connections from compatible outputs."
         ),
     )
     store_enabled: bool = False
@@ -61,9 +61,9 @@ class UpdateNode(StrictModel):
         default=None,
         description=(
             "Only inputs that must change. Omitted keys keep their current value; a null entry "
-            "removes the value. ReadTableFromDBV3.columns must be an explicit non-empty list, "
-            "with every catalog column listed when all columns are required. Never replace a "
-            "connection edge by writing a connection ID into a consumer connection input."
+            "removes the value. Follow input agent_description guidance and node documentation "
+            "when reassessing affected settings. Never replace a connection edge by writing a "
+            "connection ID into a consumer connection object input."
         ),
     )
     store_enabled: bool | None = None
@@ -84,6 +84,25 @@ class GraphPatch(StrictModel):
     delete_node_ids: list[str] = Field(default_factory=list)
     add_connections: list[AddConnection] = Field(default_factory=list)
     delete_connection_ids: list[str] = Field(default_factory=list)
+
+
+class SchedulePatch(StrictModel):
+    """Only supplied settings change; null values and an empty patch are invalid."""
+
+    cron: str | None = Field(default=None, min_length=1)
+    force_exec: bool | None = None
+    max_retries: int | None = Field(default=None, ge=0, le=10)
+    retry_delay_seconds: int | None = Field(default=None, ge=1, le=86400)
+    retry_backoff: Literal["fixed", "exponential"] | None = None
+    retry_max_delay_seconds: int | None = Field(default=None, ge=1, le=86400)
+
+    @model_validator(mode="after")
+    def validate_patch(self):
+        if not self.model_fields_set or any(
+            getattr(self, name) is None for name in self.model_fields_set
+        ):
+            raise ValueError("Provide non-null schedule settings to change.")
+        return self
 
 
 class RuntimeVariable(StrictModel):

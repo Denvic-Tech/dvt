@@ -30,6 +30,11 @@ class SQLCodeInputFieldMixin(NodeFieldsMixin):
     ).create_validate_sql_use_case()
 
     sql_code: str = InputField(
+        agent_description=(
+            "Use the connected source's SQL dialect and verify identifiers against its catalog. "
+            "Check the concrete node documentation for permitted statement types and side effects. "
+            "Prefer specialized nodes when they express the task; document why custom SQL is needed."
+        ),
         multiline=True,
         expression_policy="default",
         sql_template=True,

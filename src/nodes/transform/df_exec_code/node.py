@@ -9,13 +9,27 @@ from src.node_dsl import DFOutputBaseNode, InputField, OutputField
 
 class DataFrameExecCode(DFOutputBaseNode):
     TITLE = "Execute Python Code on DataFrame"
+    ICON_KEY = "dataframe-exec-code"
     EMOJI = "💻"
     CATEGORY = "Transform"
     # ВНИМАНИЕ: Выполнение произвольного кода может быть небезопасно!
     # Рассмотрите использование более безопасных альтернатив, если возможно.
 
-    df: dd.DataFrame = InputField()
-    code: str = InputField(multiline=True, default="df_out = df_in")  # Python код
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect a Dask DataFrame; it is exposed to code as df_in. Prefer specialized "
+            "transforms and justify the custom-code node in its comment."
+        ),
+    )
+    code: str = InputField(
+        agent_description=(
+            "Assign a Dask DataFrame to df_out; assigning a pandas DataFrame or omitting df_out "
+            "fails. Available names include df_in, pd, dd, input_variables and project_variables. "
+            "Keep operations lazy where feasible and document why specialized nodes cannot express "
+            "the task."
+        ),
+        multiline=True, default="df_out = df_in",
+    )  # Python код
     # Код должен присвоить результат переменной df_out
 
     output: dd.DataFrame = OutputField()  # Выходной DataFrame

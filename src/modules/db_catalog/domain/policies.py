@@ -103,4 +103,4 @@ def build_cache_key(
         json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
     revision_hash = hashlib.sha256(connection.revision.encode()).hexdigest()[:16]
-    return f"dvt:db-catalog:v1:{connection.id}:{revision_hash}:{epoch}:{request_hash}"
+    return f"dvt:db-catalog:v2:{connection.id}:{revision_hash}:{epoch}:{request_hash}"

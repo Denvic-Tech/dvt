@@ -73,7 +73,10 @@ async def test_build_pending_task_from_project_merges_runtime_variables(monkeypa
         "get_dependency_manager",
         lambda: SimpleNamespace(check_extensions_availability=fake_check_extensions_availability),
     )
-    monkeypatch.setattr("src.utils.extensions.collect_extension_names", lambda _pipeline: [])
+    monkeypatch.setattr(
+        "src.modules.extension_management.infra.pipeline_dependencies.collect_extension_names",
+        lambda _pipeline: [],
+    )
 
     task = await task_infra.build_pending_task_from_project(
         project=project,

@@ -10,11 +10,26 @@ from src.node_dsl import IO, InputField, JSONOutputBaseNode, OutputField
 
 class DataFrameToJson(JSONOutputBaseNode):
     TITLE = "DataFrame → JSON"
+    ICON_KEY = "dataframe-to-json"
     EMOJI = "{ }"
     CATEGORY = "JSON"
 
-    df: dd.DataFrame = InputField()
-    orient: Literal["columns", "index", "tight"] = InputField(default="columns")
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect a DataFrame small enough to materialize on one worker: conversion computes "
+            "the entire Dask DataFrame into pandas and returns an in-memory JSON value. Filter or "
+            "aggregate large inputs first; this does not stream JSON files."
+        ),
+    )
+    orient: Literal["columns", "index", "tight"] = InputField(
+        agent_description=(
+            "Choose the exact output shape expected by the consumer: columns maps column names to "
+            "index/value maps; index maps index values to row objects; tight includes index, "
+            "columns, data, and axis names. Check index/column uniqueness for mapping "
+            "orientations. Datetimes are serialized and missing values become JSON-safe values."
+        ),
+        default="columns",
+    )
 
     output: IO.JSON = OutputField()
 

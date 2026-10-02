@@ -63,22 +63,87 @@ class _EditorContext:
 
 class JSONEditor(JSONOutputBaseNode):
     TITLE = "JSON Editor"
+    ICON_KEY = "json-editor"
     EMOJI = "🧰"
     CATEGORY = "JSON"
     DESCRIPTION = "Подготовка JSON к дальнейшей нормализации и преобразованию в DataFrame."
 
-    json: IO.JSON = InputField(multiline=True)
-    record_path: str = InputField(default="", description="Путь к источнику записей.")
-    meta_paths: list[str] = InputField(default=[], description="Пути, которые нужно добавить в каждую запись.")
-    explode_paths: list[str] = InputField(default=[], description="Массивы, по которым нужно размножать строки.")
-    keep_json_paths: list[str] = InputField(default=[], description="Поддеревья, которые нужно сохранить как JSON.")
-    exclude_paths: list[str] = InputField(default=[], description="Пути, которые нужно исключить из результата.")
-    separator: str = InputField(default=".", description="Разделитель для итоговых flat keys.")
+    json: IO.JSON = InputField(
+        agent_description=(
+            "Provide parsed JSON to normalize into row objects. Inspect JSON metadata and a "
+            "representative sample to locate records, nested arrays, and root-level attributes. "
+            "Tabular matrix structures may be normalized automatically before path resolution; "
+            "confirm the effective shape."
+        ),
+        multiline=True,
+    )
+    record_path: str = InputField(
+        agent_description=(
+            "Set the path to the object or array containing records, based on observed JSON "
+            "structure. Use $ for the root explicitly. A non-empty path overrides auto-detection; "
+            "an absent path produces empty output with a warning, not a validation error."
+        ),
+        default="", description="Путь к источнику записей.",
+    )
+    meta_paths: list[str] = InputField(
+        agent_description=(
+            "List paths whose values should be copied into every output row. Relative paths "
+            "resolve from the current record; absolute $ paths can bring in document-level "
+            "metadata. Missing paths yield null, and metadata keys overwrite same-named flattened "
+            "keys; avoid collisions."
+        ),
+        default=[], description="Пути, которые нужно добавить в каждую запись.",
+    )
+    explode_paths: list[str] = InputField(
+        agent_description=(
+            "List array paths to expand into separate rows. Relative paths are scoped to each "
+            "record; absolute $ paths refer to the document structure. Multiple independent arrays "
+            "produce a Cartesian product. Arrays not listed remain JSON values; estimate row "
+            "growth and set max_rows deliberately."
+        ),
+        default=[], description="Массивы, по которым нужно размножать строки.",
+    )
+    keep_json_paths: list[str] = InputField(
+        agent_description=(
+            "List subtrees to preserve as JSON-valued cells instead of flattening. Paths are "
+            "record-relative unless absolute. Keeping a path as JSON takes precedence over "
+            "exploding that same path; excluded paths still take precedence."
+        ),
+        default=[], description="Поддеревья, которые нужно сохранить как JSON.",
+    )
+    exclude_paths: list[str] = InputField(
+        agent_description=(
+            "List paths and their subtrees to remove, including matching metadata paths. Relative "
+            "paths start at each record and absolute paths start at $. Use observed path syntax "
+            "and check that required downstream fields are not removed."
+        ),
+        default=[], description="Пути, которые нужно исключить из результата.",
+    )
+    separator: str = InputField(
+        agent_description=(
+            "Choose the literal separator for flattened output keys; it does not change the input "
+            "JSON path syntax. Avoid source-key collisions so independent nested fields do not "
+            "overwrite one another."
+        ),
+        default=".", description="Разделитель для итоговых flat keys.",
+    )
     auto_detect_record_path: bool = InputField(
+        agent_description=(
+            "Leave true only when metadata-based selection is appropriate and verify the chosen "
+            "record path. It applies only when record_path is blank, selects a high-confidence "
+            "record candidate, and otherwise falls back to the root. For stable production "
+            "mappings prefer an explicit verified record_path."
+        ),
         default=True,
         description="Автоматически подобрать record_path из JSON metadata.",
     )
     max_rows: int = InputField(
+        agent_description=(
+            "Set the maximum total output rows from 1 to 100000 after record selection and array "
+            "expansion. Reaching this limit truncates output and records a warning; it is a "
+            "data-loss boundary, not a partition size. Estimate expected rows and check truncation "
+            "statistics."
+        ),
         default=10000,
         min_value=1,
         max_value=100000,

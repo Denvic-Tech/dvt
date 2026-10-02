@@ -25,6 +25,7 @@ class ReadQueryFromDBV3(
     SQLCodeInputFieldMixin,
 ):
     TITLE = "Read Query DB V3"
+    ICON_KEY = "query-from-db"
     EMOJI = "🔍"
     CATEGORY = "Extraction"
     METADATA_VARIABLE_PREPASS_INPUTS = frozenset({"query"})
@@ -34,19 +35,50 @@ class ReadQueryFromDBV3(
         allowed_statement_types={"select", "with", "set_operation"},
     )
 
-    connection: SqlConnectionRecord | Engine = InputField()
+    connection: SqlConnectionRecord | Engine = InputField(
+        agent_description=(
+            "Connect a DB_CONNECTION object by an edge. Choose this reader only when source-side "
+            "SQL cannot reasonably be expressed by a table reader and specialized transforms; "
+            "explain the reason in the node comment and follow the query README."
+        ),
+    )
     partition_col: str | None = InputField(
-        description=(
-            "Required. Must be an exact scalar column exposed by the query result. Choose a "
-            "stable, preferably non-null and indexed numeric/datetime column without SQL quotes."
-        )
+        description="Required column of the query result used for partitioning.",
+        agent_description=(
+            "Use an exact scalar column exposed by the query result, without SQL quotes. Profile "
+            "its type, nulls, cardinality and skew; prefer a stable non-null key. Do not assume a "
+            "base-table key remains unique or even present after the query's joins and aggregation."
+        ),
     )
     partition_grouping: dict[str, Any] | None = InputField(
-        description="Custom grouping spec for partitioned reads."
+        description="Custom grouping spec for partitioned reads.",
+        agent_description=(
+            "Assess the query result size, row width and key distribution, not just base-table "
+            "statistics. Omit for automatic range/hash. Use documented formats only; custom groups "
+            "can override the target partition count. Record the decision in the node comment."
+        ),
     )
-    npartitions: int | None = InputField(min_value=1)
-    limit: int | None = InputField(min_value=1, max_value=1000000)
-    max_rows_per_partition: int | None = InputField(min_value=1)
+    npartitions: int | None = InputField(
+        min_value=1,
+        agent_description=(
+            "Omit for automatic sizing. Fix 1 only after verifying a small narrow result and "
+            "considering growth; custom groups or explicit hash buckets may define more segments."
+        ),
+    )
+    limit: int | None = InputField(
+        min_value=1, max_value=1000000,
+        agent_description=(
+            "Omit for full results. Set only when a limited read is intended; do not silently "
+            "truncate a business report to speed up execution."
+        ),
+    )
+    max_rows_per_partition: int | None = InputField(
+        min_value=1,
+        agent_description=(
+            "A segment exceeding this row ceiling fails; it is not split automatically. Check "
+            "key skew before selecting a limit and review available execution diagnostics."
+        ),
+    )
 
     output: dd.DataFrame = OutputField()
 

@@ -35,6 +35,7 @@ class WriteDataFrameToDBV4SystemVariables(BaseModel):
 
 class WriteDataFrameToDBV4(BaseNode):
     TITLE = "Write DataFrame To DB V4"
+    ICON_KEY = "write-to-db"
     EMOJI = "✍️"
     CATEGORY = "Writing"
     OUTPUT_NODE = True
@@ -45,26 +46,83 @@ class WriteDataFrameToDBV4(BaseNode):
         "databases, schemas, or tables; prepare and verify the target before execution."
     )
 
-    connection: SqlConnectionRecord | Engine = InputField()
-    database_name: str | None = InputField()
-    df: dd.DataFrame = InputField()
-    table_name: str = InputField()
-    schema_name: str | None = InputField()
+    connection: SqlConnectionRecord | Engine = InputField(
+        agent_description=(
+            "Supply the DB_CONNECTION object by an edge from a compatible connection node, "
+            "not a connection ID or connection_ref."
+        ),
+    )
+    database_name: str | None = InputField(
+        agent_description="Resolve the target database in the connection catalog before writing.",
+    )
+    df: dd.DataFrame = InputField(
+        agent_description=(
+            "Connect the upstream DataFrame. Inspect its metadata and values against the target "
+            "types, nullability and selected write mode before configuring the write."
+        ),
+    )
+    table_name: str = InputField(
+        agent_description=(
+            "This writer never creates a database, schema or table. Inspect the exact target with "
+            "get_database_table before applying or running the graph. If required target objects "
+            "are missing, prepare them with create_database, create_schema or create_table using "
+            "the intended DataFrame metadata and target constraints, then inspect the target again. "
+            "Do not rely on the writer to infer or create the target structure."
+        ),
+    )
+    schema_name: str | None = InputField(
+        agent_description=(
+            "Use the target catalog schema where supported; prepare a missing schema separately "
+            "before running this writer."
+        ),
+    )
     write_mode: Literal["append", "truncate", "upsert"] = InputField(
         default="append",
         description="append | truncate | upsert",
+        agent_description=(
+            "Choose the intended write semantics explicitly. Repeating append can duplicate rows; "
+            "truncate replaces all target rows; upsert replaces matching rows, not selected fields. "
+            "Do not assume whole-run atomicity. Inspect the target after an error before retrying."
+        ),
     )
     on_extra_df_columns: Literal["ignore", "error"] = InputField(
         default="ignore",
         description="How to handle DataFrame columns that do not exist in the target table.",
+        agent_description=(
+            "Compare the projected and mapped columns with the actual target. Use error when "
+            "dropping unexpected source fields would violate the task; ignore does not add columns."
+        ),
     )
     on_missing_df_columns: Literal["ignore", "ignore_if_default", "error"] = InputField(
         default="ignore_if_default",
         description="How to handle target-table columns that are missing from the DataFrame.",
+        agent_description=(
+            "Inspect target defaults and nullability before allowing missing fields. Omission is "
+            "not a promise that the database can insert a valid row."
+        ),
     )
-    chunksize: int | None = InputField(default=1000, min_value=1, max_value=1_000_000)
-    upsert_config: UpsertConfig | None = InputField(default=None)
-    column_mapping: list[WriteColumnMapping] | None = InputField(default=None)
+    chunksize: int | None = InputField(
+        default=1000, min_value=1, max_value=1_000_000,
+        agent_description=(
+            "Keep the default unless row width, source volume and driver limits justify tuning. "
+            "A chunk size does not make the whole write one atomic transaction."
+        ),
+    )
+    upsert_config: UpsertConfig | None = InputField(
+        default=None,
+        agent_description=(
+            "Supply only with write_mode=upsert. Use the exact target key_column from the nested "
+            "schema. Verify key meaning and input duplicates: this operation does not deduplicate "
+            "the input and needs temporary-table permissions and dialect support."
+        ),
+    )
+    column_mapping: list[WriteColumnMapping] | None = InputField(
+        default=None,
+        agent_description=(
+            "Use source_name/target_name entries from the nested schema and verify names and "
+            "compatible types against both sides. Mapping does not alter the target table schema."
+        ),
+    )
 
     @staticmethod
     def _drop_internal_columns(df: dd.DataFrame) -> dd.DataFrame:
