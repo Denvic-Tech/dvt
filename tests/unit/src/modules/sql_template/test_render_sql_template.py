@@ -102,6 +102,119 @@ def test_supports_insert_column_and_update_set_value() -> None:
     ) == 'UPDATE events SET "name" = \'updated\''
 
 
+@pytest.mark.parametrize("dialect", ["mssql", "tsql"])
+@pytest.mark.parametrize(
+    ("template", "expected"),
+    [
+        (
+            "SELECT TOP ({{ input_variables.batch_limit }}) * FROM events",
+            "SELECT TOP (10) * FROM events",
+        ),
+        (
+            "select top ( {{ batch_limit | int }} ) * from events",
+            "select top ( 10 ) * from events",
+        ),
+        (
+            "SELECT TOP (({{ batch_limit }})) * FROM events",
+            "SELECT TOP ((10)) * FROM events",
+        ),
+        (
+            "SELECT TOP (/* batch size */ {{ batch_limit }}) * FROM events",
+            "SELECT TOP (/* batch size */ 10) * FROM events",
+        ),
+        (
+            "SELECT TOP ({{ batch_limit }}) PERCENT WITH TIES * FROM events ORDER BY id",
+            "SELECT TOP (10) PERCENT WITH TIES * FROM events ORDER BY id",
+        ),
+    ],
+)
+def test_renders_mssql_top_value(template: str, expected: str, dialect: str) -> None:
+    assert _render(template, {"batch_limit": 10}, dialect) == expected
+
+
+def test_renders_nested_top_and_other_interpolations() -> None:
+    assert _render(
+        "SELECT TOP ({{ outer_limit }}) * FROM "
+        "(SELECT TOP ({{ inner_limit }}) * FROM {{ table }} WHERE status = {{ status }}) AS src "
+        "ORDER BY {{ column }}",
+        {
+            "outer_limit": 10,
+            "inner_limit": 100,
+            "column": "id",
+            "table": "dbo.events",
+            "status": "active",
+        },
+        "mssql",
+    ) == (
+        "SELECT TOP (10) * FROM "
+        "(SELECT TOP (100) * FROM [dbo].[events] WHERE status = 'active') AS src "
+        "ORDER BY [id]"
+    )
+
+
+def test_top_string_value_cannot_inject_sql() -> None:
+    assert _render(
+        "SELECT TOP ({{ batch_limit }}) * FROM events",
+        {"batch_limit": "10'); DROP TABLE events; --"},
+        "mssql",
+    ) == "SELECT TOP ('10''); DROP TABLE events; --') * FROM events"
+
+
+def test_keeps_top_cast_workaround() -> None:
+    assert _render(
+        "SELECT TOP (CAST('{{ batch_limit }}' AS bigint)) * FROM events",
+        {"batch_limit": 10},
+        "mssql",
+    ) == "SELECT TOP (CAST('10' AS bigint)) * FROM events"
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "SELECT TOP (1) * FROM events /* TOP ( */ {{ fragment }}",
+        "SELECT TOP (dvt_template_0) * FROM events {{ fragment }}",
+        "SELECT TOP ([{{ fragment }}]) * FROM events",
+    ],
+)
+def test_rejects_false_top_literal_positions(template: str) -> None:
+    with pytest.raises(SQLTemplateContextError, match="Raw SQL fragments"):
+        _render(template, {"fragment": "WHERE id = 1"}, "mssql")
+
+
 def test_rejects_raw_sql_fragment_position() -> None:
     with pytest.raises(SQLTemplateContextError, match="Raw SQL fragments"):
         _render("SELECT * FROM events {{ fragment }}", {"fragment": "WHERE id = 1"})
+
+
+def test_renders_top_from_snapshot_batch_query() -> None:
+    template = """
+SELECT TOP ({{input_variables.batch_limit}})
+    SourceTable.[ДатаИзменения]
+    ,SourceTable.[УУ_РабочееМесто] AS "УУ_РабочееМесто"
+    ,SourceTable.[Инициалы]
+    ,SourceTable.[Пол]
+    ,SourceTable.[УУ_УдаленнаяРабота] AS "УУ_УдаленнаяРабота"
+    ,SourceTable.[Код]
+    ,CAST(SourceTable.[ПараметрСсылка] AS VARCHAR(36)) AS "ПараметрСсылка"
+    ,SourceTable.[УУ_СтатусВКомпании] AS "УУ_СтатусВКомпании"
+    ,SourceTable.[ДатаРегистрации]
+FROM [TS_EXTRA_DATA_01].[dbo].[TestParquetS3] AS SourceTable
+LEFT JOIN [TS_EXTRA_DATA_01].[dbo].[SnapshotTestParquetS3] AS Snapshot
+    ON SourceTable.ПараметрСсылка = Snapshot.ПараметрСсылка
+    AND ISNULL(SourceTable.Пол, '') = ISNULL(Snapshot.Пол, '')
+    AND ISNULL(SourceTable.ДатаРегистрации, '') = ISNULL(Snapshot.ДатаРегистрации, '')
+    AND ISNULL(SourceTable.Инициалы, '') = ISNULL(Snapshot.Инициалы, '')
+    AND ISNULL(SourceTable.УУ_РабочееМесто, '') = ISNULL(Snapshot.УУ_РабочееМесто, '')
+    AND ISNULL(SourceTable.УУ_СтатусВКомпании, '') = ISNULL(Snapshot.УУ_СтатусВКомпании, '')
+    AND ISNULL(SourceTable.УУ_УдаленнаяРабота, '') = ISNULL(Snapshot.УУ_УдаленнаяРабота, '')
+    AND ISNULL(SourceTable.Код, '') = ISNULL(Snapshot.Код, '')
+WHERE SourceTable.ДатаИзменения >= (
+    SELECT ISNULL(MAX(Snapshot.ДатаИзменения), '1900-01-01') AS "МаксДатаИзменения"
+    FROM [TS_EXTRA_DATA_01].[dbo].[SnapshotTestParquetS3] AS Snapshot
+)
+    AND Snapshot.ПараметрСсылка IS NULL
+ORDER BY [ДатаИзменения]
+"""
+    assert _render(template, {"batch_limit": 1000}, "mssql") == template.replace(
+        "{{input_variables.batch_limit}}", "1000"
+    )
