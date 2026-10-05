@@ -1,9 +1,13 @@
 import sqlalchemy.ext.asyncio as asa
 from db_connection import AccessDeniedError, ConnectionNotFoundError
 
+from core.metadata import build_kafka_metadata
+
+from src import utils
 from src.db import async_engine
 from src.logger import logger
 from src.modules.db_connection import build_connection_service
+from src.modules.kafka_consumption.facade import build_kafka_gateway
 from src.modules.user import User, build_get_user_by_id_use_case
 from src.modules.user.flow.exceptions import UserNotFoundError
 from src.modules.user.infra.repositories import SQLAlchemyUserRepository
@@ -78,3 +82,22 @@ class GetExistKafkaConnection(KafkaConnectionOutputBaseNode):
 
     async def process(self):
         self.connection = await self._get_connection_from_db()
+
+    async def infer_metadata(self):
+        connection = getattr(self, "connection", None)
+        if not isinstance(connection, KafkaConnectionRecord):
+            connection = await self._get_connection_from_db()
+
+        gateway = build_kafka_gateway(
+            properties=connection.properties,
+            secrets=connection.secrets,
+            check_cancelled=self.cancellation.raise_if_requested,
+        )
+        snapshot = await utils.async_run_callable(gateway.describe_metadata)
+        return {
+            "connection": build_kafka_metadata(
+                cluster_metadata=snapshot["cluster"],
+                topics_metadata=snapshot["topics"],
+                bootstrap_servers=connection.properties.get("bootstrap_servers"),
+            )
+        }

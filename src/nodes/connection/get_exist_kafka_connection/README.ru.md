@@ -17,11 +17,19 @@
 ## Выходы
 
 `connection` содержит `KafkaConnectionRecord` для Kafka-потребителей.
-Получение записи не создаёт producer и не читает сообщения.
+Получение записи не создаёт producer и не читает сообщения. При разрешении metadata нода может
+открыть короткоживущее admin-подключение к Kafka для получения сведений о кластере, brokers и
+topics; consumer при этом не создаётся, payload не читается, offsets не commit'ятся, autocommit
+не включается и topics не создаются.
 
 ## Поведение и ограничения
 
-Права проверяет существующий сервис подключений. Нода не подтверждает offsets.
+Права проверяет существующий сервис подключений. Для Kafka metadata используется тот же общий
+runtime-конфиг подключения, что и для Read/Commit, включая timeout'ы и TLS/SASL-настройки.
+Возвращаемый `KafkaMetadata` содержит brokers, controller (если доступен), topics, количество
+partitions, replication factor (если доступен), признак internal topic, bootstrap servers и
+безопасную connection string без credentials. Пароли, SASL secrets и тело CA PEM в metadata
+не сериализуются. Нода не подтверждает offsets.
 Поддерживаются PLAINTEXT, SSL, SASL_PLAINTEXT и SASL_SSL с PLAIN,
 SCRAM-SHA-256 или SCRAM-SHA-512. Необязательное `ssl_ca_pem` содержит собственный CA в PEM;
 проверки сертификата и имени хоста остаются включены. mTLS этой конфигурацией не поддерживается.

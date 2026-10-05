@@ -85,11 +85,16 @@ Retention/compaction can remove history; numeric offset gaps alone do not prove 
 Only local synchronous and threaded schedulers are supported. The reader retains compact
 receipts, not the whole payload. Each part is bounded by its row/soft-byte target plus one
 allowed message. Fetch buffers and decoded data add memory overhead; a downstream compute
-may still collect the entire DataFrame. Metadata mode never connects or reads payload.
+may still collect the entire DataFrame. This node's own metadata/schema inference never reads
+payload. Resolving metadata for the connected Kafka Connection may contact the cluster through a
+short-lived admin client, but that lookup does not create a consumer or touch offsets.
 
-Every run creates a fresh plan. Neither this node's store_enabled setting nor an old downstream
-execution snapshot can replace its live execution path. Downstream snapshots remain useful for
-viewing. Kafka autocommit is disabled on every path, including consumer closure.
+Every run creates a fresh plan. An old execution snapshot can never replace this node's live Kafka
+read, and the fresh-path rule also prevents downstream snapshots from skipping that read. When
+`store_enabled=true`, partitions actually computed by the current fresh execution are persisted as
+a new DataFrame cache generation for preview/download and other read-only cache consumers. This
+does not make the node restorable and never triggers an extra Kafka read. Kafka autocommit is
+disabled on every consumer path, including consumer closure.
 
 Use an exclusive group: concurrent readers or external commits are the user's responsibility.
 With explicit commit after successful destination signals, processing is at least once.
@@ -129,8 +134,10 @@ The metadata viewer shows BINARY/LIST/STRUCT and the recursive Arrow schema, eve
 result. Cached-data preview represents each binary value as `<binary: N bytes>`, including values
 inside headers; it does not decode or expose those bytes. Lists, structs, order, repeated header
 names and null remain visible. This is a presentation summary, not a reversible export format;
-the execution DataFrame keeps its original Arrow types and bytes. Store a downstream result
-to inspect it: Read's own execution snapshot is disabled. Preview never acknowledges offsets.
+the execution DataFrame keeps its original Arrow types and bytes. With `store_enabled=true`, a
+fully computed fresh Read result is available directly in cached-data preview; incomplete or failed
+generations are not activated. The saved generation is for read-only inspection and cannot replace
+the next Kafka execution. Preview never acknowledges offsets.
 
 Use the saved connection's PLAINTEXT/SSL/SASL_PLAINTEXT/SASL_SSL settings. PLAIN and
 SCRAM-SHA-256/512 are supported, with optional custom CA PEM and certificate/hostname checking.
