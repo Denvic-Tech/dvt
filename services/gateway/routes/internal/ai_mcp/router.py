@@ -35,7 +35,7 @@ from src.modules.file_storage.flow.exceptions import (
     UnsupportedTransferStrategyError,
 )
 
-from . import context, data, ddl, graph, projects, schedules, tasks
+from . import context, data, ddl, ddl_columns, graph, projects, schedules, tasks
 from .auth import MCPPrincipalDepends
 from .errors import AIMCPHTTPError
 from .schemas import AuthVerificationSchema, ToolCallSchema, ToolResultSchema
@@ -82,6 +82,8 @@ _DDL_HANDLERS: dict[str, ToolHandler] = {
     "create_database": ddl.create_database,
     "create_schema": ddl.create_schema,
     "create_table": ddl.create_table,
+    "resolve_write_columns": ddl_columns.resolve_write_columns,
+    "apply_table_column_actions": ddl_columns.apply_table_column_actions,
 }
 _TASK_HANDLERS: dict[str, ToolHandler] = {
     "run_project": tasks.run_project,
@@ -156,7 +158,9 @@ async def call_tool(
     outcome = "success"
     try:
         new_tool = tool_name in _PROJECT_HANDLERS or tool_name in _SCHEDULE_HANDLERS
-        if new_tool and {"principal", "session"} & payload.arguments.keys():
+        if (new_tool or tool_name in {"resolve_write_columns", "apply_table_column_actions"}) and (
+            {"principal", "session", "redis"} & payload.arguments.keys()
+        ):
             raise AIMCPHTTPError(422, "INVALID_ARGUMENTS", "Reserved tool arguments.")
         kwargs: dict[str, Any] = {**payload.arguments, "principal": principal}
         if tool_name in {"validate_graph_changes", "apply_graph_changes"}:
@@ -181,7 +185,7 @@ async def call_tool(
             kwargs["session"] = session
         if tool_name in {"browse_database", "get_database_table"}:
             kwargs["redis"] = redis
-        if tool_name in _DDL_HANDLERS:
+        if tool_name in _DDL_HANDLERS and tool_name != "resolve_write_columns":
             kwargs["redis"] = redis
         if tool_name == "cancel_task":
             kwargs["orchestrator"] = orchestrator

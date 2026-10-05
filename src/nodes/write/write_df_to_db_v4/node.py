@@ -67,7 +67,15 @@ class WriteDataFrameToDBV4(BaseNode):
             "get_database_table before applying or running the graph. If required target objects "
             "are missing, prepare them with create_database, create_schema or create_table using "
             "the intended DataFrame metadata and target constraints, then inspect the target again. "
-            "Do not rely on the writer to infer or create the target structure."
+            "On initial setup or schema changes, use resolve_write_columns with the known input "
+            "metadata (typed_create for a missing table, existing_table otherwise). create_table "
+            "does not alter existing tables. For column changes use apply_table_column_actions: "
+            "preview every batch with dry_run=true, then explicitly apply dry_run=false. "
+            "Reread the target and resolve mapping after changes. One-time MCP preparation "
+            "requires no DDL node or signal edge. Suggested drop/recreate actions require "
+            "explicitly agreed data loss; recreate_column does not preserve values. "
+            "Preview does not check existing NULLs. Pause concurrent ClickHouse writes before "
+            "nullable=false. Inspect actual state after failure before planning remaining actions."
         ),
     )
     schema_name: str | None = InputField(
@@ -120,7 +128,9 @@ class WriteDataFrameToDBV4(BaseNode):
         default=None,
         agent_description=(
             "Use source_name/target_name entries from the nested schema and verify names and "
-            "compatible types against both sides. Mapping does not alter the target table schema."
+            "compatible types against both sides. Use effective_column_mapping from "
+            "resolve_write_columns "
+            "when setting up or changing schemas. Mapping does not alter the target table schema."
         ),
     )
 

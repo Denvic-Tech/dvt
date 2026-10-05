@@ -96,6 +96,39 @@ these fields remains readable; refresh metadata or rerun the node to obtain comm
 Propagation through transform nodes and creating/updating/deleting comments are outside this
 read-only feature.
 
+## Preparing write targets
+
+Use scoped MCP DDL for one-time preparation before applying/running the graph. Configure the
+writer with an explicit column mapping; no DDL node or signal dependency is needed for that setup.
+
+- `resolve_write_columns` is read-only. Pass the known DataFrame metadata, target and optional
+  mapping/policies. Use `typed_create` before creating a missing table and `existing_table` for
+  an existing one. It returns effective mapping, differences, diagnostics and suggested actions.
+  Use it on initial writer setup or schema changes, not before every unchanged pipeline run.
+- `create_database`, `create_schema`, `create_table` prepare missing objects.
+  Existing objects are unchanged; create_table does not update their columns.
+- `apply_table_column_actions` supports add/drop/recreate, comments and nullability.
+  Preview every batch with `dry_run=true` (MCP default), review SQL/diagnostics, then apply the
+  same batch explicitly with `dry_run=false`. During preview, applied_actions describes planned
+  actions and table_metadata is absent; apply returns refreshed table metadata. Reread the
+  catalog and resolve mapping again after changes. Preview alone needs no repeat user approval.
+
+Suggestions do not authorize destructive changes. Drop/recreate require explicitly agreed data
+loss; recreate_column drops and adds the column, rather than converting existing values.
+For comment deletion supply explicit `comment: null`. set_column_nullable requires an explicit
+boolean and no column/comment fields. Preview does not scan data for NULLs; apply checks them
+before the first DDL when tightening nullable. Pause concurrent ClickHouse writes for that change.
+DDL may partially commit depending on dialect: after failure or timeout, inspect the target and
+plan remaining actions instead of blindly replaying a batch. Apply attempts invalidate the
+catalog even on failure; preview and resolution do not.
+
+Use runtime DDL nodes only when schema changes belong to execution or MCP lacks the required
+operation. Discover specialized nodes first; justify generic SQL fallback and enforce execution
+ordering. The MCP adapter has no arbitrary write-SQL tool, table truncation/recreation tool, or
+new connection privileges. New arguments are typed transport models; Gateway owns execution and
+validates its existing DDL contracts. Invalid arguments return INVALID_ARGUMENTS at the private
+facade; execution failures remain redacted DDL_OPERATION_FAILED/DDL_UNSUPPORTED errors.
+
 ## Configuration
 
 The service is opt-in. `DVT_AI_MCP_ENABLED` defaults to `false`; in that state the
@@ -145,9 +178,10 @@ default_tools_approval_mode = "writes"
 tool_timeout_sec = 60
 ```
 
-The service contains 28 tools for project and graph discovery, node search, atomic graph validation
+The service contains 30 tools for project and graph discovery, node search, atomic graph validation
 and patching, SQL/file catalogs, bounded read-only previews, scoped idempotent creation of missing
-databases/schemas/tables for `WriteDataFrameToDBV4`, project creation, scheduling, and task lifecycle.
+databases/schemas/tables, read-only write-column resolution and preview/apply column actions,
+project creation, scheduling, and task lifecycle.
 It does not expose arbitrary write SQL, MCP resources or prompts, OAuth, stdio, legacy SSE,
 project update/deletion, folder management, subgraph CRUD, schedule deletion, connection CRUD,
 Kafka/queue connectors, or file writes.

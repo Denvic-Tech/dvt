@@ -17,7 +17,16 @@ from .gateway_client import (
     bearer_token_context,
     gateway_client,
 )
-from .models import DDLColumn, GraphPatch, RuntimeVariable, SchedulePatch, TableCreateSpec
+from .models import (
+    DataFrameMetadata,
+    DDLColumn,
+    GraphPatch,
+    RuntimeVariable,
+    SchedulePatch,
+    TableColumnAction,
+    TableCreateSpec,
+    WriteColumnMapping,
+)
 from .settings import settings
 
 INSTRUCTIONS = """
@@ -77,6 +86,25 @@ Use catalog and bounded read-only queries to check assumptions required by node 
 Prefer source statistics and small aggregate results; max_rows caps returned rows, not database
 work. Label estimates and sampling uncertainty. Record consequential configuration decisions,
 supporting evidence and unresolved assumptions in the node comment.
+
+Prepare database targets outside the execution graph for ordinary one-time setup. Inspect the
+exact connection/database/schema/table and the known input schema. When configuring a writer or
+changing either schema, use resolve_write_columns (typed_create for a missing table,
+existing_table otherwise). Unchanged configured pipelines need no repeated resolution per run.
+Use create_database/create_schema/create_table for missing objects; create_table never alters an
+existing table. For column changes, inspect suggested_action but do not automatically apply it.
+Preview every intended batch with apply_table_column_actions(dry_run=true), review its SQL and
+diagnostics, then apply the same batch with dry_run=false within the already authorized task.
+Preview alone does not require another user confirmation. Drop/recreate require explicitly agreed
+data loss: recreating a column loses its values, it is not a data-preserving type conversion.
+Preview checks structure, not existing NULL values. Apply checks NULLs before nullable=false;
+concurrent ClickHouse writes must be paused for that change.
+After DDL, reread get_database_table, reassess resolution/mapping, then validate/apply/run the
+graph and verify the result. One-time MCP preparation needs no DDL node or signal edge.
+Use runtime DDL nodes only for DDL genuinely needed during execution or when MCP lacks the
+required operation: discover specialized nodes first, justify any generic SQL fallback and its
+execution dependency. After an error or timeout, inspect actual state and plan only remaining
+actions; never blindly retry a mutating batch. DDL is not universally atomic across dialects.
 
 In update_nodes.inputs, omit keys that must stay unchanged. A null input entry removes the
 persisted value; it is not a universal shorthand for a node's default or "all values".
@@ -184,6 +212,12 @@ WRITE_DDL = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=False,
     idempotent_hint=True,
+    open_world_hint=True,
+)
+WRITE_COLUMN_DDL = ToolAnnotations(
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
     open_world_hint=True,
 )
 CANCEL_EXECUTION = ToolAnnotations(
@@ -422,6 +456,50 @@ async def create_table(
 ) -> dict[str, Any]:
     """Create a missing typed database table; existing targets are unchanged."""
     return await _call("create_table", locals())
+
+
+@mcp.tool(annotations=READ_OPEN)
+async def resolve_write_columns(
+    connection_id: str,
+    table_name: str,
+    mode: Literal["existing_table", "typed_create"],
+    dataframe_metadata: DataFrameMetadata,
+    database_name: str | None = None,
+    schema_name: str | None = None,
+    column_mapping: list[WriteColumnMapping] | None = None,
+    on_extra_df_columns: Literal["ignore", "error"] = "ignore",
+    on_missing_df_columns: Literal["ignore", "ignore_if_default", "error"] = "ignore_if_default",
+    table_create_spec: TableCreateSpec | None = None,
+) -> dict[str, Any]:
+    """Inspect write compatibility without changing data or schema.
+
+    Returns effective_column_mapping, column differences, diagnostics and suggested_action.
+    Use when setting up a writer or changing its source/target schema. Suggestions are not
+    authorization: recreate_column loses values. Prepare missing tables with create_table;
+    preview and apply necessary column changes with apply_table_column_actions.
+    """
+    return await _call("resolve_write_columns", locals())
+
+
+@mcp.tool(annotations=WRITE_COLUMN_DDL)
+async def apply_table_column_actions(
+    connection_id: str,
+    table_name: str,
+    actions: Annotated[list[TableColumnAction], Field(min_length=1)],
+    database_name: str | None = None,
+    schema_name: str | None = None,
+    dry_run: Annotated[bool, Field(strict=True)] = True,
+) -> dict[str, Any]:
+    """Preview or apply a typed column-action batch through the scoped Gateway.
+
+    Default dry_run=true only generates SQL; applied_actions then describes planned actions,
+    not executed changes. Review SQL/diagnostics before explicitly applying dry_run=false.
+    Returns fresh table_metadata after apply. Drop/recreate lose data and require agreed intent.
+    Preview does not scan NULLs; apply checks before nullable=false. Pause concurrent ClickHouse
+    writes for that change. After failure/timeout inspect the target before any retry.
+    Ordinary one-time preparation does not belong in a DDL node in the pipeline.
+    """
+    return await _call("apply_table_column_actions", locals())
 
 
 @mcp.tool(annotations=READ_OPEN)

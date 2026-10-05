@@ -55,6 +55,8 @@ EXPECTED_TOOLS = {
     "create_database",
     "create_schema",
     "create_table",
+    "resolve_write_columns",
+    "apply_table_column_actions",
     "list_storage",
     "preview_storage_file",
     "run_project",
@@ -73,6 +75,9 @@ def test_mcp_contract_exposes_supported_tools_with_annotations() -> None:
     assert by_name["apply_graph_changes"].annotations.destructive_hint is True
     assert by_name["run_project"].annotations.read_only_hint is False
     assert by_name["create_table"].annotations.idempotent_hint is True
+    assert by_name["resolve_write_columns"].annotations.read_only_hint is True
+    assert by_name["apply_table_column_actions"].annotations.destructive_hint is True
+    assert by_name["apply_table_column_actions"].annotations.idempotent_hint is False
     assert by_name["create_project"].annotations.idempotent_hint is False
     assert by_name["create_project"].annotations.destructive_hint is False
     for name in ("list_project_schedules", "get_project_schedule"):
@@ -300,3 +305,79 @@ async def test_unknown_gateway_error_remains_redacted(monkeypatch):
     assert error.value.data == {"dvt_error": {
         "code": "GATEWAY_UNAVAILABLE", "message": "Gateway operation failed.",
     }}
+
+
+@pytest.mark.asyncio
+async def test_column_actions_default_to_preview_and_preserve_explicit_null(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    captured = []
+
+    async def call(name, arguments):
+        captured.append((name, _jsonable(arguments)))
+        return {"success": True}
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        for action in [
+            {"type": "set_column_comment", "column_name": "value", "comment": None},
+            {"type": "set_column_nullable", "column_name": "value", "nullable": False},
+        ]:
+            result = await client.call_tool("apply_table_column_actions", {
+                "connection_id": "allowed", "table_name": "target", "actions": [action],
+            })
+            assert not result.is_error
+    assert captured[0][1]["dry_run"] is True
+    assert captured[0][1]["actions"][0] == {
+        "type": "set_column_comment", "column_name": "value", "comment": None,
+    }
+    assert captured[1][1]["actions"][0] == {
+        "type": "set_column_nullable", "column_name": "value", "nullable": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_columns_forwards_metadata_mapping_and_returns_diagnostics(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    response = {"columns": [{"status": "missing_in_db"}], "diagnostics": []}
+    captured = {}
+
+    async def call(name, arguments):
+        captured.update(_jsonable(arguments))
+        return response
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool("resolve_write_columns", {
+            "connection_id": "allowed", "table_name": "target", "mode": "existing_table",
+            "dataframe_metadata": {"columns": [
+                {"name": "source", "dtype": "STRING", "nullable": True,
+                 "dtype_metadata": {"name": "string", "class": "StringDtype", "origin": "pandas"}},
+            ]},
+            "column_mapping": [{"source_name": "source", "target_name": "target"}],
+        })
+    assert not result.is_error
+    assert json.loads(result.content[0].text) == response
+    assert captured["dataframe_metadata"]["columns"][0]["dtype_metadata"] == {
+        "name": "string", "class_name": "StringDtype", "origin": "pandas",
+    }
+    assert captured["column_mapping"] == [{"source_name": "source", "target_name": "target"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", [
+    {"type": "set_column_comment", "column_name": "value"},
+    {"type": "set_column_nullable", "column_name": "value", "nullable": "false"},
+    {"type": "add_column", "column_name": "value"},
+    {"type": "execute_sql", "column_name": "value", "sql": "DROP TABLE target"},
+])
+async def test_column_action_invalid_contract_cannot_reach_gateway(monkeypatch, action):
+    call = AsyncMock()
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool("apply_table_column_actions", {
+            "connection_id": "allowed", "table_name": "target", "actions": [action],
+        })
+    assert result.is_error
+    call.assert_not_awaited()
