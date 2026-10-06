@@ -36,6 +36,27 @@ from dvt_extension_api.v1.parquet import FilenameTemplate, NamingContext
 Changes made under `dvt_extension_api/` in the DVT checkout are immediately visible
 to the environment where the package was installed with `-e`.
 
+## Fernet key
+
+Use the public security capability to obtain the effective DVT installation key:
+
+```python
+from cryptography.fernet import Fernet
+from dvt_extension_api.v1.security import FernetKeyError, get_fernet_key
+
+cipher = Fernet(get_fernet_key())
+```
+
+`get_fernet_key() -> bytes` reads `config.SECURITY.FERNET_KEY` on each call and
+validates it using Fernet. It raises `FernetKeyError` if the key is missing or
+invalid, without including the secret in the error. It does not independently
+read environment variables, load dotenv files, or generate a replacement key.
+The current DVT configuration default therefore also applies to extensions.
+
+Gateway and all Task Workers must use the same persisted installation key.
+Changing that key requires migrating existing encrypted data. The returned key
+is a secret; do not log it or expose it through API responses.
+
 ## Cooperative cancellation
 
 Nodes receive a read-only `self.cancellation` token when created by

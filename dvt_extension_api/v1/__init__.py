@@ -11,6 +11,7 @@ __all__ = [
     "logging",
     "metadata",
     "node",
+    "security",
     "state",
     "storage",
     "testing",
