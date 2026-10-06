@@ -47,6 +47,7 @@ EXPECTED_TOOLS = {
     "get_node_definition",
     "validate_graph_changes",
     "apply_graph_changes",
+    "auto_layout_project",
     "list_connections",
     "get_connection",
     "browse_database",
@@ -381,3 +382,70 @@ async def test_column_action_invalid_contract_cannot_reach_gateway(monkeypatch, 
         })
     assert result.is_error
     call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_graph_protocol_accepts_local_refs_and_returns_server_ids(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    captured = []
+
+    async def call(name, arguments):
+        captured.append((name, _jsonable(arguments)))
+        return {"node_ids_by_ref": {"a": "node-generated"}}
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    patch = {
+        "add_nodes": [{"ref": "a", "node_type": "N"}],
+        "add_connections": [{
+            "source": {"id": "existing"}, "source_output": "out",
+            "target": {"ref": "a"}, "target_input": "in",
+        }],
+    }
+    async with Client(mcp) as client:
+        result = await client.call_tool("apply_graph_changes", {
+            "project_id": "p", "expected_graph_revision": 0,
+            "expected_graph_etag": "etag", "patch": patch,
+        })
+    assert not result.is_error
+    assert captured[0][1]["patch"] == patch
+    assert json.loads(result.content[0].text)["node_ids_by_ref"] == {"a": "node-generated"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch", [
+    {"add_nodes": [{"id": "old-id", "node_type": "N"}]},
+    {"add_nodes": [{"ref": "a", "node_type": "N", "position": {"x": 0, "y": 0}}]},
+    {"update_nodes": [{"id": "existing", "position": {"x": 0, "y": 0}}]},
+    {"add_nodes": [{"ref": "   ", "node_type": "N"}]},
+    {"add_connections": [{"source": {"id": "a", "ref": "b"}, "target": {"id": "c"},
+                          "source_output": "out", "target_input": "in"}]},
+])
+async def test_graph_protocol_rejects_old_contract_before_gateway(monkeypatch, patch):
+    call = AsyncMock()
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool("validate_graph_changes", {
+            "project_id": "p", "expected_graph_revision": 0,
+            "expected_graph_etag": "etag", "patch": patch,
+        })
+    assert result.is_error
+    call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_layout_protocol_defaults_to_preview_and_preserves_false(monkeypatch):
+    call = AsyncMock(return_value={"changes_count": 1})
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    args = {"project_id": "p", "expected_graph_revision": 0, "expected_graph_etag": "etag"}
+    async with Client(mcp) as client:
+        result = await client.call_tool("auto_layout_project", args)
+        assert not result.is_error
+        call.assert_awaited_with("auto_layout_project", {**args, "dry_run": True})
+        result = await client.call_tool("auto_layout_project", {**args, "dry_run": False})
+        assert not result.is_error
+        call.assert_awaited_with("auto_layout_project", {**args, "dry_run": False})
+        call.reset_mock()
+        result = await client.call_tool("auto_layout_project", {**args, "dry_run": "false"})
+        assert result.is_error
+        call.assert_not_awaited()

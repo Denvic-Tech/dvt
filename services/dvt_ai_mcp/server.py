@@ -8,7 +8,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import INTERNAL_ERROR, ToolAnnotations
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
-from pydantic import Field
+from pydantic import Field, StrictBool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -48,7 +48,7 @@ Schedules are persistent project configuration and are not tied to the lifetime 
 
 Before editing a graph, inspect the project graph and search the
 available node catalog. Prefer specialized low-code source, transform, and sink nodes over generic
-code nodes, and build a readable left-to-right graph with meaningful display names and comments.
+code nodes, and use meaningful display names and comments. The server arranges nodes left to right.
 Never add or replace a node with a deprecated node type. Deprecated nodes found in an existing
 graph may be inspected for compatibility, but must not be selected for new development.
 Generic code nodes are allowed only when justified by a non-empty comment. Always validate changes
@@ -57,8 +57,8 @@ nodes), wait until a terminal state, and never claim success before SUCCESS. On 
 logs, fix the graph, validate, apply, run, and wait again. Project names are only for discovery; if a search
 returns multiple projects, present the candidates instead of guessing, and use project_id for
 every mutation or execution of an existing project. Never infer or expose connection credentials. Subgraphs
-may be inspected and existing membership may be changed, but subgraph entities must not be
-created, updated, or deleted.
+may be inspected and existing membership may be changed. Do not create, delete or edit subgraph
+properties; the server may automatically move existing subgraphs with their members.
 
 Use search_nodes to find suitable node types. Before configuring a selected type for the first
 time in the current task, read get_node_definition with the user's locale. Use its schema for
@@ -105,6 +105,18 @@ Use runtime DDL nodes only for DDL genuinely needed during execution or when MCP
 required operation: discover specialized nodes first, justify any generic SQL fallback and its
 execution dependency. After an error or timeout, inspect actual state and plan only remaining
 actions; never blindly retry a mutating batch. DDL is not universally atomic across dialects.
+
+For new nodes supply a patch-local ref, never a permanent ID or position. Connect new nodes with
+{ref: "..."} and existing nodes with {id: "..."} endpoints. The server generates node/edge IDs,
+automatically lays out affected connected components and returns node_ids_by_ref on apply.
+Refs only address new nodes in the same patch; do not embed them in input values or expressions.
+Validate and apply the same patch with the same revision/etag. After an apply timeout, reread the
+graph before planning remaining changes; never blindly retry creation with fresh concurrency tokens.
+Use auto_layout_project to arrange an existing whole graph without changing its configuration.
+Preview with dry_run=true, then apply with dry_run=false and the same revision/etag within the
+authorized task; preview alone needs no additional user confirmation. This geometry-only operation
+requires no pipeline run and also works on incompletely configured graphs. Other graph mutations
+still require the normal validate/apply/run workflow.
 
 In update_nodes.inputs, omit keys that must stay unchanged. A null input entry removes the
 persisted value; it is not a universal shorthand for a node's default or "all values".
@@ -355,6 +367,17 @@ async def apply_graph_changes(
 ) -> dict[str, Any]:
     """Atomically apply a validated graph patch if both concurrency tokens still match."""
     return await _call("apply_graph_changes", locals())
+
+
+@mcp.tool(annotations=WRITE_GRAPH)
+async def auto_layout_project(
+    project_id: str,
+    expected_graph_revision: int,
+    expected_graph_etag: str,
+    dry_run: StrictBool = True,
+) -> dict[str, Any]:
+    """Arrange the whole graph; defaults to a read-only preview. Does not execute the pipeline."""
+    return await _call("auto_layout_project", locals())
 
 
 @mcp.tool(annotations=READ_CLOSED)

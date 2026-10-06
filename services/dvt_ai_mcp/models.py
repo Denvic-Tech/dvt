@@ -9,9 +9,16 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Position(StrictModel):
-    x: float
-    y: float
+class NewNodeReference(StrictModel):
+    ref: str = Field(min_length=1, max_length=255, pattern=r"\S",
+                     description="Temporary node reference scoped to this patch; never persisted.")
+
+
+class ExistingNodeReference(StrictModel):
+    id: str = Field(min_length=1, max_length=255)
+
+
+NodeReference = NewNodeReference | ExistingNodeReference
 
 
 class InputValue(StrictModel):
@@ -33,11 +40,11 @@ class InputValue(StrictModel):
 
 
 class AddNode(StrictModel):
-    id: str = Field(min_length=1, max_length=255)
+    ref: str = Field(min_length=1, max_length=255, pattern=r"\S",
+                     description="Unique temporary reference within this patch. Server assigns ID.")
     node_type: str = Field(min_length=1)
     display_name: str | None = None
     comment: str | None = Field(default=None, max_length=20480)
-    position: Position | None = None
     subgraph_id: str | None = None
     inputs: dict[str, InputValue | None] = Field(
         default_factory=dict,
@@ -55,7 +62,6 @@ class UpdateNode(StrictModel):
     node_type: str | None = None
     display_name: str | None = None
     comment: str | None = Field(default=None, max_length=20480)
-    position: Position | None = None
     subgraph_id: str | None = None
     inputs: dict[str, InputValue | None] | None = Field(
         default=None,
@@ -70,10 +76,9 @@ class UpdateNode(StrictModel):
 
 
 class AddConnection(StrictModel):
-    id: str | None = None
-    source: str
+    source: NodeReference
     source_output: str
-    target: str
+    target: NodeReference
     target_input: str
     subgraph_id: str | None = None
 

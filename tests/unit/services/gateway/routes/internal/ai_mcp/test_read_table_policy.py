@@ -1,4 +1,4 @@
-from services.gateway.routes.internal.ai_mcp import graph
+from services.gateway.routes.internal.ai_mcp.graph import node_policies as graph
 
 
 def _constant(value):
@@ -6,7 +6,7 @@ def _constant(value):
 
 
 def test_read_table_policy_requires_partition_and_explicit_columns() -> None:
-    errors = graph._read_table_mcp_configuration_errors(
+    errors = graph.read_table_configuration_errors(
         node_id="read-node",
         inputs={
             "partition_col": _constant(None),
@@ -21,7 +21,7 @@ def test_read_table_policy_requires_partition_and_explicit_columns() -> None:
 
 
 def test_read_table_policy_accepts_raw_partition_and_all_catalog_columns() -> None:
-    errors = graph._read_table_mcp_configuration_errors(
+    errors = graph.read_table_configuration_errors(
         node_id="read-node",
         inputs={
             "partition_col": _constant("Наименование товара"),
@@ -33,7 +33,7 @@ def test_read_table_policy_accepts_raw_partition_and_all_catalog_columns() -> No
 
 
 def test_read_table_policy_rejects_sql_quoted_partition_column() -> None:
-    errors = graph._read_table_mcp_configuration_errors(
+    errors = graph.read_table_configuration_errors(
         node_id="read-node",
         inputs={
             "partition_col": _constant("`Наименование товара`"),
