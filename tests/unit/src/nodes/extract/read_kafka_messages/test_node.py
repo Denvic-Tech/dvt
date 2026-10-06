@@ -8,6 +8,11 @@ from tests.fixtures.kafka_read import MemoryKafka
 
 from src.modules.kafka_consumption.domain.exceptions import KafkaMessageTooLargeError
 from src.modules.kafka_consumption.infra.exceptions import KafkaDecodeError
+from src.modules.pipeline_cache import CodecObjectStore, DumpEngineCodec, InMemoryBlobStore
+from src.modules.pipeline_cache.domain.dataframe_cache import (
+    CacheGenerationState,
+    dataframe_manifest_key,
+)
 from src.node_dsl.exceptions import NodeExecutionCancelled
 from src.node_dsl.variables import UnresolvedValue
 from src.nodes.extract.read_kafka_messages import ReadKafkaMessages
@@ -67,17 +72,32 @@ def test_metadata_does_not_connect_or_read():
 
 
 @pytest.mark.asyncio
-async def test_execute_metadata_callback_and_store_policy():
+@pytest.mark.parametrize("store_enabled", [False, True])
+async def test_execute_metadata_callback_and_store_policy(store_enabled):
     events = []
-    n, _ = node(
-        store_enabled=True,
-        data_store=object(),
+    store = CodecObjectStore(InMemoryBlobStore(default_ttl=600), DumpEngineCodec())
+    n, gateway = node(
+        store_enabled=store_enabled,
+        data_store=store,
         on_node_metadata=lambda **kw: events.append(kw["metadata"]),
     )
     await n.execute(PipelineExecutionMode.FULL)
-    assert n._dataframe_execution_cache is None
+    assert not gateway.calls
     await n.resolve_metadata()
-    n.output.compute(scheduler="threads")
+    result = n.output.compute(scheduler="threads")
+    assert len(result) == 9
+    if store_enabled:
+        manifest = await store.get(dataframe_manifest_key(
+            project_id=n.project_id,
+            node_id=n.node_id,
+            output_name="output",
+            generation_id=n._dataframe_cache_generation_id,
+        ))
+        assert manifest is not None
+        assert manifest.state == CacheGenerationState.READY
+        assert sum(manifest.rows_per_partition) == len(result)
+    else:
+        assert n._dataframe_execution_cache is None
     assert events
     assert all(v.value_state == "resolved" for v in events[-1]["output_variables"].variables)
     assert all(
