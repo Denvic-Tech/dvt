@@ -1,8 +1,8 @@
-# Roadmap будущих расширений метаданных DVT
+# Roadmap будущих интеграций ядра метаданных DVT
 
 ## Статус и обязательность
 
-Это архитектурный roadmap, а не дополнительные функции текущего MVP. Avro/Confluent, OpenMetadata и Iceberg реализуются отдельными будущими заданиями над ядром меты. Отправка в OpenMetadata не требуется и не включена в roadmap как обязательная функция. Конкретные версии, сроки, лицензирование и формат поставки расширений здесь не утверждаются.
+Это архитектурный roadmap, а не дополнительные функции текущего MVP. Avro/Confluent, OpenMetadata и Iceberg реализуются внутри ядра DVT отдельными будущими заданиями. Отправка в OpenMetadata не требуется и не включена в roadmap как обязательная функция. Конкретные версии и сроки будущих интеграций здесь не утверждаются.
 
 **Разработчику и его ИИ:** до изменения модели, хранения, API или SDK прочитать [головное ТЗ](MAIN_PLAN.ru.md) и этот документ. Сохранить возможности из таблиц ниже уже в MVP. Не упрощать обязательную мету из-за того, что внешняя интеграция пока не реализуется. Если решение теряет точность, вложенность, идентичность или происхождение, описать потерю и согласовать изменение требований до реализации.
 
@@ -12,10 +12,10 @@
 |---|---|---|
 | Сейчас: этап 1 ядра | Полная typed-модель, IDs, snapshots, source/target metadata, UI | Метаданные сохраняются без потерь и доступны независимо от внешних платформ |
 | Сейчас: этап 2 ядра | Confirmed lineage и Execute Python metadata facade | Сложные преобразования не теряют смысл и идентичность полей |
-| Сейчас: этап 3 ядра | Стабильные public JSON/REST/SDK contracts | Расширения могут работать со snapshot без внутренних src/core imports |
-| Будущее A: Avro / Confluent | Отдельный adapter typed snapshot → Avro schema и профиль аннотаций | Переносимый документ; registry registration и Kafka serializers только по отдельному запросу |
-| Будущее B: OpenMetadata ecosystem | Независимые клиенты/расширения используют familiar native REST; при запросе — явный mapping документов | DVT встраивается через знакомые resource/reference/pagination/PATCH подходы; push и серверная имитация OpenMetadata не обязательны |
-| Будущее C: Iceberg на S3 / Parquet | Отдельный table writer/adapter с catalog binding, schema evolution и commit | Полноценная Iceberg-таблица, а не просто папка Parquet |
+| Сейчас: этап 3 ядра | Стабильные public JSON/REST/SDK contracts | Ноды, Python API и внешние REST-клиенты получают согласованный snapshot |
+| Будущее A: Avro / Confluent | Adapter ядра: typed snapshot → Avro schema и профиль аннотаций | Переносимый документ; registry registration и Kafka serializers только по отдельному запросу |
+| Будущее B: OpenMetadata ecosystem | Независимые клиенты используют familiar native REST; при запросе — явный mapping документов | DVT встраивается через знакомые resource/reference/pagination/PATCH подходы; push и серверная имитация OpenMetadata не обязательны |
+| Будущее C: Iceberg на S3 / Parquet | Table writer/adapter ядра с catalog binding, schema evolution и commit | Полноценная Iceberg-таблица, а не просто папка Parquet |
 
 A/B/C — направления, не жёсткая последовательность релизов. Любое запускается после готовности нужного публичного контракта. Не заставлять Iceberg ждать Avro registry integration или внедрения OpenMetadata.
 
@@ -28,7 +28,7 @@ A/B/C — направления, не жёсткая последователь
 | Iceberg / Parquet | Независимые DVT field IDs, вложенные IDs, precise decimals/timezone, required и schema revisions, подтверждённый rename/derived lineage | Назначать IDs по порядку/имени; называть обычный Parquet dataset Iceberg; подменять DVT UUID внешним field integer ID |
 | Все направления | Структура отдельно от annotations, immutable resolved snapshot, source provenance, lossless portable envelope, explicit unsupported report | Мутировать общий snapshot в adapter; хранить copies пользовательских patches на каждом шаге; терять foreign metadata keys |
 
-## Avro: граница будущего расширения
+## Avro: граница будущего адаптера ядра
 
 Adapter получает typed snapshot, преобразует допустимые типы и annotations в документ выбранного профиля. Технические aliases и синонимы бизнес-термина различаются; arbitrary metadata требует JSON validation. Roundtrip проверяется по исходному документу, а не только по нормализованному fingerprint, который может исключать аннотации.
 
@@ -36,7 +36,7 @@ Adapter получает typed snapshot, преобразует допустим
 
 ## OpenMetadata: граница будущих клиентов
 
-Наш REST уже ориентирован на знакомую модель. Собственные typed/source/provenance поля DVT явно описаны; стандартные OpenMetadata DTO не объявляются достаточными для всей меты. Версия external mapping закрепляется только при разработке конкретного расширения.
+Наш REST уже ориентирован на знакомую модель. Собственные typed/source/provenance поля DVT явно описаны; стандартные OpenMetadata DTO не объявляются достаточными для всей меты. Версия external mapping закрепляется только при разработке конкретной интеграции.
 
 Future consumer может читать DVT без установки OpenMetadata. Если нужен document mapping, schema fields/terms/classifications/domains переводятся явно, ограничения per-field domain и provenance отражаются в отчёте. Отправка в OpenMetadata, bidirectional sync и /api/openmetadata/v1 facade не являются текущими требованиями.
 
@@ -52,12 +52,12 @@ Writer проверяет actual values/types против table schema, Parquet
 
 - JSON roundtrip сохраняет nested IDs/types, precision/scale/time semantics, required unknown/false/true и absent/default-null; codec сохраняет decimal/date/time/binary.
 - Rename не меняет identity; derived создаёт новую; source foreign IDs scoped, совпадение имени не связывает поля.
-- Snapshot фиксирует graph/schema/catalog/source versions; REST, Python и extension facade получают согласованное представление.
+- Snapshot фиксирует graph/schema/catalog/source versions; REST, Python API и штатные ноды получают согласованное представление.
 - DB/Parquet writers добавляют мету без потери служебных/пользовательских keys и честно сообщают ограничения.
-- Foreign integrations можно реализовать через public contracts без чтения внутренних ORM/src/core. Отключение consumer не влияет на ядро.
+- Внешние клиенты используют публичный REST; адаптеры ядра соблюдают границы domain/flow/infra. Недоступность внешнего consumer не влияет на каталог.
 
 Эти критерии включаются в review/приёмку текущих этапов. Они проверяются native fixtures, не требуют установки Schema Registry/OpenMetadata/Iceberg или сборки их adapters сейчас.
 
-## Технология расширений
+## Реализация будущих интеграций в ядре
 
-Использовать dvt-extensions-builder и переносимый skill при отдельном задании на extension. Проверять manifest/backend/frontend/dependencies, public API и установленный пакет; не принимать успешную упаковку за успешный metadata mapping. Нужные дополнительные Extension API capabilities сначала согласуются. Builder/private protection code не копируется в ядро.
+Адаптеры схем, коннекторы и writers разрабатываются как штатные компоненты DVT отдельными заданиями. Общая модель меты и resolver остаются в src/modules/data_catalog; протоколы внешних систем и преобразования DTO относятся к infra соответствующего владельца. UI реализуется в dvt-ui. Сохранять DDD-lite и существующие runtime/Gateway границы; новый сервис или контейнер добавлять только при обоснованной необходимости.

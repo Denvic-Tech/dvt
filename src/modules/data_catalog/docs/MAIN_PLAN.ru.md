@@ -6,7 +6,7 @@
 |---|---|---|
 | 1. MVP | UI, сохранение и базовое наследование; чтение меты БД/Parquet/Битрикс24 и запись меты БД/Parquet | [STAGE_01_MVP_IO.ru.md](STAGE_01_MVP_IO.ru.md) |
 | 2. Происхождение и Python | Rename/derived/merge и публичные методы работы с метой из Execute Python | [STAGE_02_LINEAGE.ru.md](STAGE_02_LINEAGE.ru.md) |
-| 3. Публичные контракты | Стабильная модель/SDK/REST для расширений и внешних клиентов | [STAGE_03_EXTENSION_API.ru.md](STAGE_03_EXTENSION_API.ru.md) |
+| 3. Публичные контракты ядра | Стабильная модель/Python API/REST для нод и внешних клиентов | [STAGE_03_CORE_API.ru.md](STAGE_03_CORE_API.ru.md) |
 
 ## Обязательная модель уже в MVP
 
@@ -18,7 +18,7 @@
 | Обязательность каждого поля, включая вложенные; required/optional/unknown | Контракт обязательности отличается от способности pandas dtype хранить пропуски |
 | Различие «default отсутствует» и «default равен null» | Корректное преобразование во внешние схемы; default не является командой заполнить данные |
 | Структурная схема отдельно от бизнес-аннотаций | Термин, домен и теги не меняют физический тип данных |
-| Версионный разрешённый снимок с закреплёнными версиями запуска | Один источник для UI, runtime и будущих расширений; воспроизводимость меты |
+| Версионный разрешённый снимок с закреплёнными версиями запуска | Один источник для UI, runtime и будущих интеграций; воспроизводимость меты |
 
 Принято пользователем как обязательное. Вложенность и параметры сохраняются roundtrip; сложные типы можно показывать компактно/read-only, но нельзя заменять их одной строкой dtype. UUID происхождения не подменяется числовым ID возможной будущей внешней таблицы.
 
@@ -26,23 +26,23 @@ Default и scalar annotations сериализуются без потери dec
 
 ## Границы
 
-Обязательный архитектурный ориентир: [roadmap будущей поддержки Avro, OpenMetadata и Iceberg](FUTURE_EXTENSIONS_ROADMAP.ru.md). Разработчик и его ИИ читают его до проектирования схемы, persistence, REST и SDK. Реализация внешних интеграций вне текущего ТЗ, но сохранение перечисленных там возможностей входит в приёмку ядра.
+Обязательный архитектурный ориентир: [roadmap будущей поддержки Avro, OpenMetadata и Iceberg](FUTURE_INTEGRATIONS_ROADMAP.ru.md). Разработчик и его ИИ читают его до проектирования схемы, persistence, REST и SDK. Реализация внешних интеграций вне текущего ТЗ, но сохранение перечисленных там возможностей входит в приёмку ядра.
 
 Big governance исключён: нет workflow согласований, массовой правки, развитого history/restore UI, taxonomy портала или отдельного поискового кластера. Project access, атомарность, concurrency и технические snapshots остаются обязательными.
 
-Avro/Confluent, OpenMetadata и Iceberg — ориентиры будущих расширений над typed метой, **вне ТЗ**. Нет exports, registry integration, OpenMetadata push/facade, Iceberg writer или SDK compatibility promise. Parquet metadata read/write входит в MVP самостоятельно и не означает Iceberg.
+Avro/Confluent, OpenMetadata и Iceberg — ориентиры будущих интеграций ядра над typed метой, **вне ТЗ**. Нет exports, registry integration, OpenMetadata push/facade, Iceberg writer или SDK compatibility promise. Parquet metadata read/write входит в MVP самостоятельно и не означает Iceberg.
 
 Native API следует модели OpenMetadata: UUID/FQN, ресурсы glossaryTerms/domains/tags, entity references, pagination и JSON Patch. Это DVT API, техническая схема доступна отдельным typed DTO; имитация сервера OpenMetadata не нужна. Не добавлять обязательных сервисов/контейнеров.
 
-## Расширения DVT
+## Реализация в ядре DVT
 
-Изучены builder README/skill/references, DVT Extension API metadata/gateway, manifest/runtime и UI host. Builder позволяет backend/UI упаковку, APIRouter и объявление миграций; в изученном public host не обнаружен sidebar slot каталога или глобальный catalog resolver. Поле migrations само по себе не доказывает безопасный installed lifecycle.
+Все три этапа реализуются штатными компонентами DVT. Модель, resolver, контракты и persistence находятся в src/modules/data_catalog с соблюдением DDD-lite. REST размещается в Gateway; UI разрабатывается в отдельном dvt-ui. Новые обязательные сервисы и контейнеры не нужны.
 
-Ядро остаётся в src/modules/data_catalog; UI — в отдельном dvt-ui. Переиспользовать дисциплину builder: узкие вертикальные сценарии, публичные границы, ленивое получение схем и проверку непустых миграций/installed artifacts. Не копировать private builder/licensing/Cython в DVT.
+Чтение и запись меты выполняют штатные ноды и коннекторы через контракты каталога. Схемы получать без вычисления полного dataframe; миграции проверять на непустой БД.
 
-На этапе 3 предоставить snapshot/source/writer contracts через dvt_extension_api и native REST. Producer/consumer расширения не импортируют src/core напрямую. Поддержка Битрикс24 нужна уже в MVP: при нехватке публичного source contract добавить минимальный контракт сразу, стабильный общий SDK довести в этапе 3. Отключение расширения не уничтожает snapshots и IDs.
+На этапе 3 закрепить snapshot/source/writer contracts ядра, Python API и native REST. Поддержка Битрикс24 нужна уже в MVP: при нехватке source contract добавить минимальный контракт сразу, стабильный общий контракт довести в этапе 3. Недоступность источника не уничтожает snapshots и IDs.
 
-Будущий Avro adapter проверяет допустимые типы; OpenMetadata consumer читает familiar REST/model; Iceberg adapter связывает DVT UUID с table UUID/field integer IDs и выполняет table commit. Ни один из этих adapters здесь не реализуется. Упаковка .dvtx и коммерческая защита — отдельное задание.
+Будущий Avro adapter ядра проверяет допустимые типы; внешний OpenMetadata-style consumer читает familiar REST/model; Iceberg writer ядра связывает DVT UUID с table UUID/field integer IDs и выполняет table commit. Эти интеграции реализуются отдельными будущими заданиями.
 
 ## Материалы и приёмка
 

@@ -3973,7 +3973,7 @@
             - "parquet"
             - "bitrix24"
             - "python"
-            - "extension"
+            - "custom"
         "sourceLocator":
           "type": "string"
         "sourceRevision":

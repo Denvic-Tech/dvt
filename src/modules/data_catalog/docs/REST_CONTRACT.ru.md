@@ -39,6 +39,6 @@ Save принимает previewToken и Idempotency-Key: одна транзак
 
 Python SDK этапа 2 использует scoped runtime metadata context, не произвольные HTTP writes. Public schemas/SDK стабилизируются в этапе 3. Draft может описывать будущие native методы, но релизная OpenAPI содержит только реализованные.
 
-Avro/OpenMetadata/Iceberg adapters/export endpoints, OpenMetadata push и `/api/openmetadata/v1` facade исключены из ТЗ. Будущие расширения используют native typed snapshot/public contracts.
+Avro/OpenMetadata/Iceberg adapters/export endpoints, OpenMetadata push и `/api/openmetadata/v1` facade исключены из ТЗ. Будущие интеграции ядра используют native typed snapshot/public contracts.
 
 Ориентиры familiar model: [OpenMetadata resources](https://github.com/open-metadata/OpenMetadata/blob/main/DEVELOPER.md), [Table](https://github.com/open-metadata/OpenMetadata/blob/1.12.0-release/openmetadata-spec/src/main/resources/json/schema/entity/data/table.json), [TagLabel](https://github.com/open-metadata/OpenMetadata/blob/1.12.0-release/openmetadata-spec/src/main/resources/json/schema/type/tagLabel.json). Собственные DVT поля source/provenance/typed schema явно документированы; стандартный внешний Column их не заменяет.

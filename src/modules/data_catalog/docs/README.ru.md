@@ -2,11 +2,11 @@
 
 Начинать с [головного ТЗ](MAIN_PLAN.ru.md).
 
-Обязательный ориентир разработчика и его ИИ: [roadmap будущих расширений Avro, OpenMetadata и Iceberg](FUTURE_EXTENSIONS_ROADMAP.ru.md). Интеграции вне текущего объёма, архитектурная готовность к ним обязательна с MVP.
+Обязательный ориентир разработчика и его ИИ: [roadmap будущих интеграций Avro, OpenMetadata и Iceberg](FUTURE_INTEGRATIONS_ROADMAP.ru.md). Интеграции вне текущего объёма, архитектурная готовность к ним обязательна с MVP.
 
 - [Этап 1: MVP с UI и metadata read/write](STAGE_01_MVP_IO.ru.md).
 - [Этап 2: происхождение и Execute Python](STAGE_02_LINEAGE.ru.md).
-- [Этап 3: public contracts расширений](STAGE_03_EXTENSION_API.ru.md).
+- [Этап 3: публичные контракты ядра](STAGE_03_CORE_API.ru.md).
 - [Модель](DATA_CATALOG_PROPOSAL.ru.md), [native REST](REST_CONTRACT.ru.md), [draft OpenAPI](openapi.draft.yaml).
 - [HTML просмотра](dvt-catalog-view.html), [HTML modal](dvt-catalog-modal.html), [тексты UI](real-project-developer-notes.ru.md).
 
