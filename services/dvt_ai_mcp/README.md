@@ -96,6 +96,39 @@ these fields remains readable; refresh metadata or rerun the node to obtain comm
 Propagation through transform nodes and creating/updating/deleting comments are outside this
 read-only feature.
 
+## Preparing write targets
+
+Use scoped MCP DDL for one-time preparation before applying/running the graph. Configure the
+writer with an explicit column mapping; no DDL node or signal dependency is needed for that setup.
+
+- `resolve_write_columns` is read-only. Pass the known DataFrame metadata, target and optional
+  mapping/policies. Use `typed_create` before creating a missing table and `existing_table` for
+  an existing one. It returns effective mapping, differences, diagnostics and suggested actions.
+  Use it on initial writer setup or schema changes, not before every unchanged pipeline run.
+- `create_database`, `create_schema`, `create_table` prepare missing objects.
+  Existing objects are unchanged; create_table does not update their columns.
+- `apply_table_column_actions` supports add/drop/recreate, comments and nullability.
+  Preview every batch with `dry_run=true` (MCP default), review SQL/diagnostics, then apply the
+  same batch explicitly with `dry_run=false`. During preview, applied_actions describes planned
+  actions and table_metadata is absent; apply returns refreshed table metadata. Reread the
+  catalog and resolve mapping again after changes. Preview alone needs no repeat user approval.
+
+Suggestions do not authorize destructive changes. Drop/recreate require explicitly agreed data
+loss; recreate_column drops and adds the column, rather than converting existing values.
+For comment deletion supply explicit `comment: null`. set_column_nullable requires an explicit
+boolean and no column/comment fields. Preview does not scan data for NULLs; apply checks them
+before the first DDL when tightening nullable. Pause concurrent ClickHouse writes for that change.
+DDL may partially commit depending on dialect: after failure or timeout, inspect the target and
+plan remaining actions instead of blindly replaying a batch. Apply attempts invalidate the
+catalog even on failure; preview and resolution do not.
+
+Use runtime DDL nodes only when schema changes belong to execution or MCP lacks the required
+operation. Discover specialized nodes first; justify generic SQL fallback and enforce execution
+ordering. The MCP adapter has no arbitrary write-SQL tool, table truncation/recreation tool, or
+new connection privileges. New arguments are typed transport models; Gateway owns execution and
+validates its existing DDL contracts. Invalid arguments return INVALID_ARGUMENTS at the private
+facade; execution failures remain redacted DDL_OPERATION_FAILED/DDL_UNSUPPORTED errors.
+
 ## Configuration
 
 The service is opt-in. `DVT_AI_MCP_ENABLED` defaults to `false`; in that state the
@@ -145,9 +178,97 @@ default_tools_approval_mode = "writes"
 tool_timeout_sec = 60
 ```
 
-The service contains 28 tools for project and graph discovery, node search, atomic graph validation
-and patching, SQL/file catalogs, bounded read-only previews, scoped idempotent creation of missing
-databases/schemas/tables for `WriteDataFrameToDBV4`, project creation, scheduling, and task lifecycle.
+The service contains 31 tools for project and graph discovery, node search, atomic graph validation
+and patching, server-side graph layout, SQL/file catalogs, bounded read-only previews, scoped idempotent creation of missing
+databases/schemas/tables, read-only write-column resolution and preview/apply column actions,
+project creation, scheduling, and task lifecycle.
 It does not expose arbitrary write SQL, MCP resources or prompts, OAuth, stdio, legacy SSE,
 project update/deletion, folder management, subgraph CRUD, schedule deletion, connection CRUD,
 Kafka/queue connectors, or file writes.
+
+
+## Graph identities and layout
+
+New nodes require a patch-local `ref`, not a permanent `id`. References must contain a
+non-whitespace character, be at most 255 characters long, and be unique within `add_nodes`.
+An edge endpoint is exactly one of `{"ref": "source"}` (a new node in this patch) or
+`{"id": "node_existing"}` (an existing node). Identical strings in these two namespaces
+do not collide. Updates/deletions continue to address existing permanent IDs.
+References are not substituted inside input values, expressions, SQL, or Python.
+
+For example, this patch creates a small conversion pipeline:
+
+```json
+{
+  "add_nodes": [
+    {
+      "ref": "source",
+      "node_type": "JsonToDataFrame",
+      "inputs": {"json": {"kind": "constant", "value": [{"value": 1}]}}
+    },
+    {"ref": "sink", "node_type": "DataFrameToJson"}
+  ],
+  "add_connections": [
+    {
+      "source": {"ref": "source"},
+      "source_output": "output",
+      "target": {"ref": "sink"},
+      "target_input": "df"
+    }
+  ]
+}
+```
+
+Pass the same patch and current `expected_graph_revision` / `expected_graph_etag` to
+`validate_graph_changes`, then `apply_graph_changes`. Validation writes nothing and returns
+`valid`, warnings, and a `preview` with created refs, change counts, and moved node references /
+subgraph IDs. The old `preview_graph_etag` has been removed: temporary graph identities are not
+the eventual stored graph.
+
+After successful validation during apply, Gateway creates `node_<uuid>` and `edge_<uuid>`
+identities, saves the graph, and returns `node_ids_by_ref` together with the usual operation
+result and actual revision/etag. Existing graph IDs are preserved without migration.
+Errors/warnings address new nodes using `node_ref`; mixed node lists use `{ref}` / `{id}`
+selectors. Invalid added edges may be identified by their zero-based `connection_index`.
+Duplicate refs, unknown references, references to deleted nodes, caller-supplied IDs on additions,
+and input positions are rejected. This replaces the previous contract without a compatibility mode.
+
+Both validate and apply check every edge in the resulting graph against the node definitions.
+Unknown ports produce `UNKNOWN_SOURCE_OUTPUT` / `UNKNOWN_TARGET_INPUT` inside
+`GRAPH_VALIDATION_FAILED`, with the node, `endpoint`, `port`, and either `connection_index`
+for an added edge or `connection_id` for an existing edge. No changes or tasks are saved.
+An already stored invalid edge blocks patches that leave it in place; a patch removing the edge
+can pass because validation inspects the resulting graph. Known data, signal, and variable ports
+remain supported; pipeline validation still checks type compatibility.
+
+After a timeout, reread the graph before planning remaining changes; never blindly recreate nodes
+with refreshed concurrency tokens.
+
+Agents cannot supply positions for either added or updated nodes. Structural edits automatically
+rearrange affected connected components, considering both the original and resulting graph.
+All edge types participate. Affected subgraphs and all their members move together; unrelated
+components retain their positions. Parameter/comment-only edits do not cause layout.
+The geometry and requested changes are persisted together; `GRAPH_LAYOUT_FAILED` aborts the patch.
+
+Layout uses deterministic layers directed left to right, branch ordering, cycle condensation,
+and collision avoidance against unchanged components. Cycles can be drawn but do not bypass
+pipeline validation. Node size is estimated as a fixed 360 × 240 with gaps of 140 between layers,
+80 between nodes, and 120 between components. Expanded panels use UI padding and a minimum
+520 × 340; collapsed panels occupy 360 × 160. The server stores absolute node/group positions,
+not measured browser sizes. Actual oversized UI cards can still overlap; this is not pixel parity
+with the UI's ELK layout.
+
+### Arrange an existing project
+
+`auto_layout_project(project_id, expected_graph_revision, expected_graph_etag, dry_run=true)`
+arranges the entire project, including subgraphs and isolated nodes. Preview returns
+`moved_node_ids`, `moved_subgraph_ids`, `changes_count`, `bounds`, and current revision/etag.
+Apply with `dry_run=false` and the same tokens; a concurrent edit requires a new preview.
+No additional user confirmation is required when layout is already within the authorized task.
+
+This operation checks access and structural references, but does not require configured inputs
+or installed node extensions. Empty projects are accepted. It updates only changed coordinates,
+does not execute pipelines or metadata inference, and leaves computational revision/dirty state
+unchanged. The graph etag reflects changed positions. A no-op performs no graph writes.
+Creating, deleting, or editing subgraph properties through MCP remains unsupported; automatic
+movement of existing subgraphs is allowed.

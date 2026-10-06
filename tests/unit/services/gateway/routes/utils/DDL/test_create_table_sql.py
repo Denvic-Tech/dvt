@@ -95,7 +95,7 @@ async def test_resolve_write_columns_timeout_returns_resolve_error(monkeypatch):
     assert "Timed out while resolving write columns" in exc_info.value.detail["detail"]
 
 
-def _build_apply_table_column_actions_request(connection_string: str):
+def _buildapply_table_column_actions_from_connection_string(connection_string: str):
     return ddl_table_route.ApplyTableColumnActionsRequest.model_validate(
         {
             "connection_id": connection_string,
@@ -122,7 +122,7 @@ def test_apply_table_column_actions_rejects_nested_connection_metadata():
 
 
 def test_apply_table_column_actions_connection_error_returns_specific_error(monkeypatch):
-    request = _build_apply_table_column_actions_request("sqlite://")
+    request = _buildapply_table_column_actions_from_connection_string("sqlite://")
 
     def fail_to_build_engine(**kwargs):
         raise RuntimeError("connection failed")
@@ -134,7 +134,7 @@ def test_apply_table_column_actions_connection_error_returns_specific_error(monk
     )
 
     with pytest.raises(ApplyTableColumnActionsError) as exc_info:
-        ddl_table_route._apply_table_column_actions_request(request, "sqlite://")
+        ddl_table_route.apply_table_column_actions_from_connection_string(request, "sqlite://")
 
     assert exc_info.value.detail["code"] == "APPLY_TABLE_COLUMN_ACTIONS_ERROR"
     assert "connection failed" in exc_info.value.detail["detail"]
@@ -143,7 +143,7 @@ def test_apply_table_column_actions_connection_error_returns_specific_error(monk
 def test_apply_table_column_actions_execution_error_returns_specific_error_and_disposes_engine(
     monkeypatch,
 ):
-    request = _build_apply_table_column_actions_request("sqlite://")
+    request = _buildapply_table_column_actions_from_connection_string("sqlite://")
 
     class FakeEngine:
         url = sa.engine.make_url("sqlite:///test.db")
@@ -169,7 +169,7 @@ def test_apply_table_column_actions_execution_error_returns_specific_error_and_d
     )
 
     with pytest.raises(ApplyTableColumnActionsError) as exc_info:
-        ddl_table_route._apply_table_column_actions_request(request, "sqlite://")
+        ddl_table_route.apply_table_column_actions_from_connection_string(request, "sqlite://")
 
     assert exc_info.value.detail["code"] == "APPLY_TABLE_COLUMN_ACTIONS_ERROR"
     assert "Failed to apply table column actions" in exc_info.value.detail["detail"]

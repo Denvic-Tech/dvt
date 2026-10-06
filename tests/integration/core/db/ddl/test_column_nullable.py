@@ -206,10 +206,10 @@ def test_gateway_returns_updated_nullable_metadata(comments_engine, nullable_tab
         connection_id="test", table_name=nullable_table.name,
         actions=[action(False)], dry_run=True,
     )
-    preview = route._apply_table_column_actions_request(request, "unused")
+    preview = route.apply_table_column_actions_from_connection_string(request, "unused")
     assert preview.table_metadata is None and preview.sql
     request.dry_run = False
-    result = route._apply_table_column_actions_request(request, "unused")
+    result = route.apply_table_column_actions_from_connection_string(request, "unused")
     assert result.success and result.sql == preview.sql
     assert next(c for c in result.table_metadata.columns if c.name == "value").nullable is False
 

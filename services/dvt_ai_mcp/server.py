@@ -8,7 +8,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import INTERNAL_ERROR, ToolAnnotations
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
-from pydantic import Field
+from pydantic import Field, StrictBool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -17,7 +17,16 @@ from .gateway_client import (
     bearer_token_context,
     gateway_client,
 )
-from .models import DDLColumn, GraphPatch, RuntimeVariable, SchedulePatch, TableCreateSpec
+from .models import (
+    DataFrameMetadata,
+    DDLColumn,
+    GraphPatch,
+    RuntimeVariable,
+    SchedulePatch,
+    TableColumnAction,
+    TableCreateSpec,
+    WriteColumnMapping,
+)
 from .settings import settings
 
 INSTRUCTIONS = """
@@ -39,7 +48,7 @@ Schedules are persistent project configuration and are not tied to the lifetime 
 
 Before editing a graph, inspect the project graph and search the
 available node catalog. Prefer specialized low-code source, transform, and sink nodes over generic
-code nodes, and build a readable left-to-right graph with meaningful display names and comments.
+code nodes, and use meaningful display names and comments. The server arranges nodes left to right.
 Never add or replace a node with a deprecated node type. Deprecated nodes found in an existing
 graph may be inspected for compatibility, but must not be selected for new development.
 Generic code nodes are allowed only when justified by a non-empty comment. Always validate changes
@@ -48,8 +57,8 @@ nodes), wait until a terminal state, and never claim success before SUCCESS. On 
 logs, fix the graph, validate, apply, run, and wait again. Project names are only for discovery; if a search
 returns multiple projects, present the candidates instead of guessing, and use project_id for
 every mutation or execution of an existing project. Never infer or expose connection credentials. Subgraphs
-may be inspected and existing membership may be changed, but subgraph entities must not be
-created, updated, or deleted.
+may be inspected and existing membership may be changed. Do not create, delete or edit subgraph
+properties; the server may automatically move existing subgraphs with their members.
 
 Use search_nodes to find suitable node types. Before configuring a selected type for the first
 time in the current task, read get_node_definition with the user's locale. Use its schema for
@@ -77,6 +86,37 @@ Use catalog and bounded read-only queries to check assumptions required by node 
 Prefer source statistics and small aggregate results; max_rows caps returned rows, not database
 work. Label estimates and sampling uncertainty. Record consequential configuration decisions,
 supporting evidence and unresolved assumptions in the node comment.
+
+Prepare database targets outside the execution graph for ordinary one-time setup. Inspect the
+exact connection/database/schema/table and the known input schema. When configuring a writer or
+changing either schema, use resolve_write_columns (typed_create for a missing table,
+existing_table otherwise). Unchanged configured pipelines need no repeated resolution per run.
+Use create_database/create_schema/create_table for missing objects; create_table never alters an
+existing table. For column changes, inspect suggested_action but do not automatically apply it.
+Preview every intended batch with apply_table_column_actions(dry_run=true), review its SQL and
+diagnostics, then apply the same batch with dry_run=false within the already authorized task.
+Preview alone does not require another user confirmation. Drop/recreate require explicitly agreed
+data loss: recreating a column loses its values, it is not a data-preserving type conversion.
+Preview checks structure, not existing NULL values. Apply checks NULLs before nullable=false;
+concurrent ClickHouse writes must be paused for that change.
+After DDL, reread get_database_table, reassess resolution/mapping, then validate/apply/run the
+graph and verify the result. One-time MCP preparation needs no DDL node or signal edge.
+Use runtime DDL nodes only for DDL genuinely needed during execution or when MCP lacks the
+required operation: discover specialized nodes first, justify any generic SQL fallback and its
+execution dependency. After an error or timeout, inspect actual state and plan only remaining
+actions; never blindly retry a mutating batch. DDL is not universally atomic across dialects.
+
+For new nodes supply a patch-local ref, never a permanent ID or position. Connect new nodes with
+{ref: "..."} and existing nodes with {id: "..."} endpoints. The server generates node/edge IDs,
+automatically lays out affected connected components and returns node_ids_by_ref on apply.
+Refs only address new nodes in the same patch; do not embed them in input values or expressions.
+Validate and apply the same patch with the same revision/etag. After an apply timeout, reread the
+graph before planning remaining changes; never blindly retry creation with fresh concurrency tokens.
+Use auto_layout_project to arrange an existing whole graph without changing its configuration.
+Preview with dry_run=true, then apply with dry_run=false and the same revision/etag within the
+authorized task; preview alone needs no additional user confirmation. This geometry-only operation
+requires no pipeline run and also works on incompletely configured graphs. Other graph mutations
+still require the normal validate/apply/run workflow.
 
 In update_nodes.inputs, omit keys that must stay unchanged. A null input entry removes the
 persisted value; it is not a universal shorthand for a node's default or "all values".
@@ -184,6 +224,12 @@ WRITE_DDL = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=False,
     idempotent_hint=True,
+    open_world_hint=True,
+)
+WRITE_COLUMN_DDL = ToolAnnotations(
+    read_only_hint=False,
+    destructive_hint=True,
+    idempotent_hint=False,
     open_world_hint=True,
 )
 CANCEL_EXECUTION = ToolAnnotations(
@@ -323,6 +369,17 @@ async def apply_graph_changes(
     return await _call("apply_graph_changes", locals())
 
 
+@mcp.tool(annotations=WRITE_GRAPH)
+async def auto_layout_project(
+    project_id: str,
+    expected_graph_revision: int,
+    expected_graph_etag: str,
+    dry_run: StrictBool = True,
+) -> dict[str, Any]:
+    """Arrange the whole graph; defaults to a read-only preview. Does not execute the pipeline."""
+    return await _call("auto_layout_project", locals())
+
+
 @mcp.tool(annotations=READ_CLOSED)
 async def list_connections(
     kind: str | None = None,
@@ -422,6 +479,50 @@ async def create_table(
 ) -> dict[str, Any]:
     """Create a missing typed database table; existing targets are unchanged."""
     return await _call("create_table", locals())
+
+
+@mcp.tool(annotations=READ_OPEN)
+async def resolve_write_columns(
+    connection_id: str,
+    table_name: str,
+    mode: Literal["existing_table", "typed_create"],
+    dataframe_metadata: DataFrameMetadata,
+    database_name: str | None = None,
+    schema_name: str | None = None,
+    column_mapping: list[WriteColumnMapping] | None = None,
+    on_extra_df_columns: Literal["ignore", "error"] = "ignore",
+    on_missing_df_columns: Literal["ignore", "ignore_if_default", "error"] = "ignore_if_default",
+    table_create_spec: TableCreateSpec | None = None,
+) -> dict[str, Any]:
+    """Inspect write compatibility without changing data or schema.
+
+    Returns effective_column_mapping, column differences, diagnostics and suggested_action.
+    Use when setting up a writer or changing its source/target schema. Suggestions are not
+    authorization: recreate_column loses values. Prepare missing tables with create_table;
+    preview and apply necessary column changes with apply_table_column_actions.
+    """
+    return await _call("resolve_write_columns", locals())
+
+
+@mcp.tool(annotations=WRITE_COLUMN_DDL)
+async def apply_table_column_actions(
+    connection_id: str,
+    table_name: str,
+    actions: Annotated[list[TableColumnAction], Field(min_length=1)],
+    database_name: str | None = None,
+    schema_name: str | None = None,
+    dry_run: Annotated[bool, Field(strict=True)] = True,
+) -> dict[str, Any]:
+    """Preview or apply a typed column-action batch through the scoped Gateway.
+
+    Default dry_run=true only generates SQL; applied_actions then describes planned actions,
+    not executed changes. Review SQL/diagnostics before explicitly applying dry_run=false.
+    Returns fresh table_metadata after apply. Drop/recreate lose data and require agreed intent.
+    Preview does not scan NULLs; apply checks before nullable=false. Pause concurrent ClickHouse
+    writes for that change. After failure/timeout inspect the target before any retry.
+    Ordinary one-time preparation does not belong in a DDL node in the pipeline.
+    """
+    return await _call("apply_table_column_actions", locals())
 
 
 @mcp.tool(annotations=READ_OPEN)

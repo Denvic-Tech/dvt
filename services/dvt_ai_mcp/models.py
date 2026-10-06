@@ -2,16 +2,23 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Position(StrictModel):
-    x: float
-    y: float
+class NewNodeReference(StrictModel):
+    ref: str = Field(min_length=1, max_length=255, pattern=r"\S",
+                     description="Temporary node reference scoped to this patch; never persisted.")
+
+
+class ExistingNodeReference(StrictModel):
+    id: str = Field(min_length=1, max_length=255)
+
+
+NodeReference = NewNodeReference | ExistingNodeReference
 
 
 class InputValue(StrictModel):
@@ -33,11 +40,11 @@ class InputValue(StrictModel):
 
 
 class AddNode(StrictModel):
-    id: str = Field(min_length=1, max_length=255)
+    ref: str = Field(min_length=1, max_length=255, pattern=r"\S",
+                     description="Unique temporary reference within this patch. Server assigns ID.")
     node_type: str = Field(min_length=1)
     display_name: str | None = None
     comment: str | None = Field(default=None, max_length=20480)
-    position: Position | None = None
     subgraph_id: str | None = None
     inputs: dict[str, InputValue | None] = Field(
         default_factory=dict,
@@ -55,7 +62,6 @@ class UpdateNode(StrictModel):
     node_type: str | None = None
     display_name: str | None = None
     comment: str | None = Field(default=None, max_length=20480)
-    position: Position | None = None
     subgraph_id: str | None = None
     inputs: dict[str, InputValue | None] | None = Field(
         default=None,
@@ -70,10 +76,9 @@ class UpdateNode(StrictModel):
 
 
 class AddConnection(StrictModel):
-    id: str | None = None
-    source: str
+    source: NodeReference
     source_output: str
-    target: str
+    target: NodeReference
     target_input: str
     subgraph_id: str | None = None
 
@@ -138,3 +143,118 @@ class TableCreateSpec(StrictModel):
             "primary_key, and settings."
         ),
     )
+
+
+ColumnDataType = Literal[
+    "INT", "FLOAT", "STRING", "BOOLEAN", "DATETIME", "TIMEDELTA", "CATEGORY",
+    "DICTIONARY", "OBJECT", "UNKNOWN", "BINARY", "LIST", "STRUCT",
+]
+
+
+class ArrowField(StrictModel):
+    name: str
+    nullable: bool = True
+    type: ArrowType
+
+
+class ArrowType(StrictModel):
+    kind: Literal[
+        "scalar", "timestamp", "duration", "decimal", "list", "large_list",
+        "fixed_size_list", "struct", "fixed_size_binary",
+    ]
+    name: str | None = None
+    unit: Literal["s", "ms", "us", "ns"] | None = None
+    timezone: str | None = None
+    precision: int | None = None
+    scale: int | None = None
+    size: int | None = None
+    fields: list[ArrowField] = Field(default_factory=list)
+
+
+class DTypeMetadata(StrictModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    name: str
+    class_name: str = Field(alias="class")
+    origin: Literal["numpy", "pandas", "python"]
+    arrow_type: ArrowType | None = None
+    repr: str | None = None
+    module: str | None = None
+    kind: str | None = None
+    itemsize: int | None = None
+    is_extension: bool | None = None
+    scalar_type: str | None = None
+    storage: str | None = None
+    unit: str | None = None
+    timezone: str | None = None
+    ordered: bool | None = None
+    categories_count: int | None = None
+    categories_dtype: str | None = None
+
+
+class DataFrameColumn(StrictModel):
+    name: str = Field(min_length=1)
+    dtype: ColumnDataType
+    nullable: bool | None = None
+    comment: str | None = None
+    dtype_metadata: DTypeMetadata | None = None
+    index: bool | None = None
+
+
+class DatabaseColumn(DataFrameColumn):
+    indexes: list[str] | None = None
+    primary_key: bool | None = None
+
+
+class DataFrameMetadata(StrictModel):
+    type: Literal["DATAFRAME"] = "DATAFRAME"
+    columns: list[DataFrameColumn]
+    comment: str | None = None
+    rows_num: int | None = Field(default=None, ge=0)
+    size: int | None = Field(default=None, ge=0)
+
+
+class WriteColumnMapping(StrictModel):
+    source_name: str = Field(min_length=1)
+    target_name: str = Field(min_length=1)
+    dtype: str | None = None
+    nullable: bool | None = None
+
+
+class TableColumnAction(StrictModel):
+    type: Literal[
+        "add_column", "drop_column", "recreate_column",
+        "set_column_nullable", "set_column_comment",
+    ] = Field(description=(
+        "recreate_column drops and adds the column, losing its values; it is not a "
+        "data-preserving type conversion. Drop/recreate require explicitly agreed data loss."
+    ))
+    column_name: str = Field(min_length=1)
+    column: DatabaseColumn | None = None
+    comment: str | None = Field(
+        default=None, description="For set_column_comment, supply explicitly; null removes it."
+    )
+    nullable: StrictBool | None = Field(default=None, description=(
+        "Explicit boolean for set_column_nullable. Preview does not scan for NULLs; "
+        "apply checks existing NULLs before any DDL. Pause concurrent ClickHouse writes "
+        "before setting nullable=false."
+    ))
+
+    @model_validator(mode="after")
+    def validate_action(self):
+        if not self.column_name.strip():
+            raise ValueError("column_name must not be blank.")
+        if self.type in {"add_column", "recreate_column"} and (
+            self.column is None or self.column.name.strip() != self.column_name.strip()
+        ):
+            raise ValueError("Provide column with a name matching column_name.")
+        if self.type == "set_column_comment" and (
+            "comment" not in self.model_fields_set or self.column is not None
+        ):
+            raise ValueError("Provide comment explicitly and omit column.")
+        if self.type == "set_column_nullable":
+            if self.nullable is None or {"column", "comment"} & self.model_fields_set:
+                raise ValueError("Provide nullable explicitly and omit column/comment.")
+        elif self.nullable is not None:
+            raise ValueError("nullable is only allowed for set_column_nullable.")
+        return self

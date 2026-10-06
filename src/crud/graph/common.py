@@ -38,6 +38,7 @@ async def get_graph_by(
     owner_user_id: str | None = None,
     project_id: str | None = None,
     target_nodes: Sequence[str] | None = None,
+    populate_existing: bool = False,
 ) -> tuple[Sequence[GraphNodeRecord], Sequence[GraphEdgeRecord], Sequence[SubgraphRecord]]:
     node_filters: list[sa.ColumnElement[bool]] = []
     edge_filters: list[sa.ColumnElement[bool]] = []
@@ -76,7 +77,9 @@ async def get_graph_by(
     if selected_node_ids is not None:
         node_filters.append(GraphNodeRecord.ui_id.in_(selected_node_ids))
 
-    nodes_stmt = sa.select(GraphNodeRecord).where(*node_filters)
+    nodes_stmt = sa.select(GraphNodeRecord).where(*node_filters).execution_options(
+        populate_existing=populate_existing,
+    )
     nodes = list((await session.execute(nodes_stmt)).scalars())
     normalized_nodes = [
         _normalize_graph_node(node)
@@ -87,9 +90,13 @@ async def get_graph_by(
         edge_filters.append(GraphEdgeRecord.source.in_(selected_node_ids))
         edge_filters.append(GraphEdgeRecord.target.in_(selected_node_ids))
 
-    edges_stmt = sa.select(GraphEdgeRecord).where(*edge_filters)
+    edges_stmt = sa.select(GraphEdgeRecord).where(*edge_filters).execution_options(
+        populate_existing=populate_existing,
+    )
     edges = list((await session.execute(edges_stmt)).scalars())
 
-    subgraphs_stmt = sa.select(SubgraphRecord).where(*subgraph_filters)
+    subgraphs_stmt = sa.select(SubgraphRecord).where(*subgraph_filters).execution_options(
+        populate_existing=populate_existing,
+    )
     subgraphs = list((await session.execute(subgraphs_stmt)).scalars())
     return normalized_nodes, edges, subgraphs
