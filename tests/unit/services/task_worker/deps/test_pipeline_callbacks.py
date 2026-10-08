@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -128,3 +129,60 @@ async def test_send_task_execution_telemetry_emits_telemetry_event(monkeypatch):
     assert payload.event.pid == 123
     assert payload.event.rss_bytes == 2048
     assert payload.event.memory_limit_bytes == 4096
+
+
+@pytest.mark.asyncio
+async def test_on_node_metadata_catalog_commits_when_datasets_updated(monkeypatch):
+    import src.db
+    from src.modules import data_catalog
+
+    class _Session:
+        def __init__(self):
+            self.commit = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+    sessions = []
+
+    def session_factory():
+        session = _Session()
+        sessions.append(session)
+        return session
+
+    record = AsyncMock(return_value=SimpleNamespace(dataset_ids=("d1",), trusted_types=True))
+    monkeypatch.setattr(src.db, "AsyncSessionLocal", session_factory)
+    monkeypatch.setattr(data_catalog, "record_observed_node_metadata", record)
+
+    node = SimpleNamespace(_node_id="node-1")
+    await pipeline_callbacks.on_node_metadata_catalog(
+        user_id="u", project_id="p", task_id="t", node=node, metadata={"output": None}, extra="ignored"
+    )
+
+    record.assert_awaited_once_with(session=sessions[0], project_id="p", node=node, metadata={"output": None})
+    sessions[0].commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_on_node_metadata_catalog_swallows_failures(monkeypatch):
+    import src.db
+    from src.modules import data_catalog
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc_info):
+            return False
+
+    monkeypatch.setattr(src.db, "AsyncSessionLocal", _Session)
+    monkeypatch.setattr(
+        data_catalog, "record_observed_node_metadata", AsyncMock(side_effect=RuntimeError("catalog down"))
+    )
+
+    await pipeline_callbacks.on_node_metadata_catalog(
+        user_id="u", project_id="p", task_id="t", node=SimpleNamespace(_node_id="n"), metadata={}
+    )
