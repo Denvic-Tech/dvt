@@ -60,6 +60,12 @@ EXPECTED_TOOLS = {
     "apply_table_column_actions",
     "list_storage",
     "preview_storage_file",
+    "search_datasets",
+    "get_dataset",
+    "get_dataset_usage",
+    "set_dataset_description",
+    "refresh_dataset",
+    "confirm_field_rename",
     "run_project",
     "get_task",
     "wait_task",
@@ -449,3 +455,40 @@ async def test_layout_protocol_defaults_to_preview_and_preserves_false(monkeypat
         result = await client.call_tool("auto_layout_project", {**args, "dry_run": "false"})
         assert result.is_error
         call.assert_not_awaited()
+
+
+def test_catalog_write_tools_have_expected_annotations() -> None:
+    by_name = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
+    assert by_name["set_dataset_description"].annotations.idempotent_hint is True
+    assert by_name["set_dataset_description"].annotations.open_world_hint is False
+    assert by_name["refresh_dataset"].annotations.open_world_hint is True
+    assert by_name["confirm_field_rename"].annotations.destructive_hint is True
+
+
+@pytest.mark.asyncio
+async def test_set_dataset_description_preserves_nested_null_and_rejects_conflict(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    captured = []
+
+    async def call(name, arguments):
+        captured.append((name, _jsonable(arguments)))
+        return {"id": "d1"}
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "set_dataset_description",
+            {"dataset_id": "d1", "fields": [{"name": "id", "description": None}]},
+        )
+        assert not result.is_error
+        conflict = await client.call_tool(
+            "set_dataset_description",
+            {"dataset_id": "d1", "description": "x", "clear_description": True},
+        )
+        assert conflict.is_error
+
+    name, payload = captured[0]
+    assert name == "set_dataset_description"
+    assert payload["fields"][0] == {"name": "id", "field_id": None, "description": None}
+    assert "description" not in payload, "top-level null не передаётся: пропуск означает «не менять»"

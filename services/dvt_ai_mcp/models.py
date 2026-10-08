@@ -258,3 +258,22 @@ class TableColumnAction(StrictModel):
         elif self.nullable is not None:
             raise ValueError("nullable is only allowed for set_column_nullable.")
         return self
+
+
+class FieldRefInput(StrictModel):
+    """Reference to one catalog field: exactly one of field_id or name."""
+
+    field_id: str | None = Field(default=None, min_length=1)
+    name: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> FieldRefInput:
+        if (self.field_id is None) == (self.name is None):
+            raise ValueError("Exactly one of field_id or name must be provided.")
+        return self
+
+
+class FieldDescriptionInput(FieldRefInput):
+    """Description change for one field; description is required and null clears it."""
+
+    description: str | None = Field(max_length=20480)

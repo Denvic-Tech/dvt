@@ -33,7 +33,13 @@ def _safe_operation_summary(tool_name: str, arguments: dict[str, Any]) -> dict[s
         "project_id": arguments.get("project_id"),
         "connection_id": arguments.get("connection_id"),
         "task_id": arguments.get("task_id"),
+        "dataset_id": arguments.get("dataset_id"),
     }
+    if tool_name == "set_dataset_description":
+        # Текст описаний в audit-лог не попадает: только объём изменения.
+        fields = arguments.get("fields")
+        summary["fields_count"] = len(fields) if isinstance(fields, list) else 0
+        summary["clear_description"] = bool(arguments.get("clear_description", False))
     for key in ("sql", "patch"):
         value = arguments.get(key)
         if value is not None:
