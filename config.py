@@ -293,6 +293,14 @@ class DB_CATALOG:
     )
 
 
+class DATA_CATALOG:
+    SCHEMA_SYNC_TTL_SEC = int(os.getenv("DATA_CATALOG_SCHEMA_SYNC_TTL_SEC", "300"))
+    WORKER_OBSERVATION_ENABLED = (
+        os.getenv("DATA_CATALOG_WORKER_OBSERVATION_ENABLED", "true").lower()
+        in _TRUE_STATEMENT_TOKENS
+    )
+
+
 class AI_ANALYSIS:
     ENABLED = os.getenv("DVT_ENABLE_AI_ANALYSIS", "false").lower() in _TRUE_STATEMENT_TOKENS
     SERVICE_URL = os.getenv("DVT_AI_SERVICE_URL", "").rstrip("/")
