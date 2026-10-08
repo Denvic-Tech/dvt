@@ -25,8 +25,15 @@ class SQLGlotContextClassifier:
         *,
         dialect_name: str | None,
     ) -> list[SQLTemplateInterpolationContext]:
-        self._parse_skeleton(template, interpolations, dialect_name=dialect_name)
-        return [self._classify_one(template, item) for item in interpolations]
+        top_literal_positions = self._parse_skeleton(
+            template, interpolations, dialect_name=dialect_name
+        )
+        return [
+            SQLTemplateInterpolationContext.LITERAL
+            if item.start in top_literal_positions
+            else self._classify_one(template, item)
+            for item in interpolations
+        ]
 
     @staticmethod
     def _parse_skeleton(
@@ -34,19 +41,46 @@ class SQLGlotContextClassifier:
         interpolations: list[JinjaInterpolation],
         *,
         dialect_name: str | None,
-    ) -> None:
+    ) -> set[int]:
         chunks: list[str] = []
+        placeholder_positions: dict[int, int] = {}
         previous = 0
+        skeleton_offset = 0
         for index, item in enumerate(interpolations):
-            chunks.append(template[previous:item.start])
-            chunks.append(f"dvt_template_{index}")
+            prefix = template[previous:item.start]
+            placeholder = f"dvt_template_{index}"
+            chunks.extend((prefix, placeholder))
+            placeholder_positions[skeleton_offset + len(prefix)] = item.start
+            skeleton_offset += len(prefix) + len(placeholder)
             previous = item.end
         chunks.append(template[previous:])
         dialect = {"mssql": "tsql"}.get((dialect_name or "").lower(), dialect_name)
         try:
-            sqlglot.parse("".join(chunks), read=dialect or None)
+            statements = sqlglot.parse("".join(chunks), read=dialect or None)
         except Exception as exc:
             raise SQLTemplateSyntaxError(f"SQL template syntax is invalid: {exc}") from exc
+
+        top_literal_positions: set[int] = set()
+        if (dialect or "").lower() != "tsql":
+            return top_literal_positions
+        for statement in statements:
+            if statement is None:
+                continue
+            # SQLGlot represents TOP as Limit; accept only a standalone placeholder value.
+            for limit in statement.find_all(sqlglot.exp.Limit):
+                value = limit.expression
+                while isinstance(value, sqlglot.exp.Paren):
+                    value = value.this
+                if not isinstance(value, sqlglot.exp.Column) or len(value.parts) != 1:
+                    continue
+                identifier = value.this
+                if identifier.quoted:
+                    continue
+                # Match token offsets, not names: user SQL may contain dvt_template_N itself.
+                skeleton_position = identifier.meta.get("start")
+                if skeleton_position in placeholder_positions:
+                    top_literal_positions.add(placeholder_positions[skeleton_position])
+        return top_literal_positions
 
     @staticmethod
     def _classify_one(template: str, item: JinjaInterpolation) -> SQLTemplateInterpolationContext:

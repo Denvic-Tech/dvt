@@ -47,6 +47,7 @@ EXPECTED_TOOLS = {
     "get_node_definition",
     "validate_graph_changes",
     "apply_graph_changes",
+    "auto_layout_project",
     "list_connections",
     "get_connection",
     "browse_database",
@@ -55,6 +56,8 @@ EXPECTED_TOOLS = {
     "create_database",
     "create_schema",
     "create_table",
+    "resolve_write_columns",
+    "apply_table_column_actions",
     "list_storage",
     "preview_storage_file",
     "run_project",
@@ -73,6 +76,9 @@ def test_mcp_contract_exposes_supported_tools_with_annotations() -> None:
     assert by_name["apply_graph_changes"].annotations.destructive_hint is True
     assert by_name["run_project"].annotations.read_only_hint is False
     assert by_name["create_table"].annotations.idempotent_hint is True
+    assert by_name["resolve_write_columns"].annotations.read_only_hint is True
+    assert by_name["apply_table_column_actions"].annotations.destructive_hint is True
+    assert by_name["apply_table_column_actions"].annotations.idempotent_hint is False
     assert by_name["create_project"].annotations.idempotent_hint is False
     assert by_name["create_project"].annotations.destructive_hint is False
     for name in ("list_project_schedules", "get_project_schedule"):
@@ -300,3 +306,146 @@ async def test_unknown_gateway_error_remains_redacted(monkeypatch):
     assert error.value.data == {"dvt_error": {
         "code": "GATEWAY_UNAVAILABLE", "message": "Gateway operation failed.",
     }}
+
+
+@pytest.mark.asyncio
+async def test_column_actions_default_to_preview_and_preserve_explicit_null(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    captured = []
+
+    async def call(name, arguments):
+        captured.append((name, _jsonable(arguments)))
+        return {"success": True}
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        for action in [
+            {"type": "set_column_comment", "column_name": "value", "comment": None},
+            {"type": "set_column_nullable", "column_name": "value", "nullable": False},
+        ]:
+            result = await client.call_tool("apply_table_column_actions", {
+                "connection_id": "allowed", "table_name": "target", "actions": [action],
+            })
+            assert not result.is_error
+    assert captured[0][1]["dry_run"] is True
+    assert captured[0][1]["actions"][0] == {
+        "type": "set_column_comment", "column_name": "value", "comment": None,
+    }
+    assert captured[1][1]["actions"][0] == {
+        "type": "set_column_nullable", "column_name": "value", "nullable": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_resolve_columns_forwards_metadata_mapping_and_returns_diagnostics(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    response = {"columns": [{"status": "missing_in_db"}], "diagnostics": []}
+    captured = {}
+
+    async def call(name, arguments):
+        captured.update(_jsonable(arguments))
+        return response
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool("resolve_write_columns", {
+            "connection_id": "allowed", "table_name": "target", "mode": "existing_table",
+            "dataframe_metadata": {"columns": [
+                {"name": "source", "dtype": "STRING", "nullable": True,
+                 "dtype_metadata": {"name": "string", "class": "StringDtype", "origin": "pandas"}},
+            ]},
+            "column_mapping": [{"source_name": "source", "target_name": "target"}],
+        })
+    assert not result.is_error
+    assert json.loads(result.content[0].text) == response
+    assert captured["dataframe_metadata"]["columns"][0]["dtype_metadata"] == {
+        "name": "string", "class_name": "StringDtype", "origin": "pandas",
+    }
+    assert captured["column_mapping"] == [{"source_name": "source", "target_name": "target"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", [
+    {"type": "set_column_comment", "column_name": "value"},
+    {"type": "set_column_nullable", "column_name": "value", "nullable": "false"},
+    {"type": "add_column", "column_name": "value"},
+    {"type": "execute_sql", "column_name": "value", "sql": "DROP TABLE target"},
+])
+async def test_column_action_invalid_contract_cannot_reach_gateway(monkeypatch, action):
+    call = AsyncMock()
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool("apply_table_column_actions", {
+            "connection_id": "allowed", "table_name": "target", "actions": [action],
+        })
+    assert result.is_error
+    call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_graph_protocol_accepts_local_refs_and_returns_server_ids(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    captured = []
+
+    async def call(name, arguments):
+        captured.append((name, _jsonable(arguments)))
+        return {"node_ids_by_ref": {"a": "node-generated"}}
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    patch = {
+        "add_nodes": [{"ref": "a", "node_type": "N"}],
+        "add_connections": [{
+            "source": {"id": "existing"}, "source_output": "out",
+            "target": {"ref": "a"}, "target_input": "in",
+        }],
+    }
+    async with Client(mcp) as client:
+        result = await client.call_tool("apply_graph_changes", {
+            "project_id": "p", "expected_graph_revision": 0,
+            "expected_graph_etag": "etag", "patch": patch,
+        })
+    assert not result.is_error
+    assert captured[0][1]["patch"] == patch
+    assert json.loads(result.content[0].text)["node_ids_by_ref"] == {"a": "node-generated"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch", [
+    {"add_nodes": [{"id": "old-id", "node_type": "N"}]},
+    {"add_nodes": [{"ref": "a", "node_type": "N", "position": {"x": 0, "y": 0}}]},
+    {"update_nodes": [{"id": "existing", "position": {"x": 0, "y": 0}}]},
+    {"add_nodes": [{"ref": "   ", "node_type": "N"}]},
+    {"add_connections": [{"source": {"id": "a", "ref": "b"}, "target": {"id": "c"},
+                          "source_output": "out", "target_input": "in"}]},
+])
+async def test_graph_protocol_rejects_old_contract_before_gateway(monkeypatch, patch):
+    call = AsyncMock()
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool("validate_graph_changes", {
+            "project_id": "p", "expected_graph_revision": 0,
+            "expected_graph_etag": "etag", "patch": patch,
+        })
+    assert result.is_error
+    call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_layout_protocol_defaults_to_preview_and_preserves_false(monkeypatch):
+    call = AsyncMock(return_value={"changes_count": 1})
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    args = {"project_id": "p", "expected_graph_revision": 0, "expected_graph_etag": "etag"}
+    async with Client(mcp) as client:
+        result = await client.call_tool("auto_layout_project", args)
+        assert not result.is_error
+        call.assert_awaited_with("auto_layout_project", {**args, "dry_run": True})
+        result = await client.call_tool("auto_layout_project", {**args, "dry_run": False})
+        assert not result.is_error
+        call.assert_awaited_with("auto_layout_project", {**args, "dry_run": False})
+        call.reset_mock()
+        result = await client.call_tool("auto_layout_project", {**args, "dry_run": "false"})
+        assert result.is_error
+        call.assert_not_awaited()

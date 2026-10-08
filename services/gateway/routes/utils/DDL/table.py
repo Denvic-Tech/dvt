@@ -323,7 +323,7 @@ def _resolve_write_columns_request(
         engine.dispose()
 
 
-async def _resolve_write_columns_request_async(
+async def resolve_write_columns_from_connection_string(
     request: ResolveWriteColumnsRequest,
     connection_string: str,
 ) -> ResolveWriteColumnsResponse:
@@ -343,7 +343,7 @@ async def _resolve_write_columns_request_async(
         ) from exc
 
 
-def _apply_table_column_actions_request(
+def apply_table_column_actions_from_connection_string(
     request: ApplyTableColumnActionsRequest,
     connection_string: str,
 ) -> ApplyTableColumnActionsResponse:
@@ -590,7 +590,7 @@ async def resolve_write_columns(
     user: UserAccessOnly,
 ):
     connection = await resolve_ddl_connection(request.connection_id, user)
-    return await _resolve_write_columns_request_async(
+    return await resolve_write_columns_from_connection_string(
         request,
         connection.connection_string,
     )
@@ -605,7 +605,7 @@ async def apply_column_actions(
     connection = await resolve_ddl_connection(request.connection_id, user)
     try:
         return await asyncio.to_thread(
-            _apply_table_column_actions_request,
+            apply_table_column_actions_from_connection_string,
             request,
             connection.connection_string,
         )

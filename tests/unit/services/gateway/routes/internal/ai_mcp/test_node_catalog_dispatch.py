@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -6,6 +7,7 @@ import pytest
 
 from services.gateway.routes.internal.ai_mcp import context, router
 from services.gateway.routes.internal.ai_mcp.errors import AIMCPHTTPError
+from services.gateway.routes.internal.ai_mcp.router import registry
 from services.gateway.routes.internal.ai_mcp.schemas import ToolCallSchema
 
 
@@ -82,7 +84,11 @@ async def test_handler_contract_type_error_is_internal_gateway_failure(monkeypat
     async def incompatible_handler(*, session, principal):
         raise TypeError("internal handler contract mismatch")
 
-    monkeypatch.setitem(router._CONTEXT_HANDLERS, "search_nodes", incompatible_handler)
+    monkeypatch.setitem(
+        registry.TOOLS,
+        "search_nodes",
+        replace(registry.TOOLS["search_nodes"], handler=incompatible_handler),
+    )
     session = AsyncMock()
 
     with pytest.raises(AIMCPHTTPError) as raised:

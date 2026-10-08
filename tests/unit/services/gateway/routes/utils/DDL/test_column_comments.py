@@ -12,7 +12,7 @@ from services.gateway.routes.utils.DDL import table
     [
         ("create_table", "create_table_from_connection_string"),
         ("recreate_table", "_recreate_table_request"),
-        ("apply_column_actions", "_apply_table_column_actions_request"),
+        ("apply_column_actions", "apply_table_column_actions_from_connection_string"),
     ],
 )
 @pytest.mark.parametrize("fails", [False, True])
@@ -34,7 +34,7 @@ async def test_catalog_is_invalidated_even_after_partial_ddl(monkeypatch, endpoi
 async def test_dry_run_does_not_invalidate_catalog(monkeypatch):
     invalidate = AsyncMock()
     monkeypatch.setattr(table, "invalidate_ddl_catalog", invalidate)
-    monkeypatch.setattr(table, "_apply_table_column_actions_request", Mock(return_value="preview"))
+    monkeypatch.setattr(table, "apply_table_column_actions_from_connection_string", Mock(return_value="preview"))
     request = SimpleNamespace(connection_id="test", dry_run=True)
     assert await table.apply_column_actions(request, object(), object()) == "preview"
     invalidate.assert_not_awaited()
