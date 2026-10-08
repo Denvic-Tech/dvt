@@ -10,6 +10,8 @@ from services.gateway.deps.project import UserProjectByPath
 
 from src.crud import project as project_crud
 from src.db.fastapi.dependencies import AsyncSessionDepends
+from src.logger import logger
+from src.modules.data_catalog.facade import rebuild_project_catalog_projection
 from src.modules.file_storage.infra.db_models import DVTServiceFileObjectRecord
 from src.modules.pipeline_graph.infra.db_models import (
     GraphEdgeRecord,
@@ -341,6 +343,19 @@ async def copy_project(
         await session.execute(sa.insert(GraphEdgeRecord.__table__), edge_values)
 
     await session.commit()
+
+    try:
+        await rebuild_project_catalog_projection(
+            session=session,
+            project_id=new_project.id,
+            organization_id=new_project.organization_id,
+            force=True,
+        )
+        await session.commit()
+    except Exception:
+        logger.exception("Data catalog projection build failed for copied project {}", new_project.id)
+        await session.rollback()
+
     await session.refresh(new_project)
     user_emails = await project_crud.get_user_emails_by_ids(
         session,

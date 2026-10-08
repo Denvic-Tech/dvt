@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from src.exception_registry.errors_list.gateway import project as project_exc
+from src.logger import logger
+from src.modules.data_catalog.facade import on_project_variables_changed
 from src.modules.project.infra.db_models import ProjectRecord
 from src.modules.user.infra.db_models import UserRecord
 from src.schemas.http.project_variable import (
@@ -32,6 +34,20 @@ async def _get_project_or_404(db: AsyncSession, project_id: str) -> ProjectRecor
     if not project:
         raise project_exc.ProjectNotFound(status_code=status.HTTP_404_NOT_FOUND)
     return project
+
+
+async def _notify_catalog(db: AsyncSession, project: ProjectRecord) -> None:
+    """После commit переменных пересобирает каталожную проекцию, если она от них зависит."""
+    try:
+        await on_project_variables_changed(
+            session=db,
+            project_id=project.id,
+            organization_id=project.organization_id,
+        )
+        await db.commit()
+    except Exception:
+        logger.exception("Data catalog projection refresh failed for project {}", project.id)
+        await db.rollback()
 
 
 async def get_variables(
@@ -104,6 +120,7 @@ async def create_variable(
 
     db.add(project)
     await db.commit()
+    await _notify_catalog(db, project)
     await db.refresh(project)
     return ProjectVariableRead(key=variable_key, **normalized_payload)
 
@@ -131,6 +148,7 @@ async def update_variable(
     project.variables[variable_key] = normalized_payload
     flag_modified(project, "variables")
     await db.commit()
+    await _notify_catalog(db, project)
     await db.refresh(project)
     return ProjectVariableRead(key=variable_key, **normalized_payload)
 
@@ -156,6 +174,7 @@ async def delete_variable(
     flag_modified(project, "variables")
     db.add(project)
     await db.commit()
+    await _notify_catalog(db, project)
 
 
 async def bulk_update_variables(
@@ -178,6 +197,7 @@ async def bulk_update_variables(
 
     db.add(project)
     await db.commit()
+    await _notify_catalog(db, project)
     await db.refresh(project)
     return [
         ProjectVariableRead(key=key, **value)
@@ -202,6 +222,7 @@ async def set_variables(
     flag_modified(project, "variables")
     db.add(project)
     await db.commit()
+    await _notify_catalog(db, project)
     await db.refresh(project)
     return [
         ProjectVariableRead(key=key, **value)

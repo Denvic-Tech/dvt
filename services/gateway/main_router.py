@@ -8,6 +8,7 @@ from .routes import (
     app_settings,
     cache,
     config,
+    data_catalog,
     db_connections,
     exception_registry,
     extensions,
@@ -44,6 +45,7 @@ router.include_router(logs.router)
 router.include_router(organization.router)
 router.include_router(project.router, dependencies=GLOBAL_DEPS)
 router.include_router(db_connections.router)
+router.include_router(data_catalog.router, dependencies=GLOBAL_DEPS)
 router.include_router(utils.router)
 router.include_router(storage.router, dependencies=GLOBAL_DEPS)
 router.include_router(public.router, dependencies=GLOBAL_DEPS)
