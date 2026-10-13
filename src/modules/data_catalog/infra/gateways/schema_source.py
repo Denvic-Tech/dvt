@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-from src.modules.db_catalog.domain import CatalogActor
-from src.modules.db_catalog.domain.exceptions import (
-    CatalogTableNotFoundError,
-    DbCatalogDomainError,
-)
-from src.modules.db_catalog.facade import CatalogUseCases
+from typing import TYPE_CHECKING
 
 from ...domain import (
     DatasetLocator,
@@ -17,9 +12,16 @@ from ...domain import (
     SchemaSourceUnavailableError,
 )
 
+if TYPE_CHECKING:
+    from src.modules.db_catalog.facade import CatalogUseCases
+
 
 class DbCatalogDatasetSchemaSource(DatasetSchemaSource):
-    """Схема таблицы через существующий ленивый db_catalog (кэш Valkey, политика доступа)."""
+    """Схема таблицы через существующий ленивый db_catalog (кэш Valkey, политика доступа).
+
+    db_catalog импортируется лениво: его инфраструктура тянет core.metadata и botocore, а модели
+    каталога импортируют сервисы (Project Scheduler), которым это недоступно и не нужно.
+    """
 
     def __init__(self, catalog_use_cases: CatalogUseCases) -> None:
         self._use_cases = catalog_use_cases
@@ -32,6 +34,12 @@ class DbCatalogDatasetSchemaSource(DatasetSchemaSource):
         locator: DatasetLocator,
         bypass_cache: bool = False,
     ) -> tuple[ObservedField, ...]:
+        from src.modules.db_catalog.domain import CatalogActor
+        from src.modules.db_catalog.domain.exceptions import (
+            CatalogTableNotFoundError,
+            DbCatalogDomainError,
+        )
+
         table_locator = DbTableLocator.from_locator(locator)
         table = table_locator.table
         try:

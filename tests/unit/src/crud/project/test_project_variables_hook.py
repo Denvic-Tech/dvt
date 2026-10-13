@@ -5,6 +5,7 @@ import pytest
 from src.crud.project import project_variables as project_variables_module
 from src.enums import DVTDefaultRoles
 from src.models import OrganizationRecord
+from src.modules.data_catalog import facade as facade_module
 from src.modules.project.infra.db_models import ProjectRecord
 from src.modules.user.infra.db_models import UserRecord
 
@@ -34,7 +35,7 @@ async def _seed(session):
 async def test_variable_mutations_notify_catalog_after_commit(async_test_db_session, monkeypatch):
     project, user = await _seed(async_test_db_session)
     notify = AsyncMock()
-    monkeypatch.setattr(project_variables_module, "on_project_variables_changed", notify)
+    monkeypatch.setattr(facade_module, "on_project_variables_changed", notify)
 
     await project_variables_module.set_variables(
         async_test_db_session,
@@ -56,7 +57,7 @@ async def test_variable_mutations_notify_catalog_after_commit(async_test_db_sess
 async def test_catalog_failure_does_not_break_variable_update(async_test_db_session, monkeypatch):
     project, user = await _seed(async_test_db_session)
     monkeypatch.setattr(
-        project_variables_module,
+        facade_module,
         "on_project_variables_changed",
         AsyncMock(side_effect=RuntimeError("catalog down")),
     )

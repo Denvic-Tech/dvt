@@ -6,7 +6,6 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from src.exception_registry.errors_list.gateway import project as project_exc
 from src.logger import logger
-from src.modules.data_catalog.facade import on_project_variables_changed
 from src.modules.project.infra.db_models import ProjectRecord
 from src.modules.user.infra.db_models import UserRecord
 from src.schemas.http.project_variable import (
@@ -38,6 +37,10 @@ async def _get_project_or_404(db: AsyncSession, project_id: str) -> ProjectRecor
 
 async def _notify_catalog(db: AsyncSession, project: ProjectRecord) -> None:
     """После commit переменных пересобирает каталожную проекцию, если она от них зависит."""
+    # Ленивый импорт: фасад каталога тянет sqlglot и core.db.ddl, а crud.project импортируют
+    # сервисы без этих зависимостей (Project Scheduler).
+    from src.modules.data_catalog.facade import on_project_variables_changed
+
     try:
         await on_project_variables_changed(
             session=db,
