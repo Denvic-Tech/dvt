@@ -1,12 +1,13 @@
 from .catalog_values import (
     CatalogViewer,
+    DatasetLocator,
     FieldDescriptionChange,
     FieldRef,
     ObservedField,
     ObservedNodeSchema,
-    PhysicalLocator,
     ProjectionDiagnostic,
     ProjectionStamp,
+    ProjectRef,
     RawLocator,
     SchemaActor,
     SqlTableRef,
@@ -26,6 +27,7 @@ from .entities import (
     ObservationOutcome,
     ProjectCatalogProjection,
     RebuildResult,
+    ReconcileSummary,
     RefreshOutcome,
     SyncOutcome,
 )
@@ -42,9 +44,12 @@ from .exceptions import (
     ProjectGraphNotFoundError,
     SchemaSourceNotFoundError,
     SchemaSourceUnavailableError,
+    SourceNotSupportedError,
     SqlReferenceExtractionError,
+    UnknownSourceKindError,
 )
 from .gateways import (
+    CatalogProjectSource,
     ConnectionLocatorGateway,
     DatasetSchemaSource,
     ExpressionResolver,
@@ -59,6 +64,12 @@ from .graph import (
     ProjectGraphSnapshot,
     ProjectStampSource,
 )
+from .policies.sources import (
+    SourceKindAdapter,
+    SourceKindRegistry,
+    default_registry,
+)
+from .policies.sources.db_table import DB_TABLE_KIND, DbTableLocator, db_table_locator
 from .repositories import (
     DatasetConnectionRepository,
     DatasetFieldRepository,
@@ -85,8 +96,10 @@ from .types import (
 from .value_objects import ColumnSchema, TableSchema
 
 __all__ = [
+    "DB_TABLE_KIND",
     "LINEAGE_SCHEMA_VERSION",
     "UNSET",
+    "CatalogProjectSource",
     "CatalogViewer",
     "CheckErrorKind",
     "ColumnSchema",
@@ -103,6 +116,7 @@ __all__ = [
     "DatasetFieldRepository",
     "DatasetLink",
     "DatasetLinkRepository",
+    "DatasetLocator",
     "DatasetNotFoundError",
     "DatasetRepository",
     "DatasetSchemaSource",
@@ -110,6 +124,7 @@ __all__ = [
     "DatasetSearchPage",
     "DatasetSearchQuery",
     "DatasetUsageEntry",
+    "DbTableLocator",
     "DescriptionProvenance",
     "DescriptionsUpdateResult",
     "DiagnosticReason",
@@ -132,11 +147,11 @@ __all__ = [
     "ObservationOutcome",
     "ObservedField",
     "ObservedNodeSchema",
-    "PhysicalLocator",
     "ProjectCatalogProjection",
     "ProjectGraphGateway",
     "ProjectGraphNotFoundError",
     "ProjectGraphSnapshot",
+    "ProjectRef",
     "ProjectStampSource",
     "ProjectionDiagnostic",
     "ProjectionRepository",
@@ -144,17 +159,24 @@ __all__ = [
     "ProjectionStatus",
     "RawLocator",
     "RebuildResult",
+    "ReconcileSummary",
     "RefreshOutcome",
     "ResolvedVia",
     "SchemaActor",
     "SchemaSourceNotFoundError",
     "SchemaSourceUnavailableError",
+    "SourceKindAdapter",
+    "SourceKindRegistry",
+    "SourceNotSupportedError",
     "SqlReferenceExtractionError",
     "SqlTableRef",
     "SqlTableReferenceExtractor",
     "SqlTableReferences",
     "SyncOutcome",
     "TableSchema",
+    "UnknownSourceKindError",
     "Unset",
     "ViewerScope",
+    "db_table_locator",
+    "default_registry",
 ]

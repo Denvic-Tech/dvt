@@ -1,13 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any
 
 import dask.dataframe as dd
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .domain import DatasetSchemaSource, ObservationOutcome, RebuildResult, TableSchema
+from .domain import (
+    DatasetSchemaSource,
+    ObservationOutcome,
+    ProjectRef,
+    RebuildResult,
+    ReconcileSummary,
+    SourceKindRegistry,
+    TableSchema,
+    default_registry,
+)
 from .flow import (
     BuildSchema,
     ConfirmFieldRename,
@@ -16,6 +26,7 @@ from .flow import (
     OnProjectVariablesChanged,
     ProjectionFreshnessProvider,
     RebuildProjectCatalogProjection,
+    ReconcileCatalogProjections,
     RecordObservedSchema,
     RefreshDatasetSchema,
     SearchDatasets,
@@ -26,6 +37,7 @@ from .infra import (
     DataFrameSchemaMapper,
     DataFrameSchemaMapping,
     NodeDslExpressionResolver,
+    SQLAlchemyCatalogProjectSource,
     SQLAlchemyDatasetConnectionRepository,
     SQLAlchemyDatasetFieldRepository,
     SQLAlchemyDatasetLinkRepository,
@@ -38,6 +50,9 @@ from .infra import (
 )
 
 DEFAULT_SCHEMA_SYNC_TTL_SEC = 300
+DEFAULT_RECONCILE_BATCH_SIZE = 100
+
+SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 
 def build_table_schema_from_dataframe(
@@ -66,9 +81,12 @@ class DataCatalogUseCases:
 def build_data_catalog_use_cases(
     *,
     session: AsyncSession,
-    schema_source: DatasetSchemaSource | None = None,
+    schema_sources: Mapping[str, DatasetSchemaSource] | None = None,
     schema_sync_ttl_sec: int = DEFAULT_SCHEMA_SYNC_TTL_SEC,
+    sources: SourceKindRegistry | None = None,
 ) -> DataCatalogUseCases:
+    """schema_sources: источник схемы на каждый kind сущности; без него sync/refresh недоступны."""
+    registry = sources or default_registry()
     datasets = SQLAlchemyDatasetRepository(session)
     fields = SQLAlchemyDatasetFieldRepository(session)
     connections = SQLAlchemyDatasetConnectionRepository(session)
@@ -85,16 +103,17 @@ def build_data_catalog_use_cases(
         connection_locator=SQLConnectionLocatorGateway(session),
         expression_resolver=NodeDslExpressionResolver(),
         sql_extractor=SqlglotTableReferenceExtractor(),
+        sources=registry,
     )
     sync_schema = (
         SyncDatasetSchema(
             datasets=datasets,
             fields=fields,
             connections=connections,
-            schema_source=schema_source,
+            schema_sources=schema_sources,
             ttl_seconds=schema_sync_ttl_sec,
         )
-        if schema_source is not None
+        if schema_sources
         else None
     )
     refresh_schema = (
@@ -126,6 +145,7 @@ def build_data_catalog_use_cases(
             fields=fields,
             connections=connections,
             links=links,
+            sources=registry,
         ),
         sync_schema=sync_schema,
         refresh_schema=refresh_schema,
@@ -176,3 +196,44 @@ async def record_observed_node_metadata(
         return None
     use_cases = build_data_catalog_use_cases(session=session)
     return await use_cases.record_observed.execute(observation)
+
+
+async def reconcile_catalog_projections(
+    *,
+    session_factory: SessionFactory,
+    force: bool = False,
+    dry_run: bool = False,
+    batch_size: int = DEFAULT_RECONCILE_BATCH_SIZE,
+    organization_id: str | None = None,
+    project_ids: Sequence[str] | None = None,
+) -> ReconcileSummary:
+    """Сверка проекций для старта Gateway и backfill: каждый проект в своей транзакции."""
+
+    async def rebuild_one(project: ProjectRef, force_rebuild: bool) -> RebuildResult:
+        async with session_factory() as session:
+            try:
+                result = await rebuild_project_catalog_projection(
+                    session=session,
+                    project_id=project.project_id,
+                    organization_id=project.organization_id,
+                    force=force_rebuild,
+                    raise_on_error=True,
+                )
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+        return result
+
+    async with session_factory() as listing_session:
+        use_case = ReconcileCatalogProjections(
+            projects=SQLAlchemyCatalogProjectSource(listing_session),
+            rebuild_one=rebuild_one,
+            batch_size=batch_size,
+        )
+        return await use_case.execute(
+            force=force,
+            dry_run=dry_run,
+            organization_id=organization_id,
+            project_ids=project_ids,
+        )

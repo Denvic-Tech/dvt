@@ -10,8 +10,8 @@ from src.modules.data_catalog.domain import (
     FieldRef,
     FieldRenameNotApplicableError,
     FieldStatus,
-    PhysicalLocator,
     ViewerScope,
+    db_table_locator,
 )
 from src.modules.data_catalog.flow import ConfirmFieldRename
 
@@ -27,7 +27,7 @@ def _harness(old_status=FieldStatus.MISSING, new_status=FieldStatus.NEW):
     datasets.items["d1"] = Dataset(
         id="d1",
         organization_id="org",
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", "t"),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", "t"),
         physical_key="k",
         created_at=EARLIER,
         updated_at=EARLIER,

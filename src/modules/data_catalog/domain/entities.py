@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from .catalog_values import PhysicalLocator, ProjectionDiagnostic, ProjectionStamp
+from .catalog_values import DatasetLocator, ProjectionDiagnostic, ProjectionStamp
 from .types import (
     CheckErrorKind,
     FieldStatus,
@@ -20,10 +20,11 @@ from .types import (
 class Dataset:
     id: str
     organization_id: str
-    locator: PhysicalLocator
+    locator: DatasetLocator
     physical_key: str
     created_at: datetime
     updated_at: datetime
+    location: str = ""
     description: str | None = None
     schema_synced_at: datetime | None = None
     last_check_failed_at: datetime | None = None
@@ -32,6 +33,10 @@ class Dataset:
     observed_at_run: datetime | None = None
     last_check_error: str | None = None
     last_check_error_kind: CheckErrorKind | None = None
+
+    @property
+    def kind(self) -> str:
+        return self.locator.kind
 
 
 @dataclass(slots=True)
@@ -108,7 +113,7 @@ class DatasetSearchQuery:
     text: str | None = None
     connection_id: str | None = None
     project_id: str | None = None
-    dialect: str | None = None
+    kind: str | None = None
     cursor: str | None = None
     limit: int = 50
 
@@ -146,7 +151,18 @@ class RebuildResult:
     error: str | None = None
 
 
-SyncStatus = Literal["skipped", "synced", "failed", "no_connection"]
+@dataclass(slots=True)
+class ReconcileSummary:
+    """Итог сверки проекций: счётчики по статусам и усечённые тексты ошибок проектов."""
+
+    total: int = 0
+    ok: int = 0
+    skipped: int = 0
+    failed: int = 0
+    failures: list[tuple[str, str]] = field(default_factory=list)
+
+
+SyncStatus = Literal["skipped", "synced", "failed", "no_connection", "unsupported"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +176,7 @@ class SyncOutcome:
     fields: tuple[DatasetField, ...] = field(default_factory=tuple)
 
 
-RefreshStatus = Literal["synced", "failed", "no_connection"]
+RefreshStatus = Literal["synced", "failed", "no_connection", "unsupported"]
 
 
 @dataclass(frozen=True, slots=True)

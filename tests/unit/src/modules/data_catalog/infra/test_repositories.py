@@ -12,9 +12,9 @@ from src.modules.data_catalog.domain import (
     DatasetSearchQuery,
     FieldStatus,
     LinkDirection,
-    PhysicalLocator,
     ResolvedVia,
     ViewerScope,
+    db_table_locator,
 )
 from src.modules.data_catalog.infra import (
     SQLAlchemyDatasetConnectionRepository,
@@ -71,8 +71,9 @@ def _dataset(org_id: str, table: str) -> Dataset:
     return Dataset(
         id=f"ds-{table}",
         organization_id=org_id,
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", table),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", table),
         physical_key=f"postgresql://db:5432/main/public/{table}",
+        location=f"main.public.{table} @ db:5432",
         created_at=NOW,
         updated_at=NOW,
     )
@@ -245,3 +246,27 @@ async def test_find_dataset_ids_filters_by_node_and_direction(async_test_db_sess
     assert await links.find_dataset_ids("p1", "writer", LinkDirection.READ) == []
     assert await links.find_dataset_ids("p1", "writer", LinkDirection.WRITE) == [write_ds.id]
     assert await links.find_dataset_ids("other", "reader", LinkDirection.READ) == []
+
+
+@pytest.mark.asyncio
+async def test_locator_roundtrip_kind_filter_and_location_search(async_test_db_session):
+    organization, users = await _seed(async_test_db_session)
+    datasets = SQLAlchemyDatasetRepository(async_test_db_session)
+    links = SQLAlchemyDatasetLinkRepository(async_test_db_session)
+    admin = CatalogViewer(users["owner"].id, organization.id, ViewerScope.ORGANIZATION)
+
+    stored = await datasets.upsert(_dataset(organization.id, "Orders"))
+    await links.replace_for_project("p1", [_link(stored.id, "p1", organization.id, "n1")])
+
+    loaded = await datasets.get(stored.id)
+    assert loaded is not None
+    assert loaded.kind == "db_table"
+    assert loaded.location == "main.public.Orders @ db:5432"
+    assert loaded.locator.parts == {
+        "dialect": "postgresql", "host": "db", "port": 5432, "database": "main", "schema": "public", "table": "Orders",
+    }
+
+    by_location = await datasets.search(admin, DatasetSearchQuery(text="public.orders @"))
+    assert [hit.dataset.id for hit in by_location.items] == [stored.id]
+    assert (await datasets.search(admin, DatasetSearchQuery(kind="file"))).items == ()
+    assert len((await datasets.search(admin, DatasetSearchQuery(kind="db_table"))).items) == 1

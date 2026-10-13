@@ -57,7 +57,7 @@ def test_metadata_only_run_with_db_columns_is_trusted():
     assert (observation.project_id, observation.node_id, observation.connection_id) == ("p1", "node-1", "conn-1")
     assert observation.trust_types is True
     assert observation.partial is False
-    assert observation.table == "Orders"
+    assert observation.locator_parts == {"table": "Orders", "schema": "public", "database": None}
     assert [(f.name, f.dtype, f.ordinal, f.primary_key, f.comment) for f in observation.fields] == [
         ("id", "INT", 1, True, "pk"),
         ("name", "STRING", 2, False, None),

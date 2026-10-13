@@ -1,9 +1,9 @@
-"""Нормализация локатора в ключ физической базы."""
+"""Нормализация локатора таблицы БД, ключ физической базы и человекочитаемое местоположение."""
 
 from __future__ import annotations
 
-from ..catalog_values import PhysicalLocator, RawLocator
-from ..graph import ConnectionLocator
+from ....catalog_values import RawLocator
+from .locator import DbConnectionCoordinates, DbTableLocator
 
 _CANONICAL_DIALECTS: dict[str, str] = {
     "postgres": "postgresql",
@@ -43,7 +43,12 @@ def _clean(value: str | None) -> str | None:
     return cleaned or None
 
 
-def normalize_locator(raw: RawLocator, connection: ConnectionLocator, *, dialect: str) -> PhysicalLocator:
+def normalize_locator(
+    raw: RawLocator,
+    connection: DbConnectionCoordinates,
+    *,
+    dialect: str,
+) -> DbTableLocator:
     """Дополняет локатор ноды координатами connection'а и дефолтами диалекта."""
     table = _clean(raw.table) or ""
     schema = _clean(raw.schema)
@@ -66,7 +71,7 @@ def normalize_locator(raw: RawLocator, connection: ConnectionLocator, *, dialect
     else:
         schema = None
 
-    return PhysicalLocator(
+    return DbTableLocator(
         dialect=dialect,
         host=connection.host.strip(),
         port=connection.port,
@@ -76,9 +81,17 @@ def normalize_locator(raw: RawLocator, connection: ConnectionLocator, *, dialect
     )
 
 
-def build_physical_key(locator: PhysicalLocator) -> str:
+def build_physical_key(locator: DbTableLocator) -> str:
+    """Схема URI равна идентификатору диалекта; ключ регистронезависим."""
     port = "" if locator.port is None else str(locator.port)
     return (
         f"{locator.dialect}://{locator.host}:{port}"
         f"/{locator.database or ''}/{locator.schema or ''}/{locator.table}"
     ).lower()
+
+
+def describe_db_table(locator: DbTableLocator) -> str:
+    """`database.schema.table @ host:port` в исходном регистре, пустые части пропускаются."""
+    name = ".".join(part for part in (locator.database, locator.schema, locator.table) if part)
+    endpoint = locator.host if locator.port is None else f"{locator.host}:{locator.port}"
+    return f"{name} @ {endpoint}" if endpoint else name

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
-from ..catalog_values import ObservedField, SchemaActor, SqlTableReferences
+from ..catalog_values import (
+    DatasetLocator,
+    ObservedField,
+    ProjectRef,
+    SchemaActor,
+    SqlTableReferences,
+)
 from ..graph import ConnectionLocator, ProjectGraphSnapshot, ProjectStampSource
 
 
@@ -65,10 +71,27 @@ class DatasetSchemaSource(Protocol):
         *,
         connection_id: str,
         actor: SchemaActor,
-        database: str | None,
-        schema: str | None,
-        table: str,
+        locator: DatasetLocator,
         bypass_cache: bool = False,
     ) -> tuple[ObservedField, ...]:
-        """Читает актуальную схему таблицы; бросает SchemaSourceUnavailableError."""
+        """Читает актуальную схему источника по его локатору; бросает SchemaSourceUnavailableError."""
+        ...
+
+
+class CatalogProjectSource(Protocol):
+    async def list_projects(
+        self,
+        *,
+        lineage_schema_version: int,
+        stale_only: bool,
+        after_project_id: str | None,
+        limit: int,
+        organization_id: str | None = None,
+        project_ids: Sequence[str] | None = None,
+    ) -> list[ProjectRef]:
+        """Неудалённые проекты, упорядоченные по project_id, keyset-страница после after_project_id.
+
+        stale_only=True оставляет проекты без проекции, с lineage_schema_version меньше переданной
+        или с graph_revision проекции, не совпадающим с graph_revision проекта.
+        """
         ...

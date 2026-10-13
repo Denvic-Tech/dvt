@@ -10,7 +10,7 @@ from src.modules.data_catalog.domain import (
     FieldRef,
     FieldStatus,
     InvalidFieldReferenceError,
-    PhysicalLocator,
+    db_table_locator,
 )
 from src.modules.data_catalog.domain.policies import (
     effective_dataset_description,
@@ -43,7 +43,7 @@ def test_dataset_description_is_never_sourced_from_comments():
     dataset = Dataset(
         id="d",
         organization_id="o",
-        locator=PhysicalLocator("postgresql", "h", 5432, "db", "public", "t"),
+        locator=db_table_locator("postgresql", "h", 5432, "db", "public", "t"),
         physical_key="k",
         created_at=NOW,
         updated_at=NOW,

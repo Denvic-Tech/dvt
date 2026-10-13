@@ -213,10 +213,9 @@ class FakeSchemaSource:
         self.fail = fail
         self.calls: list[str] = []
 
-    async def fetch_fields(
-        self, *, connection_id: str, actor: SchemaActor, database, schema, table, bypass_cache=False
-    ):
+    async def fetch_fields(self, *, connection_id: str, actor: SchemaActor, locator, bypass_cache=False):
         self.calls.append(connection_id)
+        self.locators = [*getattr(self, "locators", []), locator]
         self.bypass_calls = [*getattr(self, "bypass_calls", []), bypass_cache]
         if self.fail:
             raise SchemaSourceUnavailableError("down")

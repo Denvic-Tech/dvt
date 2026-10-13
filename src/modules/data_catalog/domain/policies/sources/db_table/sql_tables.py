@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from ..catalog_values import RawLocator, SqlTableRef
+from ....catalog_values import RawLocator, SqlTableRef
 from .physical_key import supports_schemas
 
 

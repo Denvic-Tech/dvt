@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from src.modules.data_catalog.domain import CheckErrorKind, Dataset, Freshness, PhysicalLocator
+from src.modules.data_catalog.domain import CheckErrorKind, Dataset, Freshness, db_table_locator
 from src.modules.data_catalog.domain.policies import compute_freshness
 
 NOW = datetime(2026, 10, 8, 12, 0, tzinfo=UTC)
@@ -10,7 +10,7 @@ def _dataset(**overrides) -> Dataset:
     values = {
         "id": "d",
         "organization_id": "o",
-        "locator": PhysicalLocator("postgresql", "h", 5432, "db", "public", "t"),
+        "locator": db_table_locator("postgresql", "h", 5432, "db", "public", "t"),
         "physical_key": "k",
         "created_at": NOW,
         "updated_at": NOW,

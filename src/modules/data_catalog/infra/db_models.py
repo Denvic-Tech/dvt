@@ -28,16 +28,13 @@ class DatasetRecord(SQLModel, table=True):
             index=True,
         )
     )
-    dialect: str = Field(sa_column=sa.Column(sa.String(length=64), nullable=False))
-    host: str = Field(sa_column=sa.Column(sa.String(length=512), nullable=False))
-    port: int | None = Field(default=None, sa_column=sa.Column(sa.Integer(), nullable=True))
-    database: str | None = Field(default=None, sa_column=sa.Column(sa.String(length=512), nullable=True))
-    schema_name: str | None = Field(
-        default=None,
-        sa_column=sa.Column("schema", sa.String(length=512), nullable=True),
-    )
-    table: str = Field(sa_column=sa.Column(sa.String(length=512), nullable=False))
+    kind: str = Field(sa_column=sa.Column(sa.String(length=64), nullable=False, index=True))
     physical_key: str = Field(sa_column=sa.Column(sa.Text(), nullable=False))
+    location: str = Field(sa_column=sa.Column(sa.Text(), nullable=False))
+    locator: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=sa.Column(JSONBCompat, nullable=False),
+    )
     description: str | None = Field(default=None, sa_column=sa.Column(sa.Text(), nullable=True))
     description_updated_by: str | None = Field(
         default=None,

@@ -77,3 +77,15 @@ class SchemaSourceNotFoundError(SchemaSourceUnavailableError):
     name = "DATASET_SCHEMA_SOURCE_NOT_FOUND"
     code = "DATA_CATALOG_015"
     description = "Dataset table or database does not exist in the source."
+
+
+class UnknownSourceKindError(DataCatalogDomainError):
+    name = "DATA_CATALOG_UNKNOWN_SOURCE_KIND"
+    code = "DATA_CATALOG_016"
+    description = "No source adapter is registered for the dataset kind."
+
+
+class SourceNotSupportedError(DataCatalogDomainError):
+    name = "DATA_CATALOG_SOURCE_NOT_SUPPORTED"
+    code = "DATA_CATALOG_017"
+    description = "Connection type is not supported by the source adapter."

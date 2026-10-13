@@ -18,7 +18,7 @@ from src.modules.data_catalog.domain import (
     ResolvedVia,
     SqlTableRef,
 )
-from src.modules.data_catalog.domain.policies import variables_fingerprint
+from src.modules.data_catalog.domain.policies import default_registry, variables_fingerprint
 from src.modules.data_catalog.flow import (
     ProjectionRebuildFailedError,
     RebuildProjectCatalogProjection,
@@ -35,7 +35,9 @@ from ..fakes import (
     InMemoryProjectionRepository,
 )
 
-PG = ConnectionLocator(id="conn-1", dialect="postgres", host="db", port=5432, database="main", revision="r1")
+PG = ConnectionLocator(
+    id="conn-1", type="postgres", revision="r1", properties={"host": "db", "port": 5432, "database": "main"}
+)
 CONNECTION_NODE = GraphNode(
     ui_id="conn", name="GetExistDBConnection", inputs={"connection_id": GraphInputValue.const("conn-1")}
 )
@@ -69,6 +71,7 @@ class Harness:
             connection_locator=FakeConnectionLocatorGateway(locators if locators is not None else {"conn-1": PG}),
             expression_resolver=FakeExpressionResolver(expressions),
             sql_extractor=FakeSqlExtractor(sql_tables, fail=sql_fail),
+            sources=default_registry(),
             clock=lambda: datetime(2026, 10, 7, tzinfo=UTC),
         )
 
@@ -89,6 +92,9 @@ async def test_rebuild_registers_datasets_links_and_connections():
     assert len(harness.datasets.items) == 1, "один physical_key -> одна сущность"
     dataset = next(iter(harness.datasets.items.values()))
     assert dataset.physical_key == "postgresql://db:5432/main/public/customers"
+    assert dataset.kind == "db_table"
+    assert dataset.location == "main.public.customers @ db:5432"
+    assert dataset.locator.parts["table"] == "customers"
     links = harness.links.by_project["p1"]
     assert {(link.node_id, link.direction, link.resolved_via) for link in links} == {
         ("r", LinkDirection.READ, ResolvedVia.CONST),
@@ -190,6 +196,18 @@ async def test_failure_keeps_previous_stamp_and_does_not_raise_unless_asked():
 
     with pytest.raises(ProjectionRebuildFailedError):
         await harness.run(raise_on_error=True)
+
+
+@pytest.mark.asyncio
+async def test_unsupported_connection_type_becomes_diagnostic():
+    reader = GraphNode("r", "ReadTableFromDBV3", {"table_name": GraphInputValue.const("t")})
+    exotic = ConnectionLocator(id="conn-1", type="exotic", revision="r1", properties={"host": "h"})
+    harness = Harness(_snapshot(reader), locators={"conn-1": exotic})
+
+    result = await harness.run()
+
+    assert [(d.node_id, d.reason) for d in result.projection.diagnostics] == [("r", DiagnosticReason.UNSUPPORTED_DIALECT)]
+    assert harness.datasets.items == {}
 
 
 @pytest.mark.asyncio

@@ -93,12 +93,10 @@ class ProjectGraphSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class ConnectionLocator:
-    """Несекретные координаты сохранённого connection'а."""
+    """Несекретные свойства сохранённого connection'а; координаты из них достаёт адаптер вида."""
 
     id: str
-    dialect: str
-    host: str
-    port: int | None
-    database: str | None
+    type: str
     revision: str
     deleted: bool = False
+    properties: Mapping[str, Any] = field(default_factory=dict)

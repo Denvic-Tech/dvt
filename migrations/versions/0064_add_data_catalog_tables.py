@@ -56,20 +56,24 @@ def upgrade() -> None:
     json_type = _json_type()
 
     if not _has_table("datasets"):
+        # Сущность универсальна: вид источника в `kind`, части адреса в `locator`, а ключ и
+        # человекочитаемое `location` строит адаптер этого вида.
         op.create_table(
             "datasets",
             sa.Column("id", sa.String(), nullable=False),
             sa.Column("organization_id", sa.String(), nullable=False),
-            sa.Column("dialect", sa.String(length=64), nullable=False),
-            sa.Column("host", sa.String(length=512), nullable=False),
-            sa.Column("port", sa.Integer(), nullable=True),
-            sa.Column("database", sa.String(length=512), nullable=True),
-            sa.Column("schema", sa.String(length=512), nullable=True),
-            sa.Column("table", sa.String(length=512), nullable=False),
+            sa.Column("kind", sa.String(length=64), nullable=False),
             sa.Column("physical_key", sa.Text(), nullable=False),
+            sa.Column("location", sa.Text(), nullable=False),
+            sa.Column("locator", json_type, nullable=False),
             sa.Column("description", sa.Text(), nullable=True),
+            sa.Column("description_updated_by", sa.String(), nullable=True),
+            sa.Column("description_updated_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("schema_synced_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("last_check_failed_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("observed_at_run", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("last_check_error", sa.Text(), nullable=True),
+            sa.Column("last_check_error_kind", sa.String(length=32), nullable=True),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
             sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"]),
@@ -81,6 +85,7 @@ def upgrade() -> None:
             ),
         )
     _create_index("datasets", ["organization_id"], name=op.f("ix_datasets_organization_id"))
+    _create_index("datasets", ["kind"], name=op.f("ix_datasets_kind"))
 
     if not _has_table("dataset_fields"):
         op.create_table(
@@ -94,6 +99,8 @@ def upgrade() -> None:
             sa.Column("primary_key", sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column("source_comment", sa.Text(), nullable=True),
             sa.Column("description", sa.Text(), nullable=True),
+            sa.Column("description_updated_by", sa.String(), nullable=True),
+            sa.Column("description_updated_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("status", sa.String(length=32), nullable=False),
             sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),

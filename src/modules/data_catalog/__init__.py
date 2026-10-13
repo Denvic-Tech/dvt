@@ -20,6 +20,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "build_table_schema_from_dataframe": (".facade", "build_table_schema_from_dataframe"),
     "on_project_variables_changed": (".facade", "on_project_variables_changed"),
     "rebuild_project_catalog_projection": (".facade", "rebuild_project_catalog_projection"),
+    "reconcile_catalog_projections": (".facade", "reconcile_catalog_projections"),
     "record_observed_node_metadata": (".facade", "record_observed_node_metadata"),
 }
 
@@ -33,6 +34,7 @@ __all__ = [
     "build_table_schema_from_dataframe",
     "on_project_variables_changed",
     "rebuild_project_catalog_projection",
+    "reconcile_catalog_projections",
     "record_observed_node_metadata",
 ]
 

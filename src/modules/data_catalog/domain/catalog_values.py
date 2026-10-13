@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from .exceptions import InvalidFieldReferenceError
@@ -18,14 +19,26 @@ class RawLocator:
     database: str | None = None
 
 
+LocatorPart = str | int | None
+
+
 @dataclass(frozen=True, slots=True)
-class PhysicalLocator:
-    dialect: str
-    host: str
-    port: int | None
-    database: str | None
-    schema: str | None
-    table: str
+class DatasetLocator:
+    """Адрес физического источника: вид и части адреса, понятные только адаптеру этого вида.
+
+    Каталог не интерпретирует части; ключ и человекочитаемое местоположение строит адаптер.
+    """
+
+    kind: str
+    parts: Mapping[str, LocatorPart] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.kind or not self.kind.strip():
+            raise ValueError("DatasetLocator.kind must be a non-empty string")
+        object.__setattr__(self, "parts", dict(self.parts))
+
+    def get(self, name: str) -> LocatorPart:
+        return self.parts.get(name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +140,12 @@ class ObservedNodeSchema:
     observed_at: datetime
     trust_types: bool
     partial: bool = False
-    table: str | None = None
-    schema: str | None = None
-    database: str | None = None
+    locator_parts: Mapping[str, str | None] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRef:
+    """Идентификатор проекта с его организацией; достаточно для пересборки проекции."""
+
+    project_id: str
+    organization_id: str

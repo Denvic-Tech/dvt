@@ -75,9 +75,14 @@ class SQLAlchemyDatasetRepository(DatasetRepository):
         filters = list(dataset_visibility_filters(viewer))
         if query.text:
             pattern = f"%{query.text.strip().lower()}%"
-            filters.append(sa.func.lower(DatasetRecord.physical_key).like(pattern))
-        if query.dialect:
-            filters.append(DatasetRecord.dialect == query.dialect.strip().lower())
+            filters.append(
+                sa.or_(
+                    sa.func.lower(DatasetRecord.physical_key).like(pattern),
+                    sa.func.lower(DatasetRecord.location).like(pattern),
+                )
+            )
+        if query.kind:
+            filters.append(DatasetRecord.kind == query.kind.strip())
         if query.connection_id:
             filters.append(
                 sa.exists().where(

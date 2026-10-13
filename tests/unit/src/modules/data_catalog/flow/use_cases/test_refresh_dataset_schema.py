@@ -8,10 +8,10 @@ from src.modules.data_catalog.domain import (
     DatasetLink,
     LinkDirection,
     ObservedField,
-    PhysicalLocator,
     ResolvedVia,
     SchemaActor,
     ViewerScope,
+    db_table_locator,
 )
 from src.modules.data_catalog.flow import RefreshDatasetSchema, SyncDatasetSchema
 
@@ -33,7 +33,7 @@ def _harness(source, *, usable=("conn-1",)):
     dataset = Dataset(
         id="d1",
         organization_id="org",
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", "t"),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", "t"),
         physical_key="k",
         created_at=NOW,
         updated_at=NOW,
@@ -48,7 +48,7 @@ def _harness(source, *, usable=("conn-1",)):
         datasets=datasets,
         fields=InMemoryFieldRepository(),
         connections=InMemoryConnectionRepository(usable=usable),
-        schema_source=source,
+        schema_sources={"db_table": source},
         ttl_seconds=3600,
         clock=lambda: NOW,
     )

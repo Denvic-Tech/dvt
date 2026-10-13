@@ -13,6 +13,8 @@ from ...domain import (
     LinkDirection,
     ObservationOutcome,
     ObservedNodeSchema,
+    SourceKindRegistry,
+    UnknownSourceKindError,
 )
 from ...domain.policies import merge_observed_fields
 
@@ -27,8 +29,10 @@ class RecordObservedSchema:
         fields: DatasetFieldRepository,
         connections: DatasetConnectionRepository,
         links: DatasetLinkRepository,
+        sources: SourceKindRegistry,
         id_factory: Callable[[], str] | None = None,
     ) -> None:
+        self._sources = sources
         self._datasets = datasets
         self._fields = fields
         self._connections = connections
@@ -47,15 +51,12 @@ class RecordObservedSchema:
             dataset = await self._datasets.get(dataset_id)
             if dataset is None:
                 continue
-            if (
-                observation.table is not None
-                and dataset.locator.table.lower() != observation.table.lower()
-            ):
+            if not self._matches(dataset.locator, observation):
                 logger.debug(
-                    "Observed table {} does not match dataset {} ({}); skipping",
-                    observation.table,
+                    "Observation {} does not match dataset {} ({}); skipping",
+                    dict(observation.locator_parts),
                     dataset.id,
-                    dataset.locator.table,
+                    dataset.location,
                 )
                 continue
 
@@ -86,3 +87,10 @@ class RecordObservedSchema:
             updated.append(dataset.id)
 
         return ObservationOutcome(dataset_ids=tuple(updated), trusted_types=observation.trust_types)
+
+    def _matches(self, locator, observation: ObservedNodeSchema) -> bool:
+        try:
+            adapter = self._sources.get(locator.kind)
+        except UnknownSourceKindError:
+            return False
+        return adapter.matches_observation(locator, observation.locator_parts)

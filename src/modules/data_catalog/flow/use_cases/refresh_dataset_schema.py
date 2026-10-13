@@ -43,8 +43,8 @@ class RefreshDatasetSchema:
             force=True,
             bypass_cache=True,
         )
-        if outcome.status == "no_connection":
-            return RefreshOutcome(status="no_connection")
+        if outcome.status in ("no_connection", "unsupported"):
+            return RefreshOutcome(status=outcome.status)
         if outcome.status == "failed":
             return RefreshOutcome(
                 status="failed", error=outcome.error, error_kind=outcome.error_kind

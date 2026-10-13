@@ -7,9 +7,9 @@ from src.modules.data_catalog.domain import (
     Dataset,
     FieldStatus,
     ObservedField,
-    PhysicalLocator,
     SchemaActor,
     ViewerScope,
+    db_table_locator,
 )
 from src.modules.data_catalog.flow import SyncDatasetSchema
 
@@ -29,7 +29,7 @@ def _dataset(synced_at=None) -> Dataset:
     return Dataset(
         id="d1",
         organization_id="org",
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", "t"),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", "t"),
         physical_key="postgresql://db:5432/main/public/t",
         created_at=NOW,
         updated_at=NOW,
@@ -45,7 +45,7 @@ def _use_case(source, *, usable=("conn-1",), ttl=300):
             datasets=datasets,
             fields=fields,
             connections=InMemoryConnectionRepository(usable=usable),
-            schema_source=source,
+            schema_sources={"db_table": source},
             ttl_seconds=ttl,
             clock=lambda: NOW,
             id_factory=iter(f"id-{i}" for i in range(100)).__next__,
@@ -131,3 +131,17 @@ async def test_not_found_source_error_is_classified_and_cleared_after_success():
     healthy, _, _ = _use_case(FakeSchemaSource([ObservedField("id", "INT")]))
     assert (await healthy.execute(dataset=dataset, viewer=VIEWER, actor=ACTOR, force=True)).status == "synced"
     assert dataset.last_check_error is None and dataset.last_check_error_kind is None
+
+
+@pytest.mark.asyncio
+async def test_kind_without_schema_source_is_reported_as_unsupported():
+    from src.modules.data_catalog.domain import DatasetLocator
+
+    use_case, _, fields = _use_case(FakeSchemaSource([ObservedField("id", "integer")]))
+    dataset = _dataset()
+    dataset.locator = DatasetLocator(kind="file", parts={"path": "a.parquet"})
+
+    outcome = await use_case.execute(dataset=dataset, viewer=VIEWER, actor=ACTOR)
+
+    assert outcome.status == "unsupported"
+    assert fields.items == {}

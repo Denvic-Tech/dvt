@@ -9,7 +9,6 @@ from src.modules.data_catalog.domain import (
     DatasetLink,
     DatasetNotFoundError,
     LinkDirection,
-    PhysicalLocator,
     ProjectCatalogProjection,
     ProjectGraphSnapshot,
     ProjectionStamp,
@@ -17,6 +16,7 @@ from src.modules.data_catalog.domain import (
     ProjectStampSource,
     ResolvedVia,
     ViewerScope,
+    db_table_locator,
 )
 from src.modules.data_catalog.domain.policies import variables_fingerprint
 from src.modules.data_catalog.flow import GetDatasetUsage, ProjectionFreshnessProvider
@@ -47,7 +47,7 @@ def _dataset() -> Dataset:
     return Dataset(
         id="d1",
         organization_id="org",
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", "t"),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", "t"),
         physical_key="k",
         created_at=NOW,
         updated_at=NOW,

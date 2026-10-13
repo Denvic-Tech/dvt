@@ -6,6 +6,7 @@ from .exceptions import (
 from .gateways import (
     DbCatalogDatasetSchemaSource,
     NodeDslExpressionResolver,
+    SQLAlchemyCatalogProjectSource,
     SQLAlchemyProjectGraphGateway,
     SQLConnectionLocatorGateway,
     SqlglotTableReferenceExtractor,
@@ -28,6 +29,7 @@ __all__ = [
     "DataFrameSchemaMappingError",
     "DbCatalogDatasetSchemaSource",
     "NodeDslExpressionResolver",
+    "SQLAlchemyCatalogProjectSource",
     "SQLAlchemyDatasetConnectionRepository",
     "SQLAlchemyDatasetFieldRepository",
     "SQLAlchemyDatasetLinkRepository",

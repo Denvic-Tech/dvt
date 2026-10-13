@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -36,7 +36,7 @@ class SyncDatasetSchema:
         datasets: DatasetRepository,
         fields: DatasetFieldRepository,
         connections: DatasetConnectionRepository,
-        schema_source: DatasetSchemaSource,
+        schema_sources: Mapping[str, DatasetSchemaSource],
         ttl_seconds: int,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
@@ -44,7 +44,7 @@ class SyncDatasetSchema:
         self._datasets = datasets
         self._fields = fields
         self._connections = connections
-        self._source = schema_source
+        self._sources = dict(schema_sources)
         self._ttl = timedelta(seconds=max(ttl_seconds, 0))
         self._clock = clock or (lambda: datetime.now(UTC))
         self._new_id = id_factory or (lambda: str(uuid4()))
@@ -66,6 +66,10 @@ class SyncDatasetSchema:
         ):
             return SyncOutcome(status="skipped")
 
+        source = self._sources.get(dataset.kind)
+        if source is None:
+            return SyncOutcome(status="unsupported")
+
         connection_ids = await self._connections.list_usable_connection_ids(dataset.id, viewer)
         if not connection_ids:
             return SyncOutcome(status="no_connection")
@@ -76,12 +80,10 @@ class SyncDatasetSchema:
         used_connection: str | None = None
         for connection_id in connection_ids:
             try:
-                observed = await self._source.fetch_fields(
+                observed = await source.fetch_fields(
                     connection_id=connection_id,
                     actor=actor,
-                    database=dataset.locator.database,
-                    schema=dataset.locator.schema,
-                    table=dataset.locator.table,
+                    locator=dataset.locator,
                     bypass_cache=bypass_cache,
                 )
                 used_connection = connection_id

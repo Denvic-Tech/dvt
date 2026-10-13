@@ -1,4 +1,8 @@
-"""Статический проход по сохранённому графу: сущности, связи с connection'ами и dataset_links."""
+"""Статический проход по сохранённому графу: сущности, связи с connection'ами и dataset_links.
+
+Use case не знает о природе источников: ноды находит и адреса вычисляет адаптер вида из
+SourceKindRegistry, а здесь остаётся общая оркестрация, штампы и диагностики.
+"""
 
 from __future__ import annotations
 
@@ -21,31 +25,19 @@ from ...domain import (
     DiagnosticReason,
     ExpressionResolver,
     ExpressionUnresolvedError,
-    GraphInputValue,
-    LocatorKind,
     ProjectCatalogProjection,
     ProjectGraphGateway,
     ProjectionDiagnostic,
     ProjectionRepository,
     ProjectionStamp,
     ProjectionStatus,
-    RawLocator,
     RebuildResult,
-    ResolvedVia,
+    SourceKindRegistry,
+    SourceNotSupportedError,
     SqlReferenceExtractionError,
     SqlTableReferenceExtractor,
 )
-from ...domain.policies import (
-    LocatorCandidate,
-    build_physical_key,
-    canonical_dialect,
-    extract_locator_candidates,
-    is_projection_current,
-    normalize_locator,
-    select_table_candidates,
-    sql_table_ref_to_raw_locator,
-    variables_fingerprint,
-)
+from ...domain.policies import SourceCandidate, is_projection_current, variables_fingerprint
 from ..exceptions import ProjectionRebuildFailedError
 
 _MAX_ERROR_LENGTH = 2000
@@ -63,6 +55,7 @@ class RebuildProjectCatalogProjection:
         connection_locator: ConnectionLocatorGateway,
         expression_resolver: ExpressionResolver,
         sql_extractor: SqlTableReferenceExtractor,
+        sources: SourceKindRegistry,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
     ) -> None:
@@ -74,6 +67,7 @@ class RebuildProjectCatalogProjection:
         self._connection_locator = connection_locator
         self._expressions = expression_resolver
         self._sql = sql_extractor
+        self._sources = sources
         self._clock = clock or (lambda: datetime.now(UTC))
         self._new_id = id_factory or (lambda: str(uuid4()))
 
@@ -133,92 +127,93 @@ class RebuildProjectCatalogProjection:
             return RebuildResult(status="skipped", projection=stored)
 
         project_variables: Mapping[str, Any] = dict(stamp_source.variables or {})
-        candidates, diagnostics = extract_locator_candidates(snapshot)
         now = self._clock()
+        diagnostics: list[ProjectionDiagnostic] = []
         depends_on_variables = False
         links: dict[tuple[str, str, str], DatasetLink] = {}
         locator_cache: dict[str, ConnectionLocator | None] = {}
 
-        for candidate in candidates:
-            if candidate.connection_id not in locator_cache:
-                locator_cache[candidate.connection_id] = await self._connection_locator.get_locator(
-                    candidate.connection_id, organization_id
-                )
-            connection = locator_cache[candidate.connection_id]
-            if connection is None or connection.deleted:
-                diagnostics.append(
-                    _diagnostic(candidate, DiagnosticReason.CONNECTION_MISSING, candidate.connection_id)
-                )
-                continue
+        for adapter in self._sources.adapters():
+            candidates, adapter_diagnostics = adapter.extract_candidates(snapshot)
+            diagnostics.extend(adapter_diagnostics)
 
-            dialect = canonical_dialect(connection.dialect)
-            if dialect is None:
-                diagnostics.append(
-                    _diagnostic(candidate, DiagnosticReason.UNSUPPORTED_DIALECT, connection.dialect)
-                )
-                continue
-
-            try:
-                raw_locators, resolved_via, used_variables = self._resolve_locators(
-                    candidate=candidate,
-                    dialect=dialect,
-                    project_variables=project_variables,
-                )
-            except ExpressionUnresolvedError as exc:
-                depends_on_variables = True
-                diagnostics.append(
-                    _diagnostic(candidate, DiagnosticReason.EXPRESSION_UNRESOLVED, str(exc))
-                )
-                continue
-            except SqlReferenceExtractionError as exc:
-                reason = (
-                    DiagnosticReason.SQL_TEMPLATE_UNRESOLVED
-                    if str(exc).startswith("template")
-                    else DiagnosticReason.SQL_PARSE_FAILED
-                )
-                depends_on_variables = depends_on_variables or reason is DiagnosticReason.SQL_TEMPLATE_UNRESOLVED
-                diagnostics.append(_diagnostic(candidate, reason, str(exc)))
-                continue
-
-            depends_on_variables = depends_on_variables or used_variables
-
-            for raw in raw_locators:
-                locator = normalize_locator(raw, connection, dialect=dialect)
-                if not locator.table:
+            for candidate in candidates:
+                if candidate.connection_id not in locator_cache:
+                    locator_cache[candidate.connection_id] = await self._connection_locator.get_locator(
+                        candidate.connection_id, organization_id
+                    )
+                connection = locator_cache[candidate.connection_id]
+                if connection is None or connection.deleted:
                     diagnostics.append(
-                        _diagnostic(candidate, DiagnosticReason.LOCATOR_INPUT_MISSING, "empty table name")
+                        _diagnostic(candidate, DiagnosticReason.CONNECTION_MISSING, candidate.connection_id)
                     )
                     continue
-                physical_key = build_physical_key(locator)
-                dataset = await self._datasets.upsert(
-                    Dataset(
+
+                try:
+                    resolved = adapter.resolve(
+                        candidate,
+                        connection,
+                        expressions=self._expressions,
+                        sql=self._sql,
+                        project_variables=project_variables,
+                    )
+                except SourceNotSupportedError as exc:
+                    diagnostics.append(
+                        _diagnostic(candidate, DiagnosticReason.UNSUPPORTED_DIALECT, str(exc))
+                    )
+                    continue
+                except ExpressionUnresolvedError as exc:
+                    depends_on_variables = True
+                    diagnostics.append(
+                        _diagnostic(candidate, DiagnosticReason.EXPRESSION_UNRESOLVED, str(exc))
+                    )
+                    continue
+                except SqlReferenceExtractionError as exc:
+                    reason = (
+                        DiagnosticReason.SQL_TEMPLATE_UNRESOLVED
+                        if str(exc).startswith("template")
+                        else DiagnosticReason.SQL_PARSE_FAILED
+                    )
+                    depends_on_variables = (
+                        depends_on_variables or reason is DiagnosticReason.SQL_TEMPLATE_UNRESOLVED
+                    )
+                    diagnostics.append(_diagnostic(candidate, reason, str(exc)))
+                    continue
+
+                diagnostics.extend(resolved.diagnostics)
+                depends_on_variables = depends_on_variables or resolved.used_variables
+
+                for locator in resolved.locators:
+                    dataset = await self._datasets.upsert(
+                        Dataset(
+                            id=self._new_id(),
+                            organization_id=organization_id,
+                            locator=locator,
+                            physical_key=adapter.build_key(locator),
+                            location=adapter.describe(locator),
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+                    await self._connections.touch(
+                        dataset.id, connection.id, connection.revision, now
+                    )
+                    link_key = (candidate.node_id, candidate.direction.value, dataset.id)
+                    if link_key in links:
+                        continue
+                    links[link_key] = DatasetLink(
                         id=self._new_id(),
+                        dataset_id=dataset.id,
+                        project_id=project_id,
                         organization_id=organization_id,
-                        locator=locator,
-                        physical_key=physical_key,
+                        node_id=candidate.node_id,
+                        node_name=candidate.node_name,
+                        direction=candidate.direction,
+                        resolved_via=resolved.resolved_via,
+                        graph_revision=snapshot.graph_revision,
                         created_at=now,
                         updated_at=now,
                     )
-                )
-                await self._connections.touch(
-                    dataset.id, connection.id, connection.revision, now
-                )
-                link_key = (candidate.node_id, candidate.direction.value, dataset.id)
-                if link_key in links:
-                    continue
-                links[link_key] = DatasetLink(
-                    id=self._new_id(),
-                    dataset_id=dataset.id,
-                    project_id=project_id,
-                    organization_id=organization_id,
-                    node_id=candidate.node_id,
-                    node_name=candidate.node_name,
-                    direction=candidate.direction,
-                    resolved_via=resolved_via,
-                    graph_revision=snapshot.graph_revision,
-                    created_at=now,
-                    updated_at=now,
-                )
 
         await self._links.replace_for_project(project_id, list(links.values()))
         projection = ProjectCatalogProjection(
@@ -233,92 +228,6 @@ class RebuildProjectCatalogProjection:
         )
         await self._projections.save(projection)
         return RebuildResult(status="ok", projection=projection, link_count=len(links))
-
-    def _resolve_locators(
-        self,
-        *,
-        candidate: LocatorCandidate,
-        dialect: str,
-        project_variables: Mapping[str, Any],
-    ) -> tuple[list[RawLocator], ResolvedVia, bool]:
-        spec = candidate.spec
-        used_variables = False
-
-        def value_of(name: str) -> Any:
-            nonlocal used_variables
-            item = candidate.inputs.get(name)
-            if item is None:
-                return None
-            if item.kind == "expr":
-                used_variables = True
-                return self._expressions.resolve(
-                    str(item.value), item.expression_kind or "template", project_variables
-                )
-            return item.value
-
-        if candidate.kind is LocatorKind.EXPLICIT:
-            raw = RawLocator(
-                table=_as_text(value_of(spec.table_input)) or "",
-                schema=_as_text(value_of(spec.schema_input)),
-                database=_as_text(value_of(spec.database_input)),
-            )
-            resolved_via = ResolvedVia.EXPRESSION if used_variables else ResolvedVia.CONST
-            return [raw], resolved_via, used_variables
-
-        if candidate.kind is LocatorKind.SQL:
-            return self._resolve_sql(
-                sql=_as_text(value_of(spec.sql_input)) or "",
-                candidate=candidate,
-                dialect=dialect,
-                project_variables=project_variables,
-                used_variables=used_variables,
-            )
-
-        if spec.sql_input in candidate.inputs:
-            return self._resolve_sql(
-                sql=_as_text(value_of(spec.sql_input)) or "",
-                candidate=candidate,
-                dialect=dialect,
-                project_variables=project_variables,
-                used_variables=used_variables,
-            )
-
-        manual = value_of(spec.manual_variables_input)
-        raw_locators: list[RawLocator] = []
-        if isinstance(manual, Mapping):
-            for entry in manual.values():
-                if not isinstance(entry, Mapping):
-                    continue
-                table = _as_text(entry.get("table_name"))
-                if not table:
-                    continue
-                raw_locators.append(
-                    RawLocator(
-                        table=table,
-                        schema=_as_text(entry.get("schema_name")),
-                        database=_as_text(entry.get("database_name")),
-                    )
-                )
-        resolved_via = ResolvedVia.EXPRESSION if used_variables else ResolvedVia.CONST
-        return raw_locators, resolved_via, used_variables
-
-    def _resolve_sql(
-        self,
-        *,
-        sql: str,
-        candidate: LocatorCandidate,
-        dialect: str,
-        project_variables: Mapping[str, Any],
-        used_variables: bool,
-    ) -> tuple[list[RawLocator], ResolvedVia, bool]:
-        references = self._sql.extract(sql, dialect, project_variables)
-        tables = select_table_candidates(
-            references.tables,
-            cte_names=references.cte_names,
-            excluded_names=candidate.dataframe_input_names,
-        )
-        raw_locators = [sql_table_ref_to_raw_locator(ref, dialect=dialect) for ref in tables]
-        return raw_locators, ResolvedVia.SQL, used_variables or references.used_project_variables
 
     async def _record_failure(
         self,
@@ -358,7 +267,7 @@ class RebuildProjectCatalogProjection:
 
 
 def _diagnostic(
-    candidate: LocatorCandidate,
+    candidate: SourceCandidate,
     reason: DiagnosticReason,
     detail: str | None = None,
 ) -> ProjectionDiagnostic:
@@ -368,12 +277,3 @@ def _diagnostic(
         reason=reason,
         detail=detail,
     )
-
-
-def _as_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, GraphInputValue):
-        value = value.value
-    text = str(value).strip()
-    return text or None

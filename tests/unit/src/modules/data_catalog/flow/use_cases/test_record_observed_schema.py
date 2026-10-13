@@ -10,8 +10,9 @@ from src.modules.data_catalog.domain import (
     LinkDirection,
     ObservedField,
     ObservedNodeSchema,
-    PhysicalLocator,
     ResolvedVia,
+    db_table_locator,
+    default_registry,
 )
 from src.modules.data_catalog.flow import RecordObservedSchema
 
@@ -31,7 +32,7 @@ def _harness():
     datasets.items["d1"] = Dataset(
         id="d1",
         organization_id="org",
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", "Orders"),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", "Orders"),
         physical_key="k",
         created_at=EARLIER,
         updated_at=EARLIER,
@@ -48,7 +49,9 @@ def _harness():
         DatasetLink("l", "d1", "p1", "org", "node-1", "ReadTableFromDBV3", LinkDirection.READ, ResolvedVia.CONST, 1, EARLIER, EARLIER)
     ]
     connections = InMemoryConnectionRepository()
-    use_case = RecordObservedSchema(datasets=datasets, fields=fields, connections=connections, links=links)
+    use_case = RecordObservedSchema(
+        datasets=datasets, fields=fields, connections=connections, links=links, sources=default_registry()
+    )
     return use_case, datasets, fields, connections
 
 
@@ -62,7 +65,7 @@ def _observation(**overrides) -> ObservedNodeSchema:
         "observed_at": NOW,
         "trust_types": True,
         "partial": False,
-        "table": "orders",
+        "locator_parts": {"table": "orders"},
     }
     values.update(overrides)
     return ObservedNodeSchema(**values)
@@ -110,5 +113,5 @@ async def test_unknown_node_and_table_mismatch_are_skipped():
     use_case, datasets, _, _ = _harness()
 
     assert (await use_case.execute(_observation(node_id="other"))).dataset_ids == ()
-    assert (await use_case.execute(_observation(table="customers"))).dataset_ids == ()
+    assert (await use_case.execute(_observation(locator_parts={"table": "customers"}))).dataset_ids == ()
     assert datasets.items["d1"].observed_at_run is None

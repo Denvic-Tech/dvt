@@ -11,11 +11,11 @@ from ..domain import (
     DatasetConnection,
     DatasetField,
     DatasetLink,
+    DatasetLocator,
     DiagnosticReason,
     FieldStatus,
     LinkDirection,
     LinkKind,
-    PhysicalLocator,
     ProjectCatalogProjection,
     ProjectionDiagnostic,
     ProjectionStamp,
@@ -42,15 +42,9 @@ def dataset_to_domain(record: DatasetRecord) -> Dataset:
     return Dataset(
         id=record.id,
         organization_id=record.organization_id,
-        locator=PhysicalLocator(
-            dialect=record.dialect,
-            host=record.host,
-            port=record.port,
-            database=record.database,
-            schema=record.schema_name,
-            table=record.table,
-        ),
+        locator=DatasetLocator(kind=record.kind, parts=dict(record.locator or {})),
         physical_key=record.physical_key,
+        location=record.location or "",
         created_at=aware(record.created_at),
         updated_at=aware(record.updated_at),
         description=record.description,
@@ -74,13 +68,10 @@ def dataset_to_record(dataset: Dataset) -> DatasetRecord:
 
 def apply_dataset(record: DatasetRecord, dataset: Dataset) -> DatasetRecord:
     record.organization_id = dataset.organization_id
-    record.dialect = dataset.locator.dialect
-    record.host = dataset.locator.host
-    record.port = dataset.locator.port
-    record.database = dataset.locator.database
-    record.schema_name = dataset.locator.schema
-    record.table = dataset.locator.table
+    record.kind = dataset.locator.kind
+    record.locator = dict(dataset.locator.parts)
     record.physical_key = dataset.physical_key
+    record.location = dataset.location
     record.description = dataset.description
     record.description_updated_by = dataset.description_updated_by
     record.description_updated_at = dataset.description_updated_at

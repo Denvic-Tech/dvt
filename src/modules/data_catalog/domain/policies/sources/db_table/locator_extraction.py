@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from ..catalog_values import ProjectionDiagnostic
-from ..graph import GraphInputValue, GraphNode, ProjectGraphSnapshot
-from ..types import DiagnosticReason, LinkDirection, LocatorKind
+from ....catalog_values import ProjectionDiagnostic
+from ....graph import GraphInputValue, GraphNode, ProjectGraphSnapshot
+from ....types import DiagnosticReason, LinkDirection, LocatorKind
 from .node_locators import (
     CONNECTION_SOURCE_NODES,
     NODE_LOCATOR_SPECS,

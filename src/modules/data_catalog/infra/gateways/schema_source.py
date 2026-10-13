@@ -8,7 +8,9 @@ from src.modules.db_catalog.domain.exceptions import (
 from src.modules.db_catalog.facade import CatalogUseCases
 
 from ...domain import (
+    DatasetLocator,
     DatasetSchemaSource,
+    DbTableLocator,
     ObservedField,
     SchemaActor,
     SchemaSourceNotFoundError,
@@ -27,19 +29,19 @@ class DbCatalogDatasetSchemaSource(DatasetSchemaSource):
         *,
         connection_id: str,
         actor: SchemaActor,
-        database: str | None,
-        schema: str | None,
-        table: str,
+        locator: DatasetLocator,
         bypass_cache: bool = False,
     ) -> tuple[ObservedField, ...]:
+        table_locator = DbTableLocator.from_locator(locator)
+        table = table_locator.table
         try:
             response = await self._use_cases.get_table.execute(
                 connection_id=connection_id,
                 actor=CatalogActor(id=actor.id, organization_id=actor.organization_id, role=actor.role),
                 bypass_cache=bypass_cache,
                 table_name=table,
-                schema_name=schema,
-                database_name=database,
+                schema_name=table_locator.schema,
+                database_name=table_locator.database,
             )
         except CatalogTableNotFoundError as exc:
             raise SchemaSourceNotFoundError(str(exc)) from exc

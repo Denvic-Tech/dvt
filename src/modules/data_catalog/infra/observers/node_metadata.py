@@ -80,7 +80,9 @@ def build_observation(
         observed_at=datetime.now(UTC),
         trust_types=trust_types,
         partial=bool(getattr(node, "columns", None)),
-        table=_text(getattr(node, "table_name", None)),
-        schema=_text(getattr(node, "schema_name", None)),
-        database=_text(getattr(node, "database_name", None)),
+        locator_parts={
+            "table": _text(getattr(node, "table_name", None)),
+            "schema": _text(getattr(node, "schema_name", None)),
+            "database": _text(getattr(node, "database_name", None)),
+        },
     )

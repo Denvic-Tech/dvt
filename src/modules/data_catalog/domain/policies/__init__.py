@@ -5,26 +5,56 @@ from .descriptions import (
 )
 from .field_lookup import resolve_field
 from .freshness import compute_freshness
-from .locator_extraction import LocatorCandidate, extract_locator_candidates
-from .node_locators import CONNECTION_SOURCE_NODES, NODE_LOCATOR_SPECS, NodeLocatorSpec
-from .physical_key import (
+from .schema_merge import merge_observed_fields
+from .sources import (
+    ResolvedLocators,
+    SourceCandidate,
+    SourceKindAdapter,
+    SourceKindRegistry,
+    default_registry,
+)
+from .sources.db_table import (
+    CONNECTION_SOURCE_NODES,
+    DB_TABLE_KIND,
+    NODE_LOCATOR_SPECS,
+    DbConnectionCoordinates,
+    DbTableAdapter,
+    DbTableLocator,
+    LocatorCandidate,
+    NodeLocatorSpec,
     build_physical_key,
     canonical_dialect,
+    db_connection_coordinates,
+    db_table_locator,
+    describe_db_table,
+    extract_locator_candidates,
     normalize_locator,
+    select_table_candidates,
+    sql_table_ref_to_raw_locator,
     supports_schemas,
 )
-from .schema_merge import merge_observed_fields
-from .sql_tables import select_table_candidates, sql_table_ref_to_raw_locator
 from .stamp import is_projection_current, variables_fingerprint
 
 __all__ = [
     "CONNECTION_SOURCE_NODES",
+    "DB_TABLE_KIND",
     "NODE_LOCATOR_SPECS",
+    "DbConnectionCoordinates",
+    "DbTableAdapter",
+    "DbTableLocator",
     "LocatorCandidate",
     "NodeLocatorSpec",
+    "ResolvedLocators",
+    "SourceCandidate",
+    "SourceKindAdapter",
+    "SourceKindRegistry",
     "build_physical_key",
     "canonical_dialect",
     "compute_freshness",
+    "db_connection_coordinates",
+    "db_table_locator",
+    "default_registry",
+    "describe_db_table",
     "effective_dataset_description",
     "effective_field_description",
     "extract_locator_candidates",
