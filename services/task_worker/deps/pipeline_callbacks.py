@@ -1,27 +1,27 @@
 import asyncio
-import time
 import threading
+import time
 
 import orjson
 import redis.asyncio as redis
 
 from services.task_worker.helpers import get_worker_id
-from src.modules.task_execution.domain.types import TaskExecutionStatus
 
+from src import enums, types
+from src.modules.task_execution.domain.types import TaskExecutionStatus
 from src.node_dsl import BaseNode, types
 from src.node_dsl.types import NodeMetadata
-from src.schemas.internal import TaskInternal
 from src.schemas.event import (
-    TaskExecutionStatusEvent,
-    TaskExecutionTelemetryEvent,
     NodeExecutionStatusEvent,
     NodeMetadataEvent,
-    TaskError
+    TaskError,
+    TaskExecutionStatusEvent,
+    TaskExecutionTelemetryEvent,
 )
+from src.schemas.internal import TaskInternal
 from src.schemas.worker_event_payload import WorkerEventPayload
-from src import enums, types
-import config
 
+import config
 
 _redis_clients_by_loop: dict[asyncio.AbstractEventLoop, redis.Redis] = {}
 _default_redis_client: redis.Redis | None = None
@@ -322,3 +322,37 @@ async def on_node_metadata(
             metadata=metadata,
         )
     ))
+
+
+async def on_node_metadata_catalog(
+        user_id: str,  # noqa: ARG001 - сигнатура колбэка задаётся процессором
+        project_id: str,
+        task_id: str,
+        node: "BaseNode",
+        metadata: "NodeMetadata",
+        **_context,
+):
+    """Передаёт наблюдённую Read-нодой схему в Data Catalog; ошибки каталога не влияют на прогон."""
+    from src.logger import logger
+
+    try:
+        # Ленивые импорты: пакет data_catalog намеренно не импортируется рядом с node_dsl.
+        from src.db import AsyncSessionLocal
+        from src.modules.data_catalog import record_observed_node_metadata
+
+        async with AsyncSessionLocal() as session:
+            outcome = await record_observed_node_metadata(
+                session=session,
+                project_id=project_id,
+                node=node,
+                metadata=metadata,
+            )
+            if outcome is not None and outcome.dataset_ids:
+                await session.commit()
+    except Exception as exc:
+        logger.warning(
+            "Data catalog observation failed for node {} in task {}: {}",
+            getattr(node, "_node_id", "?"),
+            task_id,
+            exc,
+        )

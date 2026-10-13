@@ -8,6 +8,8 @@ from fastapi import HTTPException, status
 from src import exceptions as exc
 from src.crud import project as project_crud
 from src.db import AsyncSession
+from src.logger import logger
+from src.modules.data_catalog.facade import on_project_variables_changed
 from src.modules.project.infra.db_models import ProjectFolderRecord, ProjectRecord
 from src.modules.task_execution.infra.queries import get_recent_project_runs_by_project_ids
 from src.modules.user.infra.db_models import UserRecord
@@ -705,6 +707,19 @@ async def update_project_route_impl(
     project.updated_at = datetime.now(tz=UTC)
     session.add(project)
     await session.commit()
+
+    if "variables" in update_payload:
+        try:
+            await on_project_variables_changed(
+                session=session,
+                project_id=project.id,
+                organization_id=project.organization_id,
+            )
+            await session.commit()
+        except Exception:
+            logger.exception("Data catalog projection refresh failed for project {}", project.id)
+            await session.rollback()
+
     await session.refresh(project)
     return ProjectReadSchema(**project.model_dump())
 

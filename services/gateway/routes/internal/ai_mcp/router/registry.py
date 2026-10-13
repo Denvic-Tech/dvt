@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .. import context, data, ddl, ddl_columns, graph, projects, schedules, tasks
+from .. import catalog, context, data, ddl, ddl_columns, graph, projects, schedules, tasks
 from ..errors import AIMCPHTTPError
 
 ToolHandler = Callable[..., Awaitable[dict[str, Any]]]
@@ -120,6 +120,53 @@ TOOLS: dict[str, Tool] = {
         ddl_columns.apply_table_column_actions,
         ("redis",),
         reject_reserved_arguments=True,
+    ),
+    "search_datasets": Tool(
+        catalog.search_datasets,
+        ("session",),
+        reject_reserved_arguments=True,
+        check_signature=True,
+        validation_error_code="INVALID_ARGUMENTS",
+        commit="always",
+    ),
+    "get_dataset": Tool(
+        catalog.get_dataset,
+        ("session", "redis"),
+        reject_reserved_arguments=True,
+        check_signature=True,
+        validation_error_code="INVALID_ARGUMENTS",
+        commit="always",
+    ),
+    "get_dataset_usage": Tool(
+        catalog.get_dataset_usage,
+        ("session",),
+        reject_reserved_arguments=True,
+        check_signature=True,
+        validation_error_code="INVALID_ARGUMENTS",
+        commit="always",
+    ),
+    "set_dataset_description": Tool(
+        catalog.set_dataset_description,
+        ("session",),
+        reject_reserved_arguments=True,
+        validation_error_code="INVALID_ARGUMENTS",
+        commit="always",
+    ),
+    "refresh_dataset": Tool(
+        catalog.refresh_dataset,
+        ("session", "redis"),
+        reject_reserved_arguments=True,
+        check_signature=True,
+        validation_error_code="INVALID_ARGUMENTS",
+        commit="always",
+    ),
+    "confirm_field_rename": Tool(
+        catalog.confirm_field_rename,
+        ("session",),
+        reject_reserved_arguments=True,
+        check_signature=True,
+        validation_error_code="INVALID_ARGUMENTS",
+        commit="always",
     ),
     "run_project": Tool(tasks.run_project, ("session",), commit="always"),
     "get_task": Tool(tasks.get_task, ("session",)),

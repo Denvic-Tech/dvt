@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
-from mcp.types import INTERNAL_ERROR, ToolAnnotations
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ToolAnnotations
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import Field, StrictBool
 from starlette.requests import Request
@@ -20,6 +20,8 @@ from .gateway_client import (
 from .models import (
     DataFrameMetadata,
     DDLColumn,
+    FieldDescriptionInput,
+    FieldRefInput,
     GraphPatch,
     RuntimeVariable,
     SchedulePatch,
@@ -182,6 +184,7 @@ async def _call(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             "PROJECT_NOT_FOUND_OR_DENIED",
             "CONNECTION_NOT_FOUND_OR_DENIED",
             "TASK_NOT_FOUND_OR_DENIED",
+            "DATASET_NOT_FOUND_OR_DENIED",
         }:
             SCOPE_FAILURES.labels(code=exc.code).inc()
         elif exc.code == "GRAPH_VALIDATION_FAILED":
@@ -245,6 +248,17 @@ WRITE_PROJECT = ToolAnnotations(
 )
 WRITE_SCHEDULE = ToolAnnotations(
     read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=True,
+)
+# Data Catalog: описания живут в БД DVT (closed world), refresh ходит в источник (open world),
+# подтверждение переименования удаляет строку-дубликат (destructive).
+WRITE_CATALOG = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False,
+)
+REFRESH_CATALOG = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True,
+)
+CONFIRM_CATALOG_RENAME = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False,
 )
 
 
@@ -545,6 +559,91 @@ async def preview_storage_file(
 ) -> dict[str, Any]:
     """Return a bounded text/tabular preview without binary bytes or presigned URLs."""
     return await _call("preview_storage_file", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def search_datasets(
+    query: str | None = None,
+    connection_id: str | None = None,
+    project_id: str | None = None,
+    kind: str | None = None,
+    cursor: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Search the Data Catalog: physical data sources known from saved graphs, with reader/writer counts.
+
+    Each dataset has a `kind` (today only `db_table`), a human-readable `location` and a
+    `physical_key` URI; `query` matches both. The catalog is time-stamped knowledge recorded from
+    saved graphs, not a live source query; check `freshness` and use get_database_table for the
+    current physical schema.
+    """
+    return await _call("search_datasets", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_dataset(dataset_id: str, include_fields: bool = True) -> dict[str, Any]:
+    """Get one catalog dataset with its locator (`kind`, `location`, `parts`), connections and fields.
+
+    Field statuses (new/ok/missing/type_changed) describe drift since the previous sync; the
+    schema is refreshed lazily through an accessible connection when it is older than the TTL.
+    """
+    return await _call("get_dataset", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_dataset_usage(
+    dataset_id: str,
+    direction: Literal["read", "write"] | None = None,
+) -> dict[str, Any]:
+    """List project nodes that read or write a catalog dataset, within the token's project scope."""
+    return await _call("get_dataset_usage", locals())
+
+
+@mcp.tool(annotations=WRITE_CATALOG)
+async def set_dataset_description(
+    dataset_id: str,
+    description: str | None = None,
+    clear_description: bool = False,
+    fields: list[FieldDescriptionInput] | None = None,
+) -> dict[str, Any]:
+    """Set global Data Catalog descriptions for a dataset and/or its fields.
+
+    Descriptions are shared by every project and user who can see the dataset, so confirm
+    before overwriting someone else's text. Omit `description` to keep the dataset text;
+    pass `clear_description=true` to clear it. Each `fields` item references a field by `name`
+    or `field_id` and must carry `description` (null clears). DB comments are never copied:
+    responses expose `effective_description` and `description_provenance` instead.
+    """
+    if clear_description and description is not None:
+        raise MCPError(
+            code=INVALID_PARAMS,
+            message="clear_description cannot be combined with description.",
+        )
+    return await _call("set_dataset_description", locals())
+
+
+@mcp.tool(annotations=REFRESH_CATALOG)
+async def refresh_dataset(dataset_id: str) -> dict[str, Any]:
+    """Re-read a dataset's schema from the source, bypassing the catalog cache.
+
+    Returns the diff (new/missing/type_changed) and the projects that use the dataset.
+    An unreachable source yields `status: failed`, not a tool error.
+    """
+    return await _call("refresh_dataset", locals())
+
+
+@mcp.tool(annotations=CONFIRM_CATALOG_RENAME)
+async def confirm_field_rename(
+    dataset_id: str,
+    missing_field: FieldRefInput,
+    new_field: FieldRefInput,
+) -> dict[str, Any]:
+    """Confirm that a `missing` catalog field was renamed to a `new` one.
+
+    The old row keeps its identity and description, takes the new name and attributes, and
+    the duplicate new row is removed. Requires `missing` status on the old field.
+    """
+    return await _call("confirm_field_rename", locals())
 
 
 @mcp.tool(annotations=WRITE_EXECUTION)

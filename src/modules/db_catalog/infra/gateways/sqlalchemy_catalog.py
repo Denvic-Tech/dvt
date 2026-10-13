@@ -154,15 +154,9 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
         except sa.exc.TimeoutError as exc:
             raise CatalogSourceTimeoutError("DB catalog query timed out.") from exc
         except sa.exc.DBAPIError as exc:
-            error_name = type(exc.orig).__name__.lower() if exc.orig is not None else ""
-            error_text = str(exc.orig).lower() if exc.orig is not None else ""
-            if (
-                "timeout" in error_name
-                or "timed out" in error_text
-                or "statement timeout" in error_text
-            ):
-                raise CatalogSourceTimeoutError("DB catalog query timed out.") from None
-            raise CatalogSourceUnavailableError("DB catalog source query failed.") from None
+            # Исходное исключение намеренно не присоединяется (from None): в нём может быть
+            # строка подключения. В сообщение попадает только санированный текст драйвера.
+            raise _classify_dbapi_error(exc) from None
         except (OSError, TypeError, ValueError) as exc:
             raise CatalogSourceUnavailableError("DB catalog source is unavailable.") from exc
         finally:
@@ -819,3 +813,42 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
     def _normalize_kind(value: object) -> CatalogTableKind:
         normalized = str(value or "").upper().replace("_", " ")
         return CatalogTableKind.VIEW if "VIEW" in normalized else CatalogTableKind.TABLE
+
+
+_MISSING_DATABASE_SQLSTATES = frozenset({"3D000"})
+_MISSING_DATABASE_PATTERNS = (
+    "does not exist",  # postgresql: database "x" does not exist
+    "unknown database",  # mysql/mariadb error 1049
+    "cannot open database",  # mssql error 4060
+    "doesn't exist",  # clickhouse: Database x doesn't exist
+)
+_MAX_DRIVER_MESSAGE_LENGTH = 300
+
+
+def sanitize_driver_message(error: BaseException | None) -> str:
+    """Первая строка сообщения драйвера без переводов строк, обрезанная по длине."""
+    if error is None:
+        return ""
+    text = " ".join(str(error).split())
+    return text[:_MAX_DRIVER_MESSAGE_LENGTH]
+
+
+def _classify_dbapi_error(exc: sa.exc.DBAPIError) -> Exception:
+    """Переводит ошибку драйвера в доменную: таймаут, отсутствующая база или недоступный источник."""
+    original = exc.orig
+    error_name = type(original).__name__.lower() if original is not None else ""
+    error_text = sanitize_driver_message(original)
+    lowered = error_text.lower()
+
+    if "timeout" in error_name or "timed out" in lowered or "statement timeout" in lowered:
+        return CatalogSourceTimeoutError("DB catalog query timed out.")
+
+    sqlstate = str(getattr(original, "sqlstate", "") or getattr(original, "pgcode", "") or "")
+    mentions_database = "database" in lowered
+    if sqlstate in _MISSING_DATABASE_SQLSTATES or (
+        mentions_database and any(pattern in lowered for pattern in _MISSING_DATABASE_PATTERNS)
+    ):
+        return CatalogTableNotFoundError(f"DB catalog database was not found: {error_text}")
+
+    detail = f": {error_text}" if error_text else "."
+    return CatalogSourceUnavailableError(f"DB catalog source query failed{detail}")

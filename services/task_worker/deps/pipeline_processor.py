@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from src.node_dsl import ExecutionSettings
@@ -16,6 +17,7 @@ from .caching import (
 from .pipeline_callbacks import (
     on_node_error,
     on_node_metadata,
+    on_node_metadata_catalog,
     on_node_started,
     on_node_success,
     on_task_running,
@@ -24,6 +26,24 @@ from .pipeline_callbacks import (
 
 if TYPE_CHECKING:
     from src.schemas.internal import TaskInternal
+
+MetadataCallback = Callable[..., Awaitable[None]]
+
+
+def compose_node_metadata_callbacks(*callbacks: MetadataCallback | None) -> MetadataCallback | None:
+    """Склеивает колбэки метаданных в один; None пропускаются, порядок сохраняется."""
+    active = tuple(callback for callback in callbacks if callback is not None)
+    if not active:
+        return None
+    if len(active) == 1:
+        return active[0]
+
+    async def composed(**kwargs: Any) -> None:
+        for callback in active:
+            await callback(**kwargs)
+
+    composed.callbacks = active  # type: ignore[attr-defined]
+    return composed
 
 
 def get_pipeline_processor(
@@ -42,7 +62,6 @@ def get_pipeline_processor(
 
     if task.send_ws_messages:
         kwargs.update({
-            "on_node_metadata": on_node_metadata,
             "on_node_process_start": on_node_started,
             "on_node_process_success": on_node_success,
             "on_node_error": on_node_error,
@@ -53,6 +72,14 @@ def get_pipeline_processor(
                 "metadata_store": get_metadata_store(),
                 "metadata_index_store": get_metadata_index_store(),
             })
+
+    # Каталожное наблюдение не зависит от WS-сообщений: схема источника нужна каталогу всегда.
+    metadata_callback = compose_node_metadata_callbacks(
+        on_node_metadata if task.send_ws_messages else None,
+        on_node_metadata_catalog if config.DATA_CATALOG.WORKER_OBSERVATION_ENABLED else None,
+    )
+    if metadata_callback is not None:
+        kwargs["on_node_metadata"] = metadata_callback
 
     if task.mode == PipelineExecutionMode.FULL and not config.OTHER.DISABLE_STORE:
         kwargs.update({

@@ -222,6 +222,7 @@ async def test_process_graph_op_marks_project_dirty_after_computational_change(m
     touch = AsyncMock(return_value=True)
     monkeypatch.setattr(graph_operations_module.project_crud, "touch_project_updated_at", touch)
     monkeypatch.setattr(graph_operations_module, "increment_graph_operation", lambda *args: None)
+    monkeypatch.setattr(graph_operations_module, "rebuild_project_catalog_projection", AsyncMock())
 
     response = await process_graph_op(
         project_id=project.id,
@@ -239,7 +240,8 @@ async def test_process_graph_op_marks_project_dirty_after_computational_change(m
         removed_node_ids=[],
     )
     touch.assert_not_awaited()
-    session.commit.assert_awaited_once()
+    # Второй commit принадлежит пересборке каталожной проекции после сохранения графа.
+    assert session.commit.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -285,6 +287,7 @@ async def test_process_graph_op_scopes_metadata_task_to_current_metadata_seeds(m
         AsyncMock(return_value=([], [], [])),
     )
     monkeypatch.setattr(graph_operations_module, "increment_graph_operation", lambda *args: None)
+    monkeypatch.setattr(graph_operations_module, "rebuild_project_catalog_projection", AsyncMock())
 
     collected_seed_node_ids = []
 
@@ -346,3 +349,97 @@ async def test_process_graph_op_does_not_touch_project_without_graph_change(monk
     assert response == graph_operations_module.GraphOperationResponse()
     touch.assert_not_awaited()
     session.commit.assert_awaited_once()
+
+
+def _patch_computational_change(monkeypatch, project) -> None:
+    monkeypatch.setattr(
+        graph_operations_module.graph_crud,
+        "create_graph_nodes",
+        AsyncMock(side_effect=lambda *, session, nodes: nodes),
+    )
+    monkeypatch.setattr(
+        graph_operations_module.graph_crud,
+        "get_graph_edges_by",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        graph_operations_module.project_crud,
+        "mark_project_graph_dirty",
+        AsyncMock(return_value=project),
+    )
+    monkeypatch.setattr(graph_operations_module, "increment_graph_operation", lambda *args: None)
+
+
+@pytest.mark.asyncio
+async def test_process_graph_op_refreshes_catalog_projection_after_computational_change(
+    monkeypatch,
+) -> None:
+    project = _make_project()
+    session = AsyncMock()
+    session.execute.return_value = _LockedProjectResult(project)
+    _patch_computational_change(monkeypatch, project)
+    rebuild = AsyncMock()
+    monkeypatch.setattr(graph_operations_module, "rebuild_project_catalog_projection", rebuild)
+
+    await process_graph_op(
+        project_id=project.id,
+        payload=GraphOperationsAggregated(nodes_to_create=[_make_node_payload()]),
+        user=_make_user(),
+        session=session,
+    )
+
+    rebuild.assert_awaited_once_with(
+        session=session,
+        project_id=project.id,
+        organization_id=project.organization_id,
+        force=False,
+    )
+    session.rollback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_process_graph_op_survives_catalog_projection_failure(monkeypatch) -> None:
+    project = _make_project()
+    session = AsyncMock()
+    session.execute.return_value = _LockedProjectResult(project)
+    _patch_computational_change(monkeypatch, project)
+    monkeypatch.setattr(
+        graph_operations_module,
+        "rebuild_project_catalog_projection",
+        AsyncMock(side_effect=RuntimeError("catalog is down")),
+    )
+
+    response = await process_graph_op(
+        project_id=project.id,
+        payload=GraphOperationsAggregated(nodes_to_create=[_make_node_payload()]),
+        user=_make_user(),
+        session=session,
+    )
+
+    assert response.nodes_created == ["node-1"]
+    session.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_graph_op_skips_catalog_projection_without_computational_change(
+    monkeypatch,
+) -> None:
+    project = _make_project()
+    session = AsyncMock()
+    session.execute.return_value = _LockedProjectResult(project)
+    monkeypatch.setattr(
+        graph_operations_module.graph_crud,
+        "get_graph_edges_by",
+        AsyncMock(return_value=[]),
+    )
+    rebuild = AsyncMock()
+    monkeypatch.setattr(graph_operations_module, "rebuild_project_catalog_projection", rebuild)
+
+    await process_graph_op(
+        project_id=project.id,
+        payload=GraphOperationsAggregated(),
+        user=_make_user(),
+        session=session,
+    )
+
+    rebuild.assert_not_awaited()

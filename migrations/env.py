@@ -38,6 +38,13 @@ from src.modules.project.infra.db_models import (
     ProjectScheduleRunRecord  # noqa: F403
 )
 from src.modules.extension_management.infra.db_models import ExtensionRecord  # noqa: F403
+from src.modules.data_catalog.infra.db_models import (  # noqa: F403
+    DatasetConnectionRecord,
+    DatasetFieldRecord,
+    DatasetLinkRecord,
+    DatasetRecord,
+    ProjectCatalogProjectionRecord,
+)
 
 
 def process_revision_directives(
