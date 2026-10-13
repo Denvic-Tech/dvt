@@ -11,14 +11,14 @@ DatasetProvenanceLiteral = Literal["declared", "none"]
 
 
 class DatasetLocatorSchema(BaseModel):
-    dialect: str
-    host: str
-    port: int | None = None
-    database: str | None = None
-    schema_name: str | None = Field(default=None, alias="schema")
-    table: str
+    """Адрес источника: вид и части адреса, которые понимает адаптер этого вида."""
 
-    model_config = {"populate_by_name": True}
+    kind: str = Field(description="Source kind, e.g. `db_table`.")
+    location: str = Field(description="Human-readable location in the source's own notation.")
+    parts: dict[str, str | int | None] = Field(
+        default_factory=dict,
+        description="Kind-specific address parts; for `db_table`: dialect, host, port, database, schema, table.",
+    )
 
 
 class DatasetSummarySchema(BaseModel):
@@ -141,7 +141,7 @@ class FieldRenameConfirmSchema(BaseModel):
 
 
 class RefreshOutcomeSchema(BaseModel):
-    status: Literal["synced", "failed", "no_connection"]
+    status: Literal["synced", "failed", "no_connection", "unsupported"]
     new: int = Field(default=0, ge=0)
     missing: int = Field(default=0, ge=0)
     type_changed: int = Field(default=0, ge=0)

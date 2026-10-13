@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.gateway.deps.db_catalog import get_catalog_use_cases
 
 from src.modules.data_catalog import DataCatalogUseCases, build_data_catalog_use_cases
-from src.modules.data_catalog.domain import CatalogViewer, SchemaActor, ViewerScope
+from src.modules.data_catalog.domain import DB_TABLE_KIND, CatalogViewer, SchemaActor, ViewerScope
 from src.modules.data_catalog.infra import DbCatalogDatasetSchemaSource
 from src.modules.user.infra.db_models import UserRecord
 from src.utils.access_control import get_access_scope
@@ -35,11 +35,13 @@ def get_data_catalog_use_cases(
     session: AsyncSession,
     redis: Redis | None = None,
 ) -> DataCatalogUseCases:
-    schema_source = (
-        DbCatalogDatasetSchemaSource(get_catalog_use_cases(redis)) if redis is not None else None
+    schema_sources = (
+        {DB_TABLE_KIND: DbCatalogDatasetSchemaSource(get_catalog_use_cases(redis))}
+        if redis is not None
+        else None
     )
     return build_data_catalog_use_cases(
         session=session,
-        schema_source=schema_source,
+        schema_sources=schema_sources,
         schema_sync_ttl_sec=config.DATA_CATALOG.SCHEMA_SYNC_TTL_SEC,
     )

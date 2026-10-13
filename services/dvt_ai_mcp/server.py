@@ -566,21 +566,23 @@ async def search_datasets(
     query: str | None = None,
     connection_id: str | None = None,
     project_id: str | None = None,
-    dialect: str | None = None,
+    kind: str | None = None,
     cursor: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Search the Data Catalog: physical DB tables known from saved graphs, with reader/writer counts.
+    """Search the Data Catalog: physical data sources known from saved graphs, with reader/writer counts.
 
-    The catalog is time-stamped knowledge recorded from saved graphs, not a live source query;
-    check `freshness` and use get_database_table for the current physical schema.
+    Each dataset has a `kind` (today only `db_table`), a human-readable `location` and a
+    `physical_key` URI; `query` matches both. The catalog is time-stamped knowledge recorded from
+    saved graphs, not a live source query; check `freshness` and use get_database_table for the
+    current physical schema.
     """
     return await _call("search_datasets", locals())
 
 
 @mcp.tool(annotations=READ_CLOSED)
 async def get_dataset(dataset_id: str, include_fields: bool = True) -> dict[str, Any]:
-    """Get one catalog dataset with its physical locator, connections and last known fields.
+    """Get one catalog dataset with its locator (`kind`, `location`, `parts`), connections and fields.
 
     Field statuses (new/ok/missing/type_changed) describe drift since the previous sync; the
     schema is refreshed lazily through an accessible connection when it is older than the TTL.

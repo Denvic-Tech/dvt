@@ -20,6 +20,10 @@ def test_data_catalog_openapi_exposes_search_details_and_usage():
         "not_found",
     }
     assert "next_cursor" in components["DatasetPageSchema"]["properties"]
+    locator_properties = components["DatasetLocatorSchema"]["properties"]
+    assert set(locator_properties) == {"kind", "location", "parts"}
+    parameters = {parameter["name"] for parameter in paths["/data-catalog/datasets"]["get"]["parameters"]}
+    assert "kind" in parameters and "dialect" not in parameters
 
 
 def test_data_catalog_search_limit_is_bounded():

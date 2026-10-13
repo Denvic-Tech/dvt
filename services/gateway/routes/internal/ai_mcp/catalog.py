@@ -75,7 +75,7 @@ async def search_datasets(
     query: str | None = None,
     connection_id: str | None = None,
     project_id: str | None = None,
-    dialect: str | None = None,
+    kind: str | None = None,
     cursor: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
@@ -94,7 +94,7 @@ async def search_datasets(
             text=query,
             connection_id=connection_id,
             project_id=project_id,
-            dialect=dialect,
+            kind=kind,
             cursor=cursor,
             limit=limit,
         ),

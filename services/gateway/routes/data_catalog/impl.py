@@ -60,12 +60,9 @@ router = APIRouter(prefix="/data-catalog", tags=["Data Catalog"])
 
 def _locator(dataset: Dataset) -> DatasetLocatorSchema:
     return DatasetLocatorSchema(
-        dialect=dataset.locator.dialect,
-        host=dataset.locator.host,
-        port=dataset.locator.port,
-        database=dataset.locator.database,
-        schema=dataset.locator.schema,
-        table=dataset.locator.table,
+        kind=dataset.locator.kind,
+        location=dataset.location,
+        parts=dict(dataset.locator.parts),
     )
 
 
@@ -190,7 +187,7 @@ async def search_datasets(
     query: Annotated[str | None, Query(max_length=512)] = None,
     connection_id: str | None = None,
     project_id: str | None = None,
-    dialect: str | None = None,
+    kind: Annotated[str | None, Query(max_length=64)] = None,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> DatasetPageSchema:
@@ -201,7 +198,7 @@ async def search_datasets(
             text=query,
             connection_id=connection_id,
             project_id=project_id,
-            dialect=dialect,
+            kind=kind,
             cursor=cursor,
             limit=limit,
         ),

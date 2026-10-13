@@ -16,8 +16,8 @@ from src.modules.data_catalog.domain import (
     DatasetUsageEntry,
     LinkDirection,
     LinkKind,
-    PhysicalLocator,
     ResolvedVia,
+    db_table_locator,
 )
 
 NOW = datetime(2026, 10, 7, tzinfo=UTC)
@@ -41,7 +41,7 @@ def _dataset(dataset_id: str) -> Dataset:
     return Dataset(
         id=dataset_id,
         organization_id="org",
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", dataset_id),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", dataset_id),
         physical_key=f"postgresql://db:5432/main/public/{dataset_id}",
         created_at=NOW,
         updated_at=NOW,
@@ -113,7 +113,8 @@ async def test_search_hides_datasets_outside_token_scope(wire):
     )
 
     assert [item["id"] for item in result["items"]] == ["visible_project", "visible_connection"]
-    assert result["items"][0]["locator"]["schema"] == "public"
+    assert result["items"][0]["locator"]["kind"] == "db_table"
+    assert result["items"][0]["locator"]["parts"]["schema"] == "public"
 
 
 @pytest.mark.asyncio

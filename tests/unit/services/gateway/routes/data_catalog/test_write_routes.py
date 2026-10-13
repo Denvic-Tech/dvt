@@ -21,8 +21,8 @@ from src.modules.data_catalog.domain import (
     FieldRenameNotApplicableError,
     FieldStatus,
     Freshness,
-    PhysicalLocator,
     RefreshOutcome,
+    db_table_locator,
 )
 from src.modules.user.infra.fastapi.dependencies import get_user_access_only
 
@@ -33,7 +33,7 @@ def _details() -> DatasetDetails:
     dataset = Dataset(
         id="d1",
         organization_id="org",
-        locator=PhysicalLocator("postgresql", "db", 5432, "main", "public", "t"),
+        locator=db_table_locator("postgresql", "db", 5432, "main", "public", "t"),
         physical_key="postgresql://db:5432/main/public/t",
         created_at=NOW,
         updated_at=NOW,
