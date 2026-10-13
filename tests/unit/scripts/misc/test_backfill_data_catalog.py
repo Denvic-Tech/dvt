@@ -3,60 +3,52 @@ from unittest.mock import AsyncMock
 import pytest
 from scripts.misc import backfill_data_catalog as backfill_module
 
-from src.modules.data_catalog.domain import RebuildResult
-
-
-class _Session:
-    def __init__(self) -> None:
-        self.commit = AsyncMock()
-        self.rollback = AsyncMock()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc_info):
-        return False
+from src.modules.data_catalog.domain import ReconcileSummary
 
 
 @pytest.mark.asyncio
-async def test_backfill_counts_ok_skipped_and_failed_projects(monkeypatch):
-    monkeypatch.setattr(
-        backfill_module,
-        "_list_projects",
-        AsyncMock(return_value=[("p-ok", "org"), ("p-skip", "org"), ("p-fail", "org")]),
-    )
-    sessions: list[_Session] = []
+async def test_backfill_forces_rebuild_by_default_and_passes_filters(monkeypatch):
+    summary = ReconcileSummary(total=3, ok=1, skipped=1, failed=1, failures=[("p-fail", "boom")])
+    reconcile = AsyncMock(return_value=summary)
+    monkeypatch.setattr(backfill_module, "reconcile_catalog_projections", reconcile)
 
-    def session_factory():
-        session = _Session()
-        sessions.append(session)
-        return session
+    result = await backfill_module.backfill(project_ids=["p1"], organization_id="org", batch_size=5)
 
-    monkeypatch.setattr(backfill_module, "AsyncSessionLocal", session_factory)
-
-    async def rebuild(*, session, project_id, organization_id, force, raise_on_error):
-        assert force is True and raise_on_error is True
-        if project_id == "p-fail":
-            raise RuntimeError("boom")
-        return RebuildResult(status="ok" if project_id == "p-ok" else "skipped")
-
-    monkeypatch.setattr(backfill_module, "rebuild_project_catalog_projection", rebuild)
-
-    summary = await backfill_module.backfill()
-
-    assert (summary.total, summary.ok, summary.skipped, summary.failed) == (3, 1, 1, 1)
-    assert summary.failures == [("p-fail", "boom")]
-    assert sum(session.commit.await_count for session in sessions) == 2
-    assert sum(session.rollback.await_count for session in sessions) == 1
+    assert result is summary
+    kwargs = reconcile.await_args.kwargs
+    assert kwargs["session_factory"] is backfill_module.AsyncSessionLocal
+    assert kwargs["force"] is True
+    assert kwargs["dry_run"] is False
+    assert kwargs["batch_size"] == 5
+    assert kwargs["organization_id"] == "org"
+    assert kwargs["project_ids"] == ["p1"]
 
 
 @pytest.mark.asyncio
-async def test_dry_run_does_not_touch_the_database(monkeypatch):
-    monkeypatch.setattr(backfill_module, "_list_projects", AsyncMock(return_value=[("p1", "org")]))
-    rebuild = AsyncMock()
-    monkeypatch.setattr(backfill_module, "rebuild_project_catalog_projection", rebuild)
+async def test_stale_only_and_dry_run_are_forwarded(monkeypatch):
+    reconcile = AsyncMock(return_value=ReconcileSummary())
+    monkeypatch.setattr(backfill_module, "reconcile_catalog_projections", reconcile)
 
-    summary = await backfill_module.backfill(dry_run=True)
+    await backfill_module.backfill(stale_only=True, dry_run=True)
 
-    assert (summary.total, summary.skipped) == (1, 1)
-    rebuild.assert_not_awaited()
+    kwargs = reconcile.await_args.kwargs
+    assert kwargs["force"] is False
+    assert kwargs["dry_run"] is True
+
+
+def test_main_prints_failures_and_returns_nonzero_exit_code(monkeypatch, capsys):
+    summary = ReconcileSummary(total=2, ok=1, failed=1, failures=[("p-fail", "boom")])
+
+    async def fake_backfill(**kwargs):
+        assert kwargs["stale_only"] is True
+        assert kwargs["batch_size"] == 3
+        return summary
+
+    monkeypatch.setattr(backfill_module, "backfill", fake_backfill)
+
+    code = backfill_module.main(["--stale-only", "--batch-size", "3"])
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "FAILED p-fail: boom" in out
+    assert "total=2 ok=1 skipped=0 failed=1" in out

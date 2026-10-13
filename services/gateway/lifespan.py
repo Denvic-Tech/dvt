@@ -8,6 +8,10 @@ from fastapi import FastAPI
 from sqlalchemy.orm import Session
 from ws_forward.v1 import forward_pb2_grpc
 
+from services.gateway.background.data_catalog_reconcile import (
+    start_data_catalog_reconciliation,
+    stop_data_catalog_reconciliation,
+)
 from services.gateway.deps import (
     get_background_scheduler_manager,
     preload_node_documentation_repository,
@@ -181,8 +185,12 @@ async def lifespan(_app: FastAPI):
 
     await system_state_monitor.start()
 
+    if config.DATA_CATALOG.STARTUP_RECONCILE_ENABLED:
+        start_data_catalog_reconciliation(_app)
+
     yield
     logger.info("Gateway service shutting down.")
+    await stop_data_catalog_reconciliation(_app)
     await system_state_monitor.close()
     background_scheduler_manager.shutdown(wait=False)
 
