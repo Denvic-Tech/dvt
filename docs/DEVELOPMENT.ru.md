@@ -367,6 +367,10 @@ docker compose --project-directory . \
 <venv_dir>/Scripts/python.exe scripts/docker/e2e_tests.py
 ```
 
+Юнит-тесты запускаются только из `tests/unit`, без установки и подключения расширений.
+Для выборочного запуска передайте путь внутри `tests/unit` первым аргументом
+`unit_tests.py`; остальные аргументы передаются в pytest.
+
 ### Benchmarking
 
 Перед экспериментами прочитайте `services/task_benchmarking/README.md`.
