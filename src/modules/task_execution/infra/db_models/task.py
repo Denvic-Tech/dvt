@@ -59,7 +59,7 @@ class TaskRecord(SQLModel, table=True):
 
     queued_at: datetime = Field(
         default_factory=_utcnow,
-        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow),
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True),
     )
     started_at: datetime | None = Field(
         default=None,
