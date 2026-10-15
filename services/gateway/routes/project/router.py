@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from .crud import router as crud_router
+from .favorites import router as favorites_router
 from .copy import router as copy_router
 from .variables import router as variables_router
 from .file_inputs import router as file_inputs_router
@@ -20,6 +21,7 @@ from .schedule import router as schedule_router
 
 router = APIRouter()
 
+router.include_router(favorites_router, prefix="/projects", tags=["Projects"])
 router.include_router(crud_router, prefix="/projects", tags=["Projects"])
 router.include_router(copy_router, prefix="/projects", tags=["Projects"])
 router.include_router(schedule_router, prefix="/projects", tags=["Project Scheduler"])

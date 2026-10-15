@@ -47,6 +47,10 @@ class ProjectReadSchema(BaseModel):
         default_factory=list,
         description="Последние scheduler-запуски проекта",
     )
+    is_favorite: bool = Field(
+        default=False,
+        description="Добавлен ли проект в избранное текущим пользователем",
+    )
 
     class Config:
         from_attributes = True
