@@ -720,41 +720,47 @@ class ProjectSchedulerManager:
         organization_id: str | None = None,
     ) -> list[ProjectScheduleResponse]:
         async with AsyncSession(engine) as session:
-            schedules = list(
-                await project_schedule_crud.get_project_schedules_by(
-                    session=session,
-                    organization_id=organization_id,
-                )
+            schedules = await project_schedule_crud.get_project_schedules_with_project_names_by(
+                session=session,
+                organization_id=organization_id,
             )
             latest_runs = await schedule_run_crud.get_latest_runs_by_schedule_ids(
                 session,
-                schedule_ids=[schedule.id for schedule in schedules],
+                schedule_ids=[schedule.id for schedule, _ in schedules],
             )
             return [
-                self._to_schedule_response(schedule, latest_runs.get(schedule.id))
-                for schedule in schedules
+                self._to_schedule_response(
+                    schedule,
+                    latest_runs.get(schedule.id),
+                    project_name=project_name,
+                )
+                for schedule, project_name in schedules
             ]
 
     async def get_scheduled_project(self, project_id: str) -> ProjectScheduleResponse | None:
         async with AsyncSession(engine) as session:
-            schedule = (
-                await project_schedule_crud.get_project_schedules_by(
-                    session=session,
-                    project_id=project_id,
-                )
-            ).first()
-            if schedule is None:
+            schedules = await project_schedule_crud.get_project_schedules_with_project_names_by(
+                session=session,
+                project_id=project_id,
+            )
+            if not schedules:
                 return None
+            schedule, project_name = schedules[0]
             latest_runs = await schedule_run_crud.get_latest_runs_by_schedule_ids(
                 session,
                 schedule_ids=[schedule.id],
             )
-            return self._to_schedule_response(schedule, latest_runs.get(schedule.id))
+            return self._to_schedule_response(
+                schedule,
+                latest_runs.get(schedule.id),
+                project_name=project_name,
+            )
 
     def _to_schedule_response(
         self,
         schedule: ProjectScheduleRecord,
         latest_run: ProjectScheduleRunRecord | None = None,
+        project_name: str | None = None,
     ) -> ProjectScheduleResponse:
         job = None if schedule.disabled else self.get_job(schedule.project_id)
         latest_run_chain = None
@@ -772,6 +778,7 @@ class ProjectSchedulerManager:
             )
         return ProjectScheduleResponse(
             project_id=schedule.project_id,
+            project_name=project_name,
             cron=schedule.cron,
             disabled=schedule.disabled,
             scheduled_by_user_id=schedule.scheduled_by_user_id,

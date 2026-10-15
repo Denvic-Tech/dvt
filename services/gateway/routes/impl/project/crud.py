@@ -240,6 +240,7 @@ def _project_to_read_schema(
         *,
         user_email: str | None = None,
         last_runs_by_project_id: dict[str, list] | None = None,
+        is_favorite: bool = False,
 ) -> ProjectReadSchema:
     last_runs = []
     if last_runs_by_project_id is not None:
@@ -251,6 +252,7 @@ def _project_to_read_schema(
         **project.model_dump(),
         user_email=user_email,
         last_runs=last_runs,
+        is_favorite=is_favorite,
     )
 
 
@@ -319,6 +321,11 @@ async def _build_project_folder_items(
         if include_last_runs
         else {}
     )
+    favorite_project_ids = await project_crud.get_favorite_project_ids(
+        session,
+        user_id=user.id,
+        project_ids=project_ids,
+    )
 
     items: list[ProjectFolderItemSchema] = []
     for item_ref in item_refs:
@@ -340,6 +347,7 @@ async def _build_project_folder_items(
                         projects[item_ref.item_id],
                         user_email=user_emails.get(projects[item_ref.item_id].user_id),
                         last_runs_by_project_id=last_runs_by_project_id,
+                        is_favorite=item_ref.item_id in favorite_project_ids,
                     ),
                 )
             )
@@ -580,6 +588,7 @@ async def get_projects_route_impl(
         user: UserRecord,
         sort_by: Literal["default", "updated_at"],
         sort_order: Literal["asc", "desc"],
+        limit: int | None = None,
 ) -> list[ProjectReadSchema]:
     base_stmt = (
         sa.select(ProjectRecord)
@@ -598,6 +607,8 @@ async def get_projects_route_impl(
             ProjectRecord.updated_at.asc() if sort_order == "asc" else ProjectRecord.updated_at.desc(),
             ProjectRecord.id,
         )
+    if limit is not None:
+        base_stmt = base_stmt.limit(limit)
 
     projects = (await session.execute(base_stmt)).scalars().all()
     if not projects:
@@ -612,11 +623,17 @@ async def get_projects_route_impl(
         user=user,
         project_ids=[project.id for project in projects],
     )
+    favorite_project_ids = await project_crud.get_favorite_project_ids(
+        session,
+        user_id=user.id,
+        project_ids=[project.id for project in projects],
+    )
     return [
         _project_to_read_schema(
             project,
             user_email=user_emails.get(project.user_id),
             last_runs_by_project_id=last_runs_by_project_id,
+            is_favorite=project.id in favorite_project_ids,
         )
         for project in projects
     ]
@@ -674,10 +691,16 @@ async def get_project_by_id_route_impl(
         session,
         user_ids=[project.user_id],
     )
+    favorite_project_ids = await project_crud.get_favorite_project_ids(
+        session,
+        user_id=user.id,
+        project_ids=[project.id],
+    )
     return _project_to_read_schema(
         project,
         user_email=user_emails.get(project.user_id),
         last_runs_by_project_id=last_runs_by_project_id,
+        is_favorite=project.id in favorite_project_ids,
     )
 
 

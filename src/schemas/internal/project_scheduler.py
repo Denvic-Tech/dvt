@@ -117,6 +117,7 @@ class ProjectScheduleRunResponse(BaseModel):
 class ProjectScheduleResponse(ProjectScheduleRequest):
     """Схема данных для возврата данных о расписаниях проектов."""
 
+    project_name: str | None = Field(None, description="Название проекта")
     disabled: bool = Field(False, description="Отключено ли расписание")
     scheduled_by_user_id: str | None = Field(
         None,

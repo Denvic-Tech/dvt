@@ -5,6 +5,7 @@ from .exceptions import (
     ProjectVariableAlreadyExistsException,
     ProjectVariableNotFoundException,
 )
+from .favorites import get_favorite_project_ids
 from .folders import (
     ProjectFolderItemRef,
     ProjectFolderItemsPage,

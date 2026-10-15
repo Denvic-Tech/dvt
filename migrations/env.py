@@ -33,6 +33,7 @@ from src.modules.task_execution.infra.db_models import (  # noqa: F403
 from src.modules.user.infra.db_models import UserRecord  # noqa: F403
 from src.modules.project.infra.db_models import (
     ProjectRecord,  # noqa: F403
+    ProjectFavoriteRecord,  # noqa: F403
     ProjectFolderRecord,  # noqa: F403
     ProjectScheduleRecord,  # noqa: F403
     ProjectScheduleRunRecord  # noqa: F403

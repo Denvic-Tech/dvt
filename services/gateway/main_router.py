@@ -26,6 +26,7 @@ from .routes import (
     user,
     utils,
     websocket,
+    widgets,
 )
 from .routes.installation import update
 from .routes.internal.ai_mcp.router import router as ai_mcp_internal_router
@@ -46,6 +47,7 @@ router.include_router(organization.router)
 router.include_router(project.router, dependencies=GLOBAL_DEPS)
 router.include_router(db_connections.router)
 router.include_router(data_catalog.router, dependencies=GLOBAL_DEPS)
+router.include_router(widgets.router, dependencies=GLOBAL_DEPS)
 router.include_router(utils.router)
 router.include_router(storage.router, dependencies=GLOBAL_DEPS)
 router.include_router(public.router, dependencies=GLOBAL_DEPS)

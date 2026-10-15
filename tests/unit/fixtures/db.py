@@ -32,6 +32,7 @@ from src.modules.pipeline_graph.infra.db_models import (  # noqa: F403
     SubgraphRecord,
 )
 from src.modules.project.infra.db_models import (
+    ProjectFavoriteRecord,  # noqa: F403
     ProjectFolderRecord,  # noqa: F403
     ProjectRecord,  # noqa: F403
     ProjectScheduleRecord,  # noqa: F403
