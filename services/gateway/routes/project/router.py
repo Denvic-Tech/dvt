@@ -5,6 +5,7 @@ from .favorites import router as favorites_router
 from .copy import router as copy_router
 from .variables import router as variables_router
 from .file_inputs import router as file_inputs_router
+from .transfer import router as transfer_router
 
 from services.gateway.routes.project.graph.common import router as graph_common_router
 from services.gateway.routes.project.graph.graph_operations import router as graph_operations_router
@@ -24,6 +25,7 @@ router = APIRouter()
 router.include_router(favorites_router, prefix="/projects", tags=["Projects"])
 router.include_router(crud_router, prefix="/projects", tags=["Projects"])
 router.include_router(copy_router, prefix="/projects", tags=["Projects"])
+router.include_router(transfer_router, prefix="/projects", tags=["Project Transfer"])
 router.include_router(schedule_router, prefix="/projects", tags=["Project Scheduler"])
 router.include_router(task_router, prefix="/projects/{project_id}", tags=["Tasks"])
 router.include_router(logs_router, prefix="/projects/{project_id}", tags=["Project Logs"])
