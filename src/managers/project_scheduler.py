@@ -492,6 +492,7 @@ class ProjectSchedulerManager:
         retry_delay_seconds: int = 60,
         retry_backoff: RetryBackoff = RetryBackoff.FIXED,
         retry_max_delay_seconds: int = 3600,
+        disabled: bool = False,
     ) -> None:
         CronTrigger.from_crontab(cron, timezone="UTC")
         validate_retry_policy(
@@ -515,7 +516,7 @@ class ProjectSchedulerManager:
             ).first()
             values = {
                 "cron": cron,
-                "disabled": False,
+                "disabled": disabled,
                 "scheduled_by_user_id": scheduled_by_user_id,
                 "mode": mode,
                 "force_exec": force_exec,
@@ -537,6 +538,13 @@ class ProjectSchedulerManager:
                     **values,
                 )
             await session.commit()
+
+        if disabled:
+            if self.get_job(project_id) is not None:
+                self.scheduler.remove_job(project_id)
+            self._reconcile_wakeup.set()
+            logger.info(f"Project ID={project_id} schedule saved disabled with cron '{cron}'")
+            return
 
         self._schedule_project_in_memory(
             project_id=project_id,
