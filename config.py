@@ -400,6 +400,13 @@ class OTHER:
     NODE_FILE_UPLOAD_MAX_SIZE_BYTES = int(
         os.getenv("NODE_FILE_UPLOAD_MAX_SIZE_BYTES", str(20 * 1024 * 1024))
     )
+    # Project export/import bundles (.dvtpkg): archive upload limit and zip-bomb guard.
+    PROJECT_TRANSFER_BUNDLE_MAX_SIZE_BYTES = _get_positive_int_env(
+        "PROJECT_TRANSFER_BUNDLE_MAX_SIZE_BYTES", 512 * 1024 * 1024
+    )
+    PROJECT_TRANSFER_BUNDLE_MAX_UNCOMPRESSED_BYTES = _get_positive_int_env(
+        "PROJECT_TRANSFER_BUNDLE_MAX_UNCOMPRESSED_BYTES", 2 * 1024 * 1024 * 1024
+    )
     DISABLE_STORE: bool = os.getenv("DISABLE_STORE", "no").lower() in _TRUE_STATEMENT_TOKENS
 
 

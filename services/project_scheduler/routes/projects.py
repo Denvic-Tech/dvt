@@ -34,6 +34,7 @@ async def schedule(
         retry_delay_seconds=project.retry_delay_seconds,
         retry_backoff=project.retry_backoff,
         retry_max_delay_seconds=project.retry_max_delay_seconds,
+        disabled=project.disabled,
     )
 
     return ScheduleResponse(

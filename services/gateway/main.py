@@ -73,7 +73,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["retry-after", "cool-down", "X-Language"],
+    expose_headers=[
+        "retry-after",
+        "cool-down",
+        "X-Language",
+        # Project export (.dvtpkg): file name and post-export warnings.
+        "Content-Disposition",
+        "X-DVT-Export-Warnings",
+    ],
 )
 
 Instrumentator().instrument(app).expose(app, tags=["Metrics"])

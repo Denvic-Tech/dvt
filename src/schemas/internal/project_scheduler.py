@@ -56,6 +56,10 @@ class ProjectScheduleRequest(BaseModel):
 
 class ProjectScheduleServiceRequest(ProjectScheduleRequest):
     scheduled_by_user_id: str = Field(..., description="ID пользователя, сохранившего расписание")
+    disabled: bool = Field(
+        False,
+        description="Создать расписание выключенным, без регистрации задания в планировщике",
+    )
 
 
 class ProjectSchedulePatchRequest(BaseModel):
