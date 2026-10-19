@@ -44,11 +44,6 @@ class ProjectScheduleRequest(BaseModel):
         description="Максимальная задержка exponential backoff",
     )
 
-    disabled: bool = Field(
-        False,
-        description="Создать расписание выключенным, без регистрации задания в планировщике",
-    )
-
     @model_validator(mode="after")
     def validate_retry_settings(self):
         validate_retry_policy(
@@ -61,6 +56,10 @@ class ProjectScheduleRequest(BaseModel):
 
 class ProjectScheduleServiceRequest(ProjectScheduleRequest):
     scheduled_by_user_id: str = Field(..., description="ID пользователя, сохранившего расписание")
+    disabled: bool = Field(
+        False,
+        description="Создать расписание выключенным, без регистрации задания в планировщике",
+    )
 
 
 class ProjectSchedulePatchRequest(BaseModel):
