@@ -38,3 +38,8 @@ def sql_table_ref_to_raw_locator(ref: SqlTableRef, *, dialect: str) -> RawLocato
     if supports_schemas(dialect):
         return RawLocator(table=ref.table, schema=ref.schema, database=ref.catalog)
     return RawLocator(table=ref.table, schema=None, database=ref.schema or ref.catalog)
+
+
+def sql_reference(ref: SqlTableRef) -> str:
+    """Имя таблицы так, как её сопоставляет lineage: `catalog.schema.table` в нижнем регистре."""
+    return ".".join(part for part in (ref.catalog, ref.schema, ref.table) if part).lower()

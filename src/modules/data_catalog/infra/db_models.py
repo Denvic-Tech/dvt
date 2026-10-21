@@ -234,3 +234,12 @@ class ProjectCatalogProjectionRecord(SQLModel, table=True):
             ondelete="CASCADE",
         ),
     )
+
+
+PROJECTION_LINEAGE_COLUMN = "lineage"
+
+# Документ lineage большой и нужен только use case lineage: колонка добавляется в таблицу, но не
+# маппится на атрибут записи, поэтому выборки ProjectCatalogProjectionRecord её не загружают.
+ProjectCatalogProjectionRecord.__table__.append_column(
+    sa.Column(PROJECTION_LINEAGE_COLUMN, JSONBCompat, nullable=True)
+)

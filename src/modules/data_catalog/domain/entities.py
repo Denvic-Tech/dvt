@@ -149,6 +149,8 @@ class RebuildResult:
     projection: ProjectCatalogProjection | None = None
     link_count: int = 0
     error: str | None = None
+    port_count: int = 0
+    column_count: int = 0
 
 
 @dataclass(slots=True)

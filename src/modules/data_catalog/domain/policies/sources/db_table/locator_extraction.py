@@ -125,7 +125,7 @@ def _collect_locator_inputs(
 ) -> tuple[dict[str, GraphInputValue], ProjectionDiagnostic | None]:
     if spec.kind is LocatorKind.EXPLICIT:
         required = (spec.table_input,)
-        optional = (spec.schema_input, spec.database_input)
+        optional = (spec.schema_input, spec.database_input, spec.columns_input)
     elif spec.kind is LocatorKind.SQL:
         required = (spec.sql_input,)
         optional = ()

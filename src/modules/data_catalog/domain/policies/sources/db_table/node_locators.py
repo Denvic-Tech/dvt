@@ -19,6 +19,7 @@ class NodeLocatorSpec:
     sql_input: str = "sql_code"
     mode_input: str = "mode"
     manual_variables_input: str = "manual_variables"
+    columns_input: str = "columns"
 
     @property
     def explicit_inputs(self) -> tuple[str, str, str]:

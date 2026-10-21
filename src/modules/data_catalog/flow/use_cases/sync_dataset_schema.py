@@ -15,6 +15,7 @@ from ...domain import (
     DatasetRepository,
     DatasetSchemaSource,
     FieldStatus,
+    ProjectionRepository,
     SchemaActor,
     SchemaSourceNotFoundError,
     SchemaSourceUnavailableError,
@@ -38,9 +39,11 @@ class SyncDatasetSchema:
         connections: DatasetConnectionRepository,
         schema_sources: Mapping[str, DatasetSchemaSource],
         ttl_seconds: int,
+        projections: ProjectionRepository | None = None,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
     ) -> None:
+        self._projections = projections
         self._datasets = datasets
         self._fields = fields
         self._connections = connections
@@ -128,10 +131,16 @@ class SyncDatasetSchema:
         dataset.updated_at = now
         await self._datasets.update(dataset)
 
+        new_count = sum(1 for field in merged if field.status is FieldStatus.NEW)
+        missing_count = sum(1 for field in merged if field.status is FieldStatus.MISSING)
+        if self._projections is not None and (new_count or missing_count):
+            # Штамп проекции не покрывает поля: состав колонок источника изменился, lineage устарел.
+            await self._projections.mark_stale_for_dataset(dataset.id)
+
         return SyncOutcome(
             status="synced",
-            new=sum(1 for field in merged if field.status is FieldStatus.NEW),
-            missing=sum(1 for field in merged if field.status is FieldStatus.MISSING),
+            new=new_count,
+            missing=missing_count,
             type_changed=sum(1 for field in merged if field.status is FieldStatus.TYPE_CHANGED),
             fields=tuple(merged),
         )

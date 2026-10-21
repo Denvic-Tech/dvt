@@ -89,3 +89,21 @@ class SourceNotSupportedError(DataCatalogDomainError):
     name = "DATA_CATALOG_SOURCE_NOT_SUPPORTED"
     code = "DATA_CATALOG_017"
     description = "Connection type is not supported by the source adapter."
+
+
+class InvalidLineageRefError(DataCatalogDomainError):
+    name = "DATA_CATALOG_LINEAGE_REF_INVALID"
+    code = "DATA_CATALOG_018"
+    description = "Lineage reference has an invalid format."
+
+
+class LineageNodePortNotFoundError(DataCatalogDomainError):
+    name = "DATA_CATALOG_LINEAGE_PORT_NOT_FOUND"
+    code = "DATA_CATALOG_019"
+    description = "Lineage for the node port was not found in the project projection."
+
+
+class LineageColumnNotFoundError(DataCatalogDomainError):
+    name = "DATA_CATALOG_LINEAGE_COLUMN_NOT_FOUND"
+    code = "DATA_CATALOG_020"
+    description = "Lineage column was not found on the node port."

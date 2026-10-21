@@ -27,6 +27,25 @@ class SQLAlchemyDatasetFieldRepository(DatasetFieldRepository):
         records = (await self._session.execute(statement)).scalars().all()
         return [field_to_domain(record) for record in records]
 
+    async def list_for_datasets(self, dataset_ids: Sequence[str]) -> dict[str, list[DatasetField]]:
+        unique = list(dict.fromkeys(dataset_ids))
+        result: dict[str, list[DatasetField]] = {dataset_id: [] for dataset_id in unique}
+        if not unique:
+            return result
+        statement = (
+            sa.select(DatasetFieldRecord)
+            .where(DatasetFieldRecord.dataset_id.in_(unique))
+            .order_by(
+                DatasetFieldRecord.dataset_id,
+                DatasetFieldRecord.ordinal.is_(None),
+                DatasetFieldRecord.ordinal,
+                DatasetFieldRecord.name,
+            )
+        )
+        for record in (await self._session.execute(statement)).scalars():
+            result.setdefault(record.dataset_id, []).append(field_to_domain(record))
+        return result
+
     async def save_many(self, fields: Sequence[DatasetField]) -> None:
         if not fields:
             return

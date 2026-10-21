@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from ...catalog_values import DatasetLocator
 from ...exceptions import UnknownSourceKindError
-from .contracts import ResolvedLocators, SourceCandidate, SourceKindAdapter
+from .contracts import ResolvedLocator, ResolvedLocators, SourceCandidate, SourceKindAdapter
 from .db_table import DbTableAdapter
 
 
@@ -42,6 +42,7 @@ def default_registry() -> SourceKindRegistry:
 
 
 __all__ = [
+    "ResolvedLocator",
     "ResolvedLocators",
     "SourceCandidate",
     "SourceKindAdapter",

@@ -29,11 +29,22 @@ class SourceCandidate(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedLocator:
+    """Адрес источника плюс имя, под которым он упомянут в SQL (для сопоставления колонок lineage)."""
+
+    locator: DatasetLocator
+    reference: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedLocators:
-    locators: tuple[DatasetLocator, ...]
+    locators: tuple[ResolvedLocator, ...]
     resolved_via: ResolvedVia
     used_variables: bool = False
     diagnostics: tuple[ProjectionDiagnostic, ...] = ()
+    sql: str | None = None
+    dialect: str | None = None
+    column_filter: tuple[str, ...] | None = None
 
 
 class SourceKindAdapter(Protocol):

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .domain import (
     DatasetSchemaSource,
+    LineageTextRenderer,
     ObservationOutcome,
     ProjectRef,
     RebuildResult,
@@ -18,14 +19,19 @@ from .domain import (
     TableSchema,
     default_registry,
 )
+from .domain.policies import build_builtin_rules
 from .flow import (
     BuildSchema,
     ConfirmFieldRename,
+    ExplainField,
     GetDataset,
     GetDatasetUsage,
+    GetFieldDependents,
+    GetNodeFields,
     OnProjectVariablesChanged,
     ProjectionFreshnessProvider,
     RebuildProjectCatalogProjection,
+    RebuildProjectLineage,
     ReconcileCatalogProjections,
     RecordObservedSchema,
     RefreshDatasetSchema,
@@ -36,7 +42,10 @@ from .flow import (
 from .infra import (
     DataFrameSchemaMapper,
     DataFrameSchemaMapping,
+    JsonLineageTemplateRenderer,
+    NodeDslColumnRulePlanner,
     NodeDslExpressionResolver,
+    NodeDslPortTypeGateway,
     SQLAlchemyCatalogProjectSource,
     SQLAlchemyDatasetConnectionRepository,
     SQLAlchemyDatasetFieldRepository,
@@ -45,6 +54,7 @@ from .infra import (
     SQLAlchemyProjectGraphGateway,
     SQLAlchemyProjectionRepository,
     SQLConnectionLocatorGateway,
+    SqlglotColumnLineageExtractor,
     SqlglotTableReferenceExtractor,
     build_observation,
 )
@@ -74,6 +84,9 @@ class DataCatalogUseCases:
     set_descriptions: SetDatasetDescriptions
     confirm_rename: ConfirmFieldRename
     record_observed: RecordObservedSchema
+    get_node_fields: GetNodeFields
+    explain_field: ExplainField
+    get_field_dependents: GetFieldDependents
     sync_schema: SyncDatasetSchema | None = None
     refresh_schema: RefreshDatasetSchema | None = None
 
@@ -84,15 +97,25 @@ def build_data_catalog_use_cases(
     schema_sources: Mapping[str, DatasetSchemaSource] | None = None,
     schema_sync_ttl_sec: int = DEFAULT_SCHEMA_SYNC_TTL_SEC,
     sources: SourceKindRegistry | None = None,
+    lineage_renderer: LineageTextRenderer | None = None,
 ) -> DataCatalogUseCases:
     """schema_sources: источник схемы на каждый kind сущности; без него sync/refresh недоступны."""
     registry = sources or default_registry()
+    renderer = lineage_renderer or _default_renderer()
     datasets = SQLAlchemyDatasetRepository(session)
     fields = SQLAlchemyDatasetFieldRepository(session)
     connections = SQLAlchemyDatasetConnectionRepository(session)
     links = SQLAlchemyDatasetLinkRepository(session)
     projections = SQLAlchemyProjectionRepository(session)
     graph_gateway = SQLAlchemyProjectGraphGateway(session)
+    planner = NodeDslColumnRulePlanner()
+    lineage_builder = RebuildProjectLineage(
+        fields=fields,
+        port_types=NodeDslPortTypeGateway(),
+        rules=build_builtin_rules(planner),
+        sql_lineage=SqlglotColumnLineageExtractor(),
+        planner=planner,
+    )
 
     rebuild = RebuildProjectCatalogProjection(
         datasets=datasets,
@@ -104,6 +127,7 @@ def build_data_catalog_use_cases(
         expression_resolver=NodeDslExpressionResolver(),
         sql_extractor=SqlglotTableReferenceExtractor(),
         sources=registry,
+        lineage_builder=lineage_builder,
     )
     sync_schema = (
         SyncDatasetSchema(
@@ -112,6 +136,7 @@ def build_data_catalog_use_cases(
             connections=connections,
             schema_sources=schema_sources,
             ttl_seconds=schema_sync_ttl_sec,
+            projections=projections,
         )
         if schema_sources
         else None
@@ -146,10 +171,26 @@ def build_data_catalog_use_cases(
             connections=connections,
             links=links,
             sources=registry,
+            projections=projections,
+        ),
+        get_node_fields=GetNodeFields(
+            projections=projections, fields=fields, renderer=renderer, freshness=freshness
+        ),
+        explain_field=ExplainField(
+            projections=projections, fields=fields, renderer=renderer, freshness=freshness
+        ),
+        get_field_dependents=GetFieldDependents(
+            datasets=datasets, fields=fields, links=links, projections=projections, freshness=freshness
         ),
         sync_schema=sync_schema,
         refresh_schema=refresh_schema,
     )
+
+
+def _default_renderer() -> LineageTextRenderer:
+    import config
+
+    return JsonLineageTemplateRenderer(config.PROJECT.LOCALES_DIR)
 
 
 async def rebuild_project_catalog_projection(

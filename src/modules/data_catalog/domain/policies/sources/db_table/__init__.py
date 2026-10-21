@@ -15,7 +15,7 @@ from .physical_key import (
     normalize_locator,
     supports_schemas,
 )
-from .sql_tables import select_table_candidates, sql_table_ref_to_raw_locator
+from .sql_tables import select_table_candidates, sql_reference, sql_table_ref_to_raw_locator
 
 __all__ = [
     "CONNECTION_SOURCE_NODES",
@@ -34,6 +34,7 @@ __all__ = [
     "extract_locator_candidates",
     "normalize_locator",
     "select_table_candidates",
+    "sql_reference",
     "sql_table_ref_to_raw_locator",
     "supports_schemas",
 ]

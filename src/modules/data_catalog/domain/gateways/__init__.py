@@ -13,6 +13,7 @@ from ..catalog_values import (
     SqlTableReferences,
 )
 from ..graph import ConnectionLocator, ProjectGraphSnapshot, ProjectStampSource
+from ..lineage import NodePortTypes, PlannedRuleColumn, SqlLineageResult, SqlSchemaHint
 
 
 class ProjectGraphGateway(Protocol):
@@ -95,3 +96,36 @@ class CatalogProjectSource(Protocol):
         или с graph_revision проекции, не совпадающим с graph_revision проекта.
         """
         ...
+
+
+class NodePortTypeGateway(Protocol):
+    def get_port_types(self, node_name: str) -> NodePortTypes | None:
+        """Типы портов ноды по имени класса; None, если нода неизвестна реестру."""
+        ...
+
+
+class SqlColumnLineageExtractor(Protocol):
+    def extract(
+        self,
+        sql: str,
+        dialect: str,
+        project_variables: Mapping[str, Any],
+        schema: SqlSchemaHint,
+    ) -> SqlLineageResult:
+        """Колонки результата запроса и их источники; неразбираемый SQL даёт supported=False."""
+        ...
+
+
+class ColumnRulePlanner(Protocol):
+    def plan(
+        self,
+        operation: str,
+        rules: Sequence[Mapping[str, Any]],
+        columns: Sequence[str],
+    ) -> tuple[PlannedRuleColumn, ...] | None:
+        """Статический план column_rules; None, если план зависит от данных или правила невалидны."""
+        ...
+
+
+class LineageTextRenderer(Protocol):
+    def render(self, template_key: str, params: Mapping[str, Any], locale: str) -> str | None: ...
