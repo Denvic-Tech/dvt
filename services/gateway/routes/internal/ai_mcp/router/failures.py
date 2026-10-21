@@ -8,6 +8,8 @@ from src.modules.data_catalog.domain.exceptions import (
     DatasetNotFoundError,
     FieldRenameNotApplicableError,
     InvalidFieldReferenceError,
+    LineageColumnNotFoundError,
+    LineageNodePortNotFoundError,
 )
 from src.modules.db_catalog.domain.exceptions import (
     CatalogCacheUnavailableError,
@@ -49,6 +51,12 @@ _ERROR_RESPONSES = (
         404,
         "DATASET_NOT_FOUND_OR_DENIED",
         "Dataset was not found or is not accessible.",
+    ),
+    (
+        (LineageNodePortNotFoundError, LineageColumnNotFoundError),
+        404,
+        "LINEAGE_TARGET_NOT_FOUND",
+        "Lineage for the node, port or column was not found.",
     ),
     (
         (DatasetFieldNotFoundError, InvalidFieldReferenceError, FieldRenameNotApplicableError),

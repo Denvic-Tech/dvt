@@ -14,6 +14,16 @@ Data Catalog хранит знание о физических источник�
 - `refresh_dataset(dataset_id)` — принудительное чтение схемы из источника с обходом кэша. Возвращает diff `new`, `missing`, `type_changed` и `affected_project_ids`. Недоступный источник даёт `status: failed`, вид без источника схемы даёт `status: unsupported`, а не ошибку инструмента.
 - `confirm_field_rename(dataset_id, missing_field, new_field)` — подтверждение, что пропавшая колонка переименована. Старая строка со статусом `missing` получает имя и атрибуты новой, сохраняет своё описание, новая строка удаляется. Требует `missing` у старой и `new`, `ok` или `type_changed` у новой.
 
+## Происхождение колонок (lineage)
+
+Каталог статически проходит DataFrame-порты сохранённого графа и для каждой ноды знает состав колонок на выходе и происхождение каждой. Это знание из графа, а не из прогона: ноды с динамической схемой (Pivot, произвольный код, источники без статической схемы) честно помечены `unresolved`.
+
+- `get_node_fields(project_id, node_id, port, locale)` — колонки порта ноды. У каждой `op`: `source` (прочитана из сущности), `pass` (без изменений), `rename`, `compute` (выражение, правило, константа), `aggregate`, `merge` (join по общему ключу, union), `unknown`. `origin` — корневая ссылка `ds:<dataset_id>:<field_id>` или `node:<node_id>:<port>:<column>`; `deps` — прямые родители; `deps_unknown=true` значит, что часть родителей неизвестна. `description` и `description_provenance`: `declared`/`source` у поля сущности, `inherited` после pass/rename или слияния одинаковых текстов, `derived` у вычислений, `unknown` когда текста нет. `explanation` — текст операции на языке `locale` (`en`, `ru`).
+- `explain_field(project_id, node_id, column, port, direction, max_depth, locale)` — цепочка шагов от колонки к источникам (`upstream`) или к потребителям внутри проекта (`downstream`); `gaps` перечисляет места, где происхождение теряется.
+- `get_field_dependents(dataset_id, field_id, max_depth)` — колонки нод во всех доступных проектах, зависящие от поля сущности прямо или транзитивно: радиус поражения перед изменением колонки источника.
+
+Для SQL-нод (`ReadQueryFromDBV3`, `ExecuteSQL`) колонки выводятся из запроса: агрегаты становятся `aggregate`, выражения `compute`, ветви `UNION` сливаются в `merge`; таблицы, не зарегистрированные в каталоге, дают `deps_unknown`. Поля источника должны быть синхронизированы (`get_dataset` или `refresh_dataset`), иначе порт Read-ноды помечен `lineage_schema_not_synced`. Lineage пересобирается вместе с проекцией проекта и устаревает при изменении состава полей источника.
+
 ## Описания и комментарии
 
 У каждого поля два источника текста: `description`, написанное в DVT, и `source_comment`, комментарий колонки в БД. Комментарий никогда не копируется в описание. В ответах есть `effective_description` и `description_provenance`: `declared` — своё описание, `source` — показан комментарий источника, `none` — текста нет. Для сущности provenance бывает только `declared` или `none`. `description_updated_by` и `description_updated_at` указывают автора последнего изменения.

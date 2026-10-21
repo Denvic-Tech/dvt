@@ -646,6 +646,53 @@ async def confirm_field_rename(
     return await _call("confirm_field_rename", locals())
 
 
+@mcp.tool(annotations=READ_CLOSED)
+async def get_node_fields(
+    project_id: str,
+    node_id: str,
+    port: str | None = None,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """List the columns of a node's DataFrame port with their lineage and inherited descriptions.
+
+    Each field carries `op` (source/pass/rename/compute/aggregate/merge/unknown), its `origin`
+    reference, dependencies, an `explanation` text and the effective description with provenance
+    (declared/source/inherited/derived/unknown). Lineage is static knowledge from the saved graph.
+    """
+    return await _call("get_node_fields", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def explain_field(
+    project_id: str,
+    node_id: str,
+    column: str,
+    port: str | None = None,
+    direction: Literal["upstream", "downstream"] = "upstream",
+    max_depth: int = 20,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """Trace one node column to its sources (upstream) or to its consumers (downstream) in a project.
+
+    Steps follow the saved graph; `gaps` list places where lineage is unknown (dynamic inputs,
+    custom code, sources without a static schema).
+    """
+    return await _call("explain_field", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_field_dependents(
+    dataset_id: str,
+    field_id: str,
+    max_depth: int = 20,
+) -> dict[str, Any]:
+    """List node columns in every accessible project that depend on a catalog dataset field.
+
+    Use before changing or dropping a source column: the result is the blast radius across projects.
+    """
+    return await _call("get_field_dependents", locals())
+
+
 @mcp.tool(annotations=WRITE_EXECUTION)
 async def run_project(
     project_id: str,

@@ -66,6 +66,9 @@ EXPECTED_TOOLS = {
     "set_dataset_description",
     "refresh_dataset",
     "confirm_field_rename",
+    "get_node_fields",
+    "explain_field",
+    "get_field_dependents",
     "run_project",
     "get_task",
     "wait_task",
@@ -459,6 +462,9 @@ async def test_layout_protocol_defaults_to_preview_and_preserves_false(monkeypat
 
 def test_catalog_write_tools_have_expected_annotations() -> None:
     by_name = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
+    for name in ("get_node_fields", "explain_field", "get_field_dependents"):
+        assert by_name[name].annotations.read_only_hint is True
+        assert by_name[name].annotations.open_world_hint is False
     assert by_name["set_dataset_description"].annotations.idempotent_hint is True
     assert by_name["set_dataset_description"].annotations.open_world_hint is False
     assert by_name["refresh_dataset"].annotations.open_world_hint is True

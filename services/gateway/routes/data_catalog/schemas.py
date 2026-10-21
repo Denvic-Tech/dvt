@@ -148,3 +148,98 @@ class RefreshOutcomeSchema(BaseModel):
     affected_project_ids: list[str] = Field(default_factory=list)
     error: str | None = None
     error_kind: CheckErrorKindLiteral | None = None
+
+
+LineageOpLiteral = Literal["source", "pass", "rename", "compute", "aggregate", "merge", "unknown"]
+PortStatusLiteral = Literal["resolved", "partially_resolved", "unresolved"]
+LineageProvenanceLiteral = Literal["declared", "source", "inherited", "derived", "unknown"]
+ExplainDirectionLiteral = Literal["upstream", "downstream"]
+
+
+class LineageRefSchema(BaseModel):
+    key: str = Field(description="`ds:<dataset_id>:<field_id>` или `node:<node_id>:<port>:<column>`.")
+    kind: Literal["ds", "node"]
+    dataset_id: str | None = None
+    field_id: str | None = None
+    node_id: str | None = None
+    port: str | None = None
+    column: str | None = None
+
+
+class NodeFieldSchema(BaseModel):
+    name: str
+    ref: LineageRefSchema
+    op: LineageOpLiteral
+    origin: LineageRefSchema
+    deps: list[LineageRefSchema] = Field(default_factory=list)
+    deps_unknown: bool = False
+    description: str | None = None
+    description_provenance: LineageProvenanceLiteral = "unknown"
+    description_source: LineageRefSchema | None = None
+    explanation: str | None = None
+
+
+class NodeFieldsResponseSchema(BaseModel):
+    project_id: str
+    node_id: str
+    node_name: str
+    port: str
+    role: Literal["output", "input"]
+    status: PortStatusLiteral
+    reason: str | None = None
+    detail: str | None = None
+    available_ports: list[str] = Field(default_factory=list)
+    fields: list[NodeFieldSchema] = Field(default_factory=list)
+
+
+class ExplainStepSchema(BaseModel):
+    ref: LineageRefSchema
+    depth: int = Field(ge=0)
+    op: LineageOpLiteral
+    text: str | None = None
+    node_id: str | None = None
+    node_name: str | None = None
+    port: str | None = None
+    column: str | None = None
+    deps_unknown: bool = False
+    dataset_id: str | None = None
+    field_id: str | None = None
+    field_name: str | None = None
+    deps: list[LineageRefSchema] = Field(
+        default_factory=list,
+        description="Direct parents of this step; lets a client rebuild the tree without guessing by depth.",
+    )
+
+
+class LineageGapSchema(BaseModel):
+    ref: LineageRefSchema
+    reason: str
+    detail: str | None = None
+
+
+class FieldExplanationSchema(BaseModel):
+    root: LineageRefSchema
+    direction: ExplainDirectionLiteral
+    description: str | None = None
+    description_provenance: LineageProvenanceLiteral = "unknown"
+    description_source: LineageRefSchema | None = None
+    truncated: bool = False
+    steps: list[ExplainStepSchema] = Field(default_factory=list)
+    gaps: list[LineageGapSchema] = Field(default_factory=list)
+
+
+class FieldDependentSchema(BaseModel):
+    project_id: str
+    node_id: str
+    node_name: str
+    port: str
+    column: str
+    op: LineageOpLiteral
+    depth: int = Field(ge=1)
+    ref: LineageRefSchema
+
+
+class FieldDependentsResponseSchema(BaseModel):
+    dataset_id: str
+    field_id: str
+    items: list[FieldDependentSchema] = Field(default_factory=list)

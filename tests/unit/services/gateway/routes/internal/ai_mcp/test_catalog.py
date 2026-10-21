@@ -234,3 +234,45 @@ async def test_refresh_and_rename_handlers(wire):
         )
     assert error.value.detail["code"] == "INVALID_ARGUMENTS"
     assert "old is not missing" in error.value.detail["message"]
+
+
+@pytest.mark.asyncio
+async def test_lineage_tools_use_project_scope_and_filter_dependents(wire, monkeypatch):
+    from src.modules.data_catalog.domain import (
+        FieldDependent,
+        LineageOp,
+        LineageRef,
+        NodeFieldsResult,
+        PortStatus,
+    )
+
+    fields_result = NodeFieldsResult(
+        project_id="p-allowed", node_id="n1", node_name="DataFrameFilter", port="output", role="output",
+        status=PortStatus.RESOLVED, fields=(), available_ports=("output",),
+    )
+    dependents = [
+        FieldDependent("p-allowed", "n1", "DataFrameFilter", "output", "id", LineageOp.PASS, 1, LineageRef.node_column("n1", "output", "id")),
+        FieldDependent("p-other", "n2", "DataFrameFilter", "output", "id", LineageOp.PASS, 1, LineageRef.node_column("n2", "output", "id")),
+    ]
+    use_cases = SimpleNamespace(
+        get_node_fields=SimpleNamespace(execute=AsyncMock(return_value=fields_result)),
+        get_field_dependents=SimpleNamespace(execute=AsyncMock(return_value=dependents)),
+    )
+    wire(links={"d1": ["p-allowed"]}, use_cases=use_cases)
+    project = SimpleNamespace(id="p-allowed", organization_id="org")
+    monkeypatch.setattr(catalog, "get_accessible_project", AsyncMock(return_value=project))
+
+    fields = await catalog.get_node_fields(principal=_principal(), session=object(), project_id="p-allowed", node_id="n1", locale="ru")
+    assert fields["node_id"] == "n1" and fields["status"] == "resolved"
+    kwargs = use_cases.get_node_fields.execute.await_args.kwargs
+    assert (kwargs["organization_id"], kwargs["locale"]) == ("org", "ru")
+
+    with pytest.raises(AIMCPHTTPError) as bad_locale:
+        await catalog.get_node_fields(principal=_principal(), session=object(), project_id="p-allowed", node_id="n1", locale="xx")
+    assert bad_locale.value.detail["code"] == "INVALID_ARGUMENTS"
+
+    result = await catalog.get_field_dependents(principal=_principal(), session=object(), dataset_id="d1", field_id="f1")
+    assert [item["project_id"] for item in result["items"]] == ["p-allowed"], "other projects are hidden by token scope"
+
+    with pytest.raises(AIMCPHTTPError):
+        await catalog.explain_field(principal=_principal(), session=object(), project_id="p-allowed", node_id="n1", column="id", direction="sideways")

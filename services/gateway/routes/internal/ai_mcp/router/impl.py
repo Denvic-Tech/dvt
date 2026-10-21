@@ -34,6 +34,9 @@ def _safe_operation_summary(tool_name: str, arguments: dict[str, Any]) -> dict[s
         "connection_id": arguments.get("connection_id"),
         "task_id": arguments.get("task_id"),
         "dataset_id": arguments.get("dataset_id"),
+        "node_id": arguments.get("node_id"),
+        "field_id": arguments.get("field_id"),
+        "column": arguments.get("column"),
     }
     if tool_name == "set_dataset_description":
         # Текст описаний в audit-лог не попадает: только объём изменения.

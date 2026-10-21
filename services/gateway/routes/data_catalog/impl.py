@@ -40,6 +40,7 @@ from src.modules.user.infra.fastapi.dependencies import UserAccessOnly
 
 import config
 
+from .lineage_schemas import dependent_to_schema
 from .schemas import (
     DatasetDescriptionPatchSchema,
     DatasetDetailsSchema,
@@ -50,6 +51,7 @@ from .schemas import (
     DatasetUsageEntrySchema,
     DatasetUsageResponseSchema,
     DirectionLiteral,
+    FieldDependentsResponseSchema,
     FieldRefSchema,
     FieldRenameConfirmSchema,
     RefreshOutcomeSchema,
@@ -253,6 +255,38 @@ async def get_dataset_usage(
         raise _not_found(dataset_id) from exc
     await session.commit()
     return DatasetUsageResponseSchema(items=[usage_to_schema(entry) for entry in entries])
+
+
+@router.get(
+    "/datasets/{dataset_id}/fields/{field_id}/dependents",
+    response_model=FieldDependentsResponseSchema,
+)
+async def get_field_dependents(
+    dataset_id: str,
+    field_id: str,
+    user: UserAccessOnly,
+    session: AsyncSessionDepends,
+    max_depth: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> FieldDependentsResponseSchema:
+    """Колонки нод во всех видимых проектах, зависящие от поля сущности прямо или транзитивно."""
+    use_cases = get_data_catalog_use_cases(session)
+    try:
+        items = await use_cases.get_field_dependents.execute(
+            dataset_id=dataset_id,
+            field_id=field_id,
+            viewer=build_viewer(user),
+            max_depth=max_depth,
+        )
+    except (DatasetNotFoundError, DatasetAccessDeniedError) as exc:
+        raise _not_found(dataset_id) from exc
+    except DatasetFieldNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    await session.commit()
+    return FieldDependentsResponseSchema(
+        dataset_id=dataset_id,
+        field_id=field_id,
+        items=[dependent_to_schema(item) for item in items],
+    )
 
 
 @router.patch("/datasets/{dataset_id}", response_model=DatasetDetailsSchema)

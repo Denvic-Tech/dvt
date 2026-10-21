@@ -19,6 +19,11 @@ from services.gateway.routes.data_catalog.impl import (
     summary_to_schema,
     usage_to_schema,
 )
+from services.gateway.routes.data_catalog.lineage_schemas import (
+    dependent_to_schema,
+    explanation_to_schema,
+    node_fields_to_schema,
+)
 
 from src.modules.ai_mcp_access.domain import ResourceScopeMode
 from src.modules.data_catalog.domain import (
@@ -27,6 +32,7 @@ from src.modules.data_catalog.domain import (
     DatasetFieldNotFoundError,
     DatasetNotFoundError,
     DatasetSearchQuery,
+    ExplainDirection,
     FieldDescriptionChange,
     FieldRef,
     FieldRenameNotApplicableError,
@@ -38,6 +44,7 @@ from src.modules.data_catalog.infra import (
     SQLAlchemyDatasetLinkRepository,
 )
 
+from .access import get_accessible_project
 from .auth import MCPPrincipal
 from .errors import AIMCPHTTPError, denied
 
@@ -320,3 +327,100 @@ async def confirm_field_rename(
     ) as exc:
         raise _invalid(str(exc)) from exc
     return details_to_schema(details).model_dump(mode="json", by_alias=True)
+
+
+_LOCALES = {"en", "ru", "de"}
+
+
+def _locale(value: str | None) -> str:
+    if value is None:
+        return "en"
+    lowered = str(value).strip().lower()
+    if lowered not in _LOCALES:
+        raise AIMCPHTTPError(422, "INVALID_ARGUMENTS", f"locale must be one of {sorted(_LOCALES)}.")
+    return lowered
+
+
+async def get_node_fields(
+    *,
+    principal: MCPPrincipal,
+    session: AsyncSession,
+    project_id: str,
+    node_id: str,
+    port: str | None = None,
+    locale: str = "en",
+) -> dict[str, Any]:
+    project = await get_accessible_project(session, principal, project_id)
+    use_cases = get_data_catalog_use_cases(session)
+    result = await use_cases.get_node_fields.execute(
+        project_id=project.id,
+        organization_id=project.organization_id,
+        node_id=node_id,
+        port=port,
+        locale=_locale(locale),
+    )
+    return node_fields_to_schema(result).model_dump(mode="json")
+
+
+async def explain_field(
+    *,
+    principal: MCPPrincipal,
+    session: AsyncSession,
+    project_id: str,
+    node_id: str,
+    column: str,
+    port: str | None = None,
+    direction: str = "upstream",
+    max_depth: int = 20,
+    locale: str = "en",
+) -> dict[str, Any]:
+    if direction not in {item.value for item in ExplainDirection}:
+        raise AIMCPHTTPError(422, "INVALID_ARGUMENTS", "direction must be 'upstream' or 'downstream'.")
+    if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 100:
+        raise AIMCPHTTPError(422, "INVALID_ARGUMENTS", "max_depth must be between 1 and 100.")
+    project = await get_accessible_project(session, principal, project_id)
+    use_cases = get_data_catalog_use_cases(session)
+    explanation = await use_cases.explain_field.execute(
+        project_id=project.id,
+        organization_id=project.organization_id,
+        node_id=node_id,
+        column=column,
+        port=port,
+        direction=ExplainDirection(direction),
+        max_depth=max_depth,
+        locale=_locale(locale),
+    )
+    return explanation_to_schema(explanation).model_dump(mode="json")
+
+
+async def get_field_dependents(
+    *,
+    principal: MCPPrincipal,
+    session: AsyncSession,
+    dataset_id: str,
+    field_id: str,
+    max_depth: int = 20,
+) -> dict[str, Any]:
+    if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 100:
+        raise AIMCPHTTPError(422, "INVALID_ARGUMENTS", "max_depth must be between 1 and 100.")
+    viewer = build_viewer(principal.user)
+    if not await _token_can_see_dataset(
+        principal=principal, session=session, viewer=viewer, dataset_id=dataset_id
+    ):
+        raise denied("dataset")
+    use_cases = get_data_catalog_use_cases(session)
+    try:
+        items = await use_cases.get_field_dependents.execute(
+            dataset_id=dataset_id, field_id=field_id, viewer=viewer, max_depth=max_depth
+        )
+    except DatasetNotFoundError as exc:
+        raise denied("dataset") from exc
+    return {
+        "dataset_id": dataset_id,
+        "field_id": field_id,
+        "items": [
+            dependent_to_schema(item).model_dump(mode="json")
+            for item in items
+            if principal.allows_project(item.project_id)
+        ],
+    }
