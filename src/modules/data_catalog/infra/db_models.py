@@ -243,3 +243,45 @@ PROJECTION_LINEAGE_COLUMN = "lineage"
 ProjectCatalogProjectionRecord.__table__.append_column(
     sa.Column(PROJECTION_LINEAGE_COLUMN, JSONBCompat, nullable=True)
 )
+
+
+class NodeColumnAnnotationRecord(SQLModel, table=True):
+    """Описание колонки порта ноды, написанное в DVT; живёт вместе с нодой и удаляется с ней."""
+
+    __tablename__ = "node_column_annotations"
+
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    project_id: str = Field(sa_column=sa.Column(sa.String(), nullable=False, index=True))
+    node_id: str = Field(sa_column=sa.Column(sa.String(), nullable=False))
+    port: str = Field(sa_column=sa.Column(sa.String(length=128), nullable=False))
+    column_name: str = Field(sa_column=sa.Column(sa.String(length=512), nullable=False))
+    description: str = Field(sa_column=sa.Column(sa.Text(), nullable=False))
+    origin_key: str | None = Field(default=None, sa_column=sa.Column(sa.Text(), nullable=True))
+    description_updated_by: str | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.String(), nullable=True),
+    )
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
+    )
+
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["node_id", "project_id"],
+            ["graph_nodes.ui_id", "graph_nodes.project_id"],
+            name="fk_node_column_annotations_graph_node",
+            ondelete="CASCADE",
+        ),
+        sa.UniqueConstraint(
+            "project_id",
+            "node_id",
+            "port",
+            "column_name",
+            name="uq_node_column_annotations_project_node_port_column",
+        ),
+    )

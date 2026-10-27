@@ -22,6 +22,7 @@ from src.modules.data_catalog.infra.db_models import (  # noqa: F403
     DatasetFieldRecord,
     DatasetLinkRecord,
     DatasetRecord,
+    NodeColumnAnnotationRecord,
     ProjectCatalogProjectionRecord,
 )
 from src.modules.db_connection.infra.db_models import DVTStoredConnectionRecord  # noqa: F403
