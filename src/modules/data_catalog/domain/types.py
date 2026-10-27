@@ -98,10 +98,17 @@ class PortStatus(StrEnum):
 
 
 class LineageProvenance(StrEnum):
+    """Откуда текст описания колонки.
+
+    `none`: источник известен, но текста у него нет (поле без описания и комментария и всё,
+    что от него унаследовано); `unknown`: происхождение колонки не восстановлено.
+    """
+
     DECLARED = "declared"
     SOURCE = "source"
     INHERITED = "inherited"
     DERIVED = "derived"
+    NONE = "none"
     UNKNOWN = "unknown"
 
 

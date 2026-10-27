@@ -5,6 +5,7 @@ from .get_dataset import GetDataset
 from .get_dataset_usage import GetDatasetUsage
 from .get_field_dependents import GetFieldDependents
 from .get_node_fields import GetNodeFields
+from .get_project_columns import GetProjectColumns
 from .on_project_variables_changed import OnProjectVariablesChanged
 from .rebuild_project_catalog_projection import RebuildProjectCatalogProjection
 from .rebuild_project_lineage import RebuildProjectLineage
@@ -16,6 +17,7 @@ from .record_observed_schema import RecordObservedSchema
 from .refresh_dataset_schema import RefreshDatasetSchema
 from .search_datasets import SearchDatasets
 from .set_dataset_descriptions import SetDatasetDescriptions
+from .set_node_column_descriptions import SetNodeColumnDescriptions
 from .sync_dataset_schema import SyncDatasetSchema
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "GetDatasetUsage",
     "GetFieldDependents",
     "GetNodeFields",
+    "GetProjectColumns",
     "OnProjectVariablesChanged",
     "ProjectRebuildRunner",
     "RebuildProjectCatalogProjection",
@@ -35,5 +38,6 @@ __all__ = [
     "RefreshDatasetSchema",
     "SearchDatasets",
     "SetDatasetDescriptions",
+    "SetNodeColumnDescriptions",
     "SyncDatasetSchema",
 ]

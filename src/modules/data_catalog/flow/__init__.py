@@ -8,6 +8,7 @@ from .use_cases import (
     GetDatasetUsage,
     GetFieldDependents,
     GetNodeFields,
+    GetProjectColumns,
     OnProjectVariablesChanged,
     ProjectRebuildRunner,
     RebuildProjectCatalogProjection,
@@ -17,6 +18,7 @@ from .use_cases import (
     RefreshDatasetSchema,
     SearchDatasets,
     SetDatasetDescriptions,
+    SetNodeColumnDescriptions,
     SyncDatasetSchema,
 )
 
@@ -29,6 +31,7 @@ __all__ = [
     "GetDatasetUsage",
     "GetFieldDependents",
     "GetNodeFields",
+    "GetProjectColumns",
     "OnProjectVariablesChanged",
     "ProjectRebuildRunner",
     "ProjectionFreshnessProvider",
@@ -40,5 +43,6 @@ __all__ = [
     "RefreshDatasetSchema",
     "SearchDatasets",
     "SetDatasetDescriptions",
+    "SetNodeColumnDescriptions",
     "SyncDatasetSchema",
 ]

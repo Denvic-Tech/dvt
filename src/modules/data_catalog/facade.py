@@ -28,6 +28,7 @@ from .flow import (
     GetDatasetUsage,
     GetFieldDependents,
     GetNodeFields,
+    GetProjectColumns,
     OnProjectVariablesChanged,
     ProjectionFreshnessProvider,
     RebuildProjectCatalogProjection,
@@ -37,6 +38,7 @@ from .flow import (
     RefreshDatasetSchema,
     SearchDatasets,
     SetDatasetDescriptions,
+    SetNodeColumnDescriptions,
     SyncDatasetSchema,
 )
 from .infra import (
@@ -51,6 +53,7 @@ from .infra import (
     SQLAlchemyDatasetFieldRepository,
     SQLAlchemyDatasetLinkRepository,
     SQLAlchemyDatasetRepository,
+    SQLAlchemyNodeColumnAnnotationRepository,
     SQLAlchemyProjectGraphGateway,
     SQLAlchemyProjectionRepository,
     SQLConnectionLocatorGateway,
@@ -87,6 +90,8 @@ class DataCatalogUseCases:
     get_node_fields: GetNodeFields
     explain_field: ExplainField
     get_field_dependents: GetFieldDependents
+    set_node_column_descriptions: SetNodeColumnDescriptions
+    get_project_columns: GetProjectColumns
     sync_schema: SyncDatasetSchema | None = None
     refresh_schema: RefreshDatasetSchema | None = None
 
@@ -107,6 +112,7 @@ def build_data_catalog_use_cases(
     connections = SQLAlchemyDatasetConnectionRepository(session)
     links = SQLAlchemyDatasetLinkRepository(session)
     projections = SQLAlchemyProjectionRepository(session)
+    annotations = SQLAlchemyNodeColumnAnnotationRepository(session)
     graph_gateway = SQLAlchemyProjectGraphGateway(session)
     planner = NodeDslColumnRulePlanner()
     lineage_builder = RebuildProjectLineage(
@@ -174,13 +180,35 @@ def build_data_catalog_use_cases(
             projections=projections,
         ),
         get_node_fields=GetNodeFields(
-            projections=projections, fields=fields, renderer=renderer, freshness=freshness
+            projections=projections,
+            fields=fields,
+            renderer=renderer,
+            freshness=freshness,
+            annotations=annotations,
+            datasets=datasets,
         ),
         explain_field=ExplainField(
-            projections=projections, fields=fields, renderer=renderer, freshness=freshness
+            projections=projections,
+            fields=fields,
+            renderer=renderer,
+            freshness=freshness,
+            annotations=annotations,
         ),
         get_field_dependents=GetFieldDependents(
             datasets=datasets, fields=fields, links=links, projections=projections, freshness=freshness
+        ),
+        set_node_column_descriptions=SetNodeColumnDescriptions(
+            annotations=annotations,
+            graph_gateway=graph_gateway,
+            projections=projections,
+            freshness=freshness,
+        ),
+        get_project_columns=GetProjectColumns(
+            projections=projections,
+            fields=fields,
+            datasets=datasets,
+            annotations=annotations,
+            freshness=freshness,
         ),
         sync_schema=sync_schema,
         refresh_schema=refresh_schema,

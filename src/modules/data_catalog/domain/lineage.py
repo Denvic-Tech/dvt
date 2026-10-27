@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from .catalog_values import ProjectionDiagnostic
@@ -242,6 +243,31 @@ class PlannedRuleColumn:
     expression: str | None = None
 
 
+@dataclass(slots=True)
+class NodeColumnAnnotation:
+    """Описание колонки порта ноды, написанное в DVT.
+
+    Привязано к `ui_id` ноды внутри проекта и переезжает вместе с графом при копировании и
+    импорте. `origin_key` фиксирует корневую ссылку колонки на момент записи и служит только
+    для диагностики после переименований.
+    """
+
+    id: str
+    project_id: str
+    node_id: str
+    port: str
+    column: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
+    origin_key: str | None = None
+    description_updated_by: str | None = None
+
+    @property
+    def ref(self) -> LineageRef:
+        return LineageRef.node_column(self.node_id, self.port, self.column)
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedDescription:
     text: str | None
@@ -261,6 +287,10 @@ class NodeFieldView:
     provenance: LineageProvenance
     description_source: LineageRef | None
     explanation: str | None
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
+    origin_field_name: str | None = None
+    origin_location: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +305,137 @@ class NodeFieldsResult:
     reason: DiagnosticReason | None = None
     detail: str | None = None
     available_ports: tuple[str, ...] = ()
+    orphaned_annotations: tuple[NodeColumnAnnotation, ...] = ()
+    """Аннотации порта, чьих колонок больше нет в lineage (после переименования в ноде)."""
+
+
+@dataclass(frozen=True, slots=True)
+class NodeColumnDescriptionsResult:
+    node_id: str
+    port: str
+    annotations: tuple[NodeColumnAnnotation, ...] = ()
+    removed_columns: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnOccurrence:
+    """Одна колонка одного порта внутри группы по origin."""
+
+    ref: LineageRef
+    node_id: str
+    node_name: str
+    port: str
+    role: str
+    column: str
+    op: LineageOp
+    deps: tuple[LineageRef, ...]
+    deps_unknown: bool
+    depth: int
+    description: ResolvedDescription
+    is_override: bool
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
+
+
+DATASET_FIELD_GROUP = "dataset_field"
+NODE_COLUMN_GROUP = "node_column"
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnGroup:
+    """Все вхождения колонки с общим origin; описание группы это описание самого origin."""
+
+    origin: LineageRef
+    description: ResolvedDescription
+    occurrences: tuple[ColumnOccurrence, ...]
+    dataset_id: str | None = None
+    dataset_location: str | None = None
+    field_name: str | None = None
+    origin_node_name: str | None = None
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
+
+    @property
+    def kind(self) -> str:
+        return DATASET_FIELD_GROUP if self.origin.is_dataset_field else NODE_COLUMN_GROUP
+
+    @property
+    def override_count(self) -> int:
+        return sum(1 for item in self.occurrences if item.is_override)
+
+
+@dataclass(frozen=True, slots=True)
+class UnresolvedPort:
+    node_id: str
+    node_name: str
+    port: str
+    role: str
+    status: PortStatus
+    reason: DiagnosticReason | None = None
+    detail: str | None = None
+
+
+PROJECT_SCOPE = "project"
+GLOBAL_SCOPE = "global"
+
+
+@dataclass(frozen=True, slots=True)
+class DescriptionTarget:
+    """Куда пишется описание строки: аннотация стартовой колонки или поле сущности (глобально)."""
+
+    scope: str
+    node_id: str | None = None
+    port: str | None = None
+    column: str | None = None
+    dataset_id: str | None = None
+    field_id: str | None = None
+    field_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnRow:
+    """Отрезок цепочки, на котором не меняются имя колонки и источник описания.
+
+    Строка общего слоя каталога: у неё ровно один текст и одно место записи. Отрезок рвётся на
+    переименовании, на точечном описании в ноде и на новом origin.
+    """
+
+    id: str
+    name: str
+    origin: LineageRef
+    start: LineageRef
+    description: ResolvedDescription
+    occurrences: tuple[ColumnOccurrence, ...]
+    targets: tuple[DescriptionTarget, ...]
+    dataset_id: str | None = None
+    dataset_location: str | None = None
+    field_name: str | None = None
+    origin_node_name: str | None = None
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
+    is_rename: bool = False
+    renamed_from: str | None = None
+    is_refinement: bool = False
+    depends_on: tuple[str, ...] = ()
+
+    @property
+    def kind(self) -> str:
+        return DATASET_FIELD_GROUP if self.origin.is_dataset_field else NODE_COLUMN_GROUP
+
+    @property
+    def node_count(self) -> int:
+        return len(self.occurrences)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectColumnsResult:
+    project_id: str
+    groups: tuple[ColumnGroup, ...] = ()
+    rows: tuple[ColumnRow, ...] = ()
+    unresolved_ports: tuple[UnresolvedPort, ...] = ()
+    orphaned_annotations: tuple[NodeColumnAnnotation, ...] = ()
+    lineage_available: bool = True
+    truncated: bool = False
 
 
 @dataclass(frozen=True, slots=True)

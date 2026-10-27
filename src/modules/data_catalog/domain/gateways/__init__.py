@@ -35,6 +35,10 @@ class ProjectGraphGateway(Protocol):
         """Сериализует пересборки одного проекта; на хранилищах без блокировок — no-op."""
         ...
 
+    async def node_exists(self, project_id: str, organization_id: str | None, node_id: str) -> bool:
+        """Есть ли нода с таким ui_id в неудалённом проекте; без загрузки снэпшота графа."""
+        ...
+
 
 class ConnectionLocatorGateway(Protocol):
     async def get_locator(

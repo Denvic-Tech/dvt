@@ -16,6 +16,7 @@ from ..domain import (
     FieldStatus,
     LinkDirection,
     LinkKind,
+    NodeColumnAnnotation,
     ProjectCatalogProjection,
     ProjectionDiagnostic,
     ProjectionStamp,
@@ -27,6 +28,7 @@ from .db_models import (
     DatasetFieldRecord,
     DatasetLinkRecord,
     DatasetRecord,
+    NodeColumnAnnotationRecord,
     ProjectCatalogProjectionRecord,
 )
 
@@ -171,6 +173,41 @@ def link_to_domain(record: DatasetLinkRecord) -> DatasetLink:
         created_at=aware(record.created_at),
         updated_at=aware(record.updated_at),
     )
+
+
+def annotation_to_domain(record: NodeColumnAnnotationRecord) -> NodeColumnAnnotation:
+    return NodeColumnAnnotation(
+        id=record.id,
+        project_id=record.project_id,
+        node_id=record.node_id,
+        port=record.port,
+        column=record.column_name,
+        description=record.description,
+        created_at=aware(record.created_at),
+        updated_at=aware(record.updated_at),
+        origin_key=record.origin_key,
+        description_updated_by=record.description_updated_by,
+    )
+
+
+def apply_annotation(
+    record: NodeColumnAnnotationRecord,
+    annotation: NodeColumnAnnotation,
+) -> NodeColumnAnnotationRecord:
+    record.project_id = annotation.project_id
+    record.node_id = annotation.node_id
+    record.port = annotation.port
+    record.column_name = annotation.column
+    record.description = annotation.description
+    record.origin_key = annotation.origin_key
+    record.description_updated_by = annotation.description_updated_by
+    record.created_at = annotation.created_at
+    record.updated_at = annotation.updated_at
+    return record
+
+
+def annotation_to_record(annotation: NodeColumnAnnotation) -> NodeColumnAnnotationRecord:
+    return apply_annotation(NodeColumnAnnotationRecord(id=annotation.id), annotation)
 
 
 def diagnostics_to_json(diagnostics: tuple[ProjectionDiagnostic, ...]) -> list[dict[str, Any]]:

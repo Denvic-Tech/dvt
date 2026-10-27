@@ -1,11 +1,19 @@
-"""Наследование описаний по цепочке lineage: PASS/RENAME переносят, MERGE при совпадении."""
+"""Наследование описаний по цепочке lineage: PASS/RENAME переносят, MERGE при единственном тексте.
+
+Слияние (join-ключ, union) наследует текст, если среди родителей ровно один различный непустой
+текст: пустота у одной из сторон не считается противоречием. Два разных текста дают `derived`.
+
+Аннотация на колонке ноды (`NodeColumnAnnotation`) даёт `declared` для самой колонки и
+побеждает унаследованный текст; ниже по цепочке она наследуется так же, как описание поля
+сущности. Поле без текста даёт `none` с известным источником, и `none` переносится вниз.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
 from ...entities import DatasetField
-from ...lineage import LineageRef, ResolvedDescription
+from ...lineage import LineageRef, NodeColumnAnnotation, ResolvedDescription
 from ...types import LineageOp, LineageProvenance
 from ..descriptions import effective_field_description
 from .index import LineageIndex
@@ -15,10 +23,16 @@ _DERIVED = ResolvedDescription(text=None, provenance=LineageProvenance.DERIVED)
 
 
 class DescriptionResolver:
-    def __init__(self, index: LineageIndex, fields: Mapping[str, DatasetField]) -> None:
-        """fields: ключ `ds:<dataset_id>:<field_id>` → поле сущности."""
+    def __init__(
+        self,
+        index: LineageIndex,
+        fields: Mapping[str, DatasetField],
+        annotations: Mapping[str, NodeColumnAnnotation] | None = None,
+    ) -> None:
+        """fields: `ds:<dataset_id>:<field_id>` → поле; annotations: `node:<id>:<port>:<col>` → аннотация."""
         self._index = index
         self._fields = fields
+        self._annotations = annotations or {}
         self._memo: dict[str, ResolvedDescription] = {}
 
     def resolve(self, ref: LineageRef) -> ResolvedDescription:
@@ -38,14 +52,13 @@ class DescriptionResolver:
 
     def _compute(self, ref: LineageRef, visiting: set[str]) -> ResolvedDescription:  # noqa: PLR0911
         if ref.is_dataset_field:
-            field = self._fields.get(ref.key)
-            if field is None:
-                return _UNKNOWN
-            text, provenance = effective_field_description(field)
-            if text is None:
-                return ResolvedDescription(text=None, provenance=LineageProvenance.UNKNOWN, source=ref)
-            mapped = LineageProvenance.DECLARED if provenance.value == "declared" else LineageProvenance.SOURCE
-            return ResolvedDescription(text=text, provenance=mapped, source=ref)
+            return self._field_description(ref)
+
+        annotation = self._annotations.get(ref.key)
+        if annotation is not None:
+            return ResolvedDescription(
+                text=annotation.description, provenance=LineageProvenance.DECLARED, source=ref
+            )
 
         found = self._index.column(ref)
         if found is None:
@@ -64,10 +77,21 @@ class DescriptionResolver:
             if column.deps_unknown or not column.deps:
                 return _UNKNOWN
             parents = [self._resolve(dep, visiting) for dep in column.deps]
-            texts = {parent.text for parent in parents}
-            if len(texts) == 1 and parents[0].text is not None:
-                return ResolvedDescription(text=parents[0].text, provenance=LineageProvenance.INHERITED, source=parents[0].source)
+            described = [parent for parent in parents if parent.text is not None]
+            if len({parent.text for parent in described}) == 1:
+                chosen = described[0]
+                return ResolvedDescription(text=chosen.text, provenance=LineageProvenance.INHERITED, source=chosen.source)
             return _DERIVED
         if column.op in (LineageOp.COMPUTE, LineageOp.AGGREGATE):
             return _DERIVED
         return _UNKNOWN
+
+    def _field_description(self, ref: LineageRef) -> ResolvedDescription:
+        field = self._fields.get(ref.key)
+        if field is None:
+            return _UNKNOWN
+        text, provenance = effective_field_description(field)
+        if text is None:
+            return ResolvedDescription(text=None, provenance=LineageProvenance.NONE, source=ref)
+        mapped = LineageProvenance.DECLARED if provenance.value == "declared" else LineageProvenance.SOURCE
+        return ResolvedDescription(text=text, provenance=mapped, source=ref)

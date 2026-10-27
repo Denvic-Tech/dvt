@@ -19,6 +19,7 @@ from src.modules.data_catalog.domain import (
     DatasetUsageEntry,
     ExpressionUnresolvedError,
     LinkDirection,
+    NodeColumnAnnotation,
     ObservedField,
     ProjectCatalogProjection,
     ProjectGraphSnapshot,
@@ -184,10 +185,32 @@ class InMemoryProjectionRepository:
         return 1
 
 
+class InMemoryAnnotationRepository:
+    def __init__(self) -> None:
+        self.items: dict[str, NodeColumnAnnotation] = {}
+
+    async def list_for_project(self, project_id: str) -> list[NodeColumnAnnotation]:
+        return [item for item in self.items.values() if item.project_id == project_id]
+
+    async def upsert_many(self, annotations: Sequence[NodeColumnAnnotation]) -> None:
+        for item in annotations:
+            self.items[item.id] = item
+
+    async def delete_many(self, annotation_ids: Sequence[str]) -> None:
+        for annotation_id in annotation_ids:
+            self.items.pop(annotation_id, None)
+
+
 class FakeGraphGateway:
-    def __init__(self, snapshot: ProjectGraphSnapshot | None) -> None:
+    def __init__(self, snapshot: ProjectGraphSnapshot | None, node_ids: Sequence[str] = ()) -> None:
         self.snapshot = snapshot
         self.locks = 0
+        self.node_ids = set(node_ids)
+
+    async def node_exists(self, project_id: str, organization_id: str | None, node_id: str) -> bool:
+        if node_id in self.node_ids:
+            return True
+        return self.snapshot is not None and any(node.ui_id == node_id for node in self.snapshot.nodes)
 
     async def load_stamp_source(self, project_id: str, organization_id: str) -> ProjectStampSource | None:
         return self.snapshot.stamp_source if self.snapshot is not None else None

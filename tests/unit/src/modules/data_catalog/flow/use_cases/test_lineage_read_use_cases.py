@@ -18,6 +18,7 @@ from src.modules.data_catalog.domain import (
     LineageProvenance,
     LineageRef,
     LinkDirection,
+    NodeColumnAnnotation,
     PortLineage,
     PortStatus,
     ProjectLineage,
@@ -30,6 +31,7 @@ from src.modules.data_catalog.flow import ExplainField, GetFieldDependents, GetN
 from ..fakes import (
     FakeFreshness,
     FakeRenderer,
+    InMemoryAnnotationRepository,
     InMemoryDatasetRepository,
     InMemoryFieldRepository,
     InMemoryLinkRepository,
@@ -95,6 +97,68 @@ async def test_get_node_fields_resolves_descriptions_and_renders_explanations():
     assert by_name["customer_id"].explanation == "ru:lineage.pass"
     assert by_name["score"].provenance is LineageProvenance.DERIVED and by_name["score"].description is None
     assert by_name["score"].origin.key == "node:e:output:score"
+
+
+def _annotation(annotation_id: str, column: str, text: str, *, node_id: str = "e") -> NodeColumnAnnotation:
+    return NodeColumnAnnotation(
+        id=annotation_id, project_id="p1", node_id=node_id, port="output", column=column, description=text,
+        created_at=NOW, updated_at=NOW, description_updated_by="author",
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_node_fields_applies_annotations_and_reports_orphans_and_origins():
+    projections, fields, datasets, _ = _repos()
+    datasets.items["d1"].location = "main.public.customers @ db:5432"
+    fields.items["f-id"].description_updated_by = "dba"
+    annotations = InMemoryAnnotationRepository()
+    annotations.items["a1"] = _annotation("a1", "score", "Скоринг клиента")
+    annotations.items["a2"] = _annotation("a2", "renamed_away", "Колонки больше нет")
+    annotations.items["a3"] = _annotation("a3", "score", "Другой ноды", node_id="rn")
+    use_case = GetNodeFields(
+        projections=projections, fields=fields, renderer=FakeRenderer(), annotations=annotations, datasets=datasets
+    )
+
+    result = await use_case.execute(project_id="p1", organization_id="org", node_id="e")
+
+    by_name = {view.name: view for view in result.fields}
+    score = by_name["score"]
+    assert (score.description, score.provenance) == ("Скоринг клиента", LineageProvenance.DECLARED)
+    assert score.description_source == score.ref
+    assert (score.description_updated_by, score.description_updated_at) == ("author", NOW)
+    assert score.origin_field_name is None and score.origin_location is None
+
+    inherited = by_name["customer_id"]
+    assert inherited.provenance is LineageProvenance.INHERITED
+    assert inherited.description_updated_by == "dba", "attribution follows the source field description"
+    assert (inherited.origin_field_name, inherited.origin_location) == ("id", "main.public.customers @ db:5432")
+
+    assert [(item.column, item.description) for item in result.orphaned_annotations] == [("renamed_away", "Колонки больше нет")]
+
+    explanation = await ExplainField(
+        projections=projections, fields=fields, renderer=FakeRenderer(), annotations=annotations
+    ).execute(project_id="p1", organization_id="org", node_id="e", column="score")
+    assert explanation.description.provenance is LineageProvenance.DECLARED
+    assert explanation.description.text == "Скоринг клиента"
+
+
+@pytest.mark.asyncio
+async def test_default_port_is_the_main_output_not_the_first_alphabetically():
+    projections, fields, _, _ = _repos()
+    inverted = ColumnLineage("id", LineageOp.PASS, (LineageRef.node_column("r", "output", "id"),), origin=SOURCE_REF)
+    projections.lineage["p1"] = ProjectLineage(
+        ports=(
+            *projections.lineage["p1"].ports,
+            PortLineage("f", "DataFrameFilter", "inverted_output", PortStatus.RESOLVED, (inverted,)),
+            PortLineage("f", "DataFrameFilter", "output", PortStatus.RESOLVED, (inverted,)),
+        )
+    )
+    use_case = GetNodeFields(projections=projections, fields=fields, renderer=FakeRenderer())
+
+    result = await use_case.execute(project_id="p1", organization_id="org", node_id="f")
+
+    assert result.port == "output"
+    assert result.available_ports == ("inverted_output", "output")
 
 
 @pytest.mark.asyncio

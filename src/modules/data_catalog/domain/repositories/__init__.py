@@ -17,7 +17,7 @@ from ..entities import (
     DatasetUsageEntry,
     ProjectCatalogProjection,
 )
-from ..lineage import ProjectLineage
+from ..lineage import NodeColumnAnnotation, ProjectLineage
 from ..types import LinkDirection
 
 
@@ -91,6 +91,14 @@ class DatasetLinkRepository(Protocol):
     ) -> list[str]:
         """Сущности, к которым нода проекта привязана статическим проходом (без фильтра видимости)."""
         ...
+
+
+class NodeColumnAnnotationRepository(Protocol):
+    async def list_for_project(self, project_id: str) -> list[NodeColumnAnnotation]: ...
+
+    async def upsert_many(self, annotations: Sequence[NodeColumnAnnotation]) -> None: ...
+
+    async def delete_many(self, annotation_ids: Sequence[str]) -> None: ...
 
 
 class ProjectionRepository(Protocol):

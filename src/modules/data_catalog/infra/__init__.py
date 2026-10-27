@@ -33,6 +33,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "SQLAlchemyDatasetFieldRepository": ".repositories",
     "SQLAlchemyDatasetLinkRepository": ".repositories",
     "SQLAlchemyDatasetRepository": ".repositories",
+    "SQLAlchemyNodeColumnAnnotationRepository": ".repositories",
     "SQLAlchemyProjectionRepository": ".repositories",
 }
 
@@ -52,6 +53,7 @@ __all__ = [
     "SQLAlchemyDatasetFieldRepository",
     "SQLAlchemyDatasetLinkRepository",
     "SQLAlchemyDatasetRepository",
+    "SQLAlchemyNodeColumnAnnotationRepository",
     "SQLAlchemyProjectGraphGateway",
     "SQLAlchemyProjectionRepository",
     "SQLConnectionLocatorGateway",

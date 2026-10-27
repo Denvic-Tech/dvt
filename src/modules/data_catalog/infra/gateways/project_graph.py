@@ -100,6 +100,17 @@ class SQLAlchemyProjectGraphGateway(ProjectGraphGateway):
         )
         return ProjectGraphSnapshot(stamp_source=self._stamp_source(project), nodes=nodes, edges=edges)
 
+    async def node_exists(self, project_id: str, organization_id: str | None, node_id: str) -> bool:
+        project = await self._select_project(project_id, organization_id)
+        if project is None:
+            return False
+        statement = (
+            sa.select(GraphNodeRecord.id)
+            .where(GraphNodeRecord.project_id == project_id, GraphNodeRecord.ui_id == node_id)
+            .limit(1)
+        )
+        return (await self._session.execute(statement)).scalar_one_or_none() is not None
+
     async def lock_project(self, project_id: str, organization_id: str) -> None:
         bind = self._session.get_bind()
         if bind is not None and bind.dialect.name == "sqlite":

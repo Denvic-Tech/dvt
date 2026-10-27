@@ -9,6 +9,7 @@ from src.modules.data_catalog.domain import (
     LineageOp,
     LineageProvenance,
     LineageRef,
+    NodeColumnAnnotation,
 )
 from src.modules.data_catalog.domain.policies import (
     DescriptionResolver,
@@ -83,6 +84,95 @@ def test_descriptions_are_inherited_through_rename_and_equal_merge_only():
     from_comment = resolver.resolve(LineageRef.node_column("rn", "output", "cost"))
     assert (from_comment.text, from_comment.provenance) == ("Себестоимость из 1С", LineageProvenance.INHERITED)
     assert resolver.resolve(LineageRef.dataset_field("da", "f-cost")).provenance is LineageProvenance.SOURCE
+
+
+def _annotation(node_id: str, column: str, text: str) -> NodeColumnAnnotation:
+    return NodeColumnAnnotation(
+        id=f"a-{node_id}-{column}", project_id="p1", node_id=node_id, port="output", column=column,
+        description=text, created_at=NOW, updated_at=NOW, description_updated_by="u",
+    )
+
+
+def test_annotations_win_over_inheritance_and_are_inherited_downstream():
+    index, fields = _build()
+    annotations = {
+        "node:rn:output:revenue": _annotation("rn", "revenue", "Выручка по прейскуранту"),
+        "node:u:output:cost": _annotation("u", "cost", "Себестоимость после объединения"),
+        "node:e:output:ebitda": _annotation("e", "ebitda", "EBITDA = выручка - себестоимость"),
+    }
+    resolver = DescriptionResolver(index, fields, annotations)
+
+    overridden = resolver.resolve(LineageRef.node_column("rn", "output", "revenue"))
+    assert (overridden.text, overridden.provenance) == ("Выручка по прейскуранту", LineageProvenance.DECLARED)
+    assert overridden.source == LineageRef.node_column("rn", "output", "revenue")
+
+    merged = resolver.resolve(LineageRef.node_column("u", "output", "cost"))
+    assert merged.provenance is LineageProvenance.DECLARED, "annotation replaces the derived verdict of a mixed merge"
+
+    passed_down = resolver.resolve(LineageRef.node_column("e", "output", "cost"))
+    assert (passed_down.text, passed_down.provenance) == ("Себестоимость после объединения", LineageProvenance.INHERITED)
+    assert passed_down.source == LineageRef.node_column("u", "output", "cost")
+
+    computed = resolver.resolve(LineageRef.node_column("e", "output", "ebitda"))
+    assert (computed.text, computed.provenance) == ("EBITDA = выручка - себестоимость", LineageProvenance.DECLARED)
+
+    untouched = resolver.resolve(LineageRef.node_column("u", "output", "revenue"))
+    assert untouched.provenance is LineageProvenance.DERIVED, "texts of the merge parents now differ"
+
+
+def test_field_without_text_yields_none_with_a_known_source():
+    index, fields = _build()
+    fields["ds:db:f-cost"] = _field("db", "cost")
+    resolver = DescriptionResolver(index, fields)
+
+    field = resolver.resolve(LineageRef.dataset_field("db", "f-cost"))
+    assert (field.text, field.provenance, field.source) == (None, LineageProvenance.NONE, LineageRef.dataset_field("db", "f-cost"))
+
+    read = resolver.resolve(LineageRef.node_column("b", "output", "cost"))
+    assert (read.provenance, read.source) == (LineageProvenance.NONE, LineageRef.dataset_field("db", "f-cost"))
+
+    merged = resolver.resolve(LineageRef.node_column("u", "output", "cost"))
+    assert (merged.text, merged.provenance) == ("Себестоимость из 1С", LineageProvenance.INHERITED), "an empty side is not a conflict"
+    assert merged.source == LineageRef.dataset_field("da", "f-cost")
+    assert resolver.resolve(LineageRef.node_column("x", "output", "nothing")).provenance is LineageProvenance.UNKNOWN
+
+
+def test_join_key_inherits_the_only_described_side_and_stays_derived_on_conflict():
+    snap = snapshot(
+        node("a", "ReadTableFromDBV3", table_name="deals"),
+        node("b", "ReadTableFromDBV3", table_name="statuses"),
+        node("f", "DataFrameFilter", query="x > 0"),
+        node("j", "DataFrameJoin", left_on=["ENTITY_ID"], right_on=["ENTITY_ID"], how="left"),
+        edges=(edge("a", "f"), edge("f", "j", input="left"), edge("b", "j", input="right")),
+    )
+    lineage, _ = derive_project_lineage(
+        snap, port_types=port_types, rules=RULES,
+        seeds={"a": {"output": source_seed("da", "ENTITY_ID", "amount")}, "b": {"output": source_seed("db", "ENTITY_ID", "status")}},
+    )
+    index = index_lineage("p1", lineage)
+    fields = {
+        "ds:da:f-ENTITY_ID": _field("da", "ENTITY_ID"),
+        "ds:da:f-amount": _field("da", "amount"),
+        "ds:db:f-ENTITY_ID": _field("db", "ENTITY_ID"),
+        "ds:db:f-status": _field("db", "status", description="Статус сделки"),
+    }
+    key = LineageRef.node_column("j", "output", "ENTITY_ID")
+    assert index.column(key)[1].op is LineageOp.MERGE, "same-name join keys are merged"
+
+    annotated = {"node:f:output:ENTITY_ID": NodeColumnAnnotation(
+        id="a1", project_id="p1", node_id="f", port="output", column="ENTITY_ID", description="Тест",
+        created_at=NOW, updated_at=NOW,
+    )}
+    one_side = DescriptionResolver(index, fields, annotated).resolve(key)
+    assert (one_side.text, one_side.provenance) == ("Тест", LineageProvenance.INHERITED)
+    assert one_side.source == LineageRef.node_column("f", "output", "ENTITY_ID")
+
+    fields["ds:db:f-ENTITY_ID"] = _field("db", "ENTITY_ID", description="ID контрагента")
+    conflict = DescriptionResolver(index, fields, annotated).resolve(key)
+    assert (conflict.text, conflict.provenance) == (None, LineageProvenance.DERIVED), "two different texts are a real conflict"
+
+    nobody = DescriptionResolver(index, {k: _field("da" if k.startswith("ds:da") else "db", k.rsplit("-", 1)[1]) for k in fields}).resolve(key)
+    assert nobody.provenance is LineageProvenance.DERIVED and nobody.text is None
 
 
 def test_explain_upstream_reaches_sources_and_respects_depth():
