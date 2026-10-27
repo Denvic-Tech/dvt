@@ -11,6 +11,7 @@ from src.modules.project_transfer.domain.entities import (
     BundleFolder,
     BundleManifest,
     BundleProject,
+    ColumnAnnotationSnapshot,
     GraphNodeSnapshot,
     GraphSnapshot,
     ProjectBundle,
@@ -26,6 +27,8 @@ from src.modules.project_transfer.domain.exceptions import (
 )
 from src.modules.project_transfer.domain.types import BUNDLE_FORMAT_VERSION
 from src.modules.project_transfer.domain.value_objects import ConnectionBinding
+from src.modules.project_transfer.infra.mappers import graph_from_doc
+from src.modules.project_transfer.infra.schemas import GraphDoc
 from src.modules.project_transfer.infra.serialization import read_bundle, write_bundle
 
 
@@ -57,7 +60,10 @@ def _bundle() -> ProjectBundle:
                             display_name="CSV",
                             input_values={"path": {"__dvt_type": "const", "value": "data.csv"}},
                         )
-                    ]
+                    ],
+                    column_annotations=[
+                        ColumnAnnotationSnapshot(node_ui_id="n1", port="output", column="amount", description="Сумма")
+                    ],
                 ),
                 variables={"x": {"type": "int", "value": 1, "is_list_type": False}},
                 files=[
@@ -104,6 +110,9 @@ def test_write_and_read_round_trip():
     assert project.meta.name == "Проект"
     assert project.variables == {"x": {"type": "int", "value": 1, "is_list_type": False}}
     assert project.graph.nodes[0].input_values == {"path": {"__dvt_type": "const", "value": "data.csv"}}
+    assert [(a.node_ui_id, a.column, a.description, a.origin_key) for a in project.graph.column_annotations] == [
+        ("n1", "amount", "Сумма", None)
+    ]
     assert project.schedule.cron == "0 * * * *"
     assert project.connection_bindings[0].connection_ref == "connection-1"
     files = {file.storage_path: file for file in project.files}
@@ -111,6 +120,12 @@ def test_write_and_read_round_trip():
     assert files["node-inputs/n1/file/data.csv"].content == b"id\n1\n"
     assert files["node-inputs/n1/file/data.csv"].size == 5
     assert restored.connections[0].type == "postgresql"
+
+
+def test_graph_doc_without_annotations_section_is_read_as_empty():
+    graph = graph_from_doc(GraphDoc.model_validate({"nodes": [], "edges": [], "subgraphs": []}))
+
+    assert graph.column_annotations == []
 
 
 def test_read_without_content_skips_file_payloads():

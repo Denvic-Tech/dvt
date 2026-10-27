@@ -90,10 +90,20 @@ class GraphEdgeDoc(BaseModel):
     subgraph_id: str | None = None
 
 
+class ColumnAnnotationDoc(BaseModel):
+    node_ui_id: str
+    port: str
+    column: str
+    description: str
+    origin_key: str | None = None
+
+
 class GraphDoc(BaseModel):
     subgraphs: list[GraphSubgraphDoc] = Field(default_factory=list)
     nodes: list[GraphNodeDoc] = Field(default_factory=list)
     edges: list[GraphEdgeDoc] = Field(default_factory=list)
+    # Optional since bundles written before node column descriptions existed omit it.
+    column_annotations: list[ColumnAnnotationDoc] = Field(default_factory=list)
 
 
 class ProjectMetaDoc(BaseModel):

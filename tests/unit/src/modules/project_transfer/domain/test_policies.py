@@ -4,6 +4,7 @@ import pytest
 
 from src.modules.project_transfer.domain.entities import (
     BundleFolder,
+    ColumnAnnotationSnapshot,
     GraphEdgeSnapshot,
     GraphNodeSnapshot,
     GraphSnapshot,
@@ -80,7 +81,29 @@ def _graph() -> GraphSnapshot:
                 ui_id="e-1", type="default", source="n-conn", target="n-file", subgraph_id="sub-1"
             )
         ],
+        column_annotations=[
+            ColumnAnnotationSnapshot(
+                node_ui_id="n-file", port="output", column="amount", description="Сумма", origin_key="ds:d:f"
+            ),
+            ColumnAnnotationSnapshot(node_ui_id="ghost", port="output", column="x", description="Нет ноды"),
+        ],
     )
+
+
+def test_remap_moves_column_annotations_with_their_nodes_and_drops_dangling_ones():
+    result = remap_graph_snapshot(_graph(), organization_id="org", project_id="new-project")
+
+    assert len(result.snapshot.column_annotations) == 1
+    annotation = result.snapshot.column_annotations[0]
+    assert annotation.node_ui_id == result.mapping.nodes["n-file"]
+    assert (annotation.port, annotation.column, annotation.description) == ("output", "amount", "Сумма")
+    assert annotation.origin_key is None, "origin refers to ids of the source project"
+
+    bindings = [ConnectionBinding(node_ui_id="n-conn", input_name="connection_id", connection_ref="connection-1")]
+    with_connections = apply_connection_ids(
+        result.snapshot, bindings, {"connection-1": "conn"}, node_ui_id_mapping=result.mapping.nodes
+    )
+    assert with_connections.column_annotations == result.snapshot.column_annotations
 
 
 def test_remap_relinks_edges_subgraphs_and_service_files():

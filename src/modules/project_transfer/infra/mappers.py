@@ -71,6 +71,7 @@ def graph_to_doc(graph: d.GraphSnapshot) -> s.GraphDoc:
         subgraphs=[s.GraphSubgraphDoc(**asdict(item)) for item in graph.subgraphs],
         nodes=[s.GraphNodeDoc(**asdict(item)) for item in graph.nodes],
         edges=[s.GraphEdgeDoc(**asdict(item)) for item in graph.edges],
+        column_annotations=[s.ColumnAnnotationDoc(**asdict(item)) for item in graph.column_annotations],
     )
 
 
@@ -79,6 +80,9 @@ def graph_from_doc(doc: s.GraphDoc) -> d.GraphSnapshot:
         subgraphs=[d.GraphSubgraphSnapshot(**item.model_dump()) for item in doc.subgraphs],
         nodes=[d.GraphNodeSnapshot(**item.model_dump()) for item in doc.nodes],
         edges=[d.GraphEdgeSnapshot(**item.model_dump()) for item in doc.edges],
+        column_annotations=[
+            d.ColumnAnnotationSnapshot(**item.model_dump()) for item in doc.column_annotations
+        ],
     )
 
 

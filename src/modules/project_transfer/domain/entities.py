@@ -56,12 +56,24 @@ class GraphEdgeSnapshot:
 
 
 @dataclass
+class ColumnAnnotationSnapshot:
+    """Description of one node port column; travels with the graph it annotates."""
+
+    node_ui_id: str
+    port: str
+    column: str
+    description: str
+    origin_key: str | None = None
+
+
+@dataclass
 class GraphSnapshot:
     """Full computational and visual graph of one project."""
 
     subgraphs: list[GraphSubgraphSnapshot] = field(default_factory=list)
     nodes: list[GraphNodeSnapshot] = field(default_factory=list)
     edges: list[GraphEdgeSnapshot] = field(default_factory=list)
+    column_annotations: list[ColumnAnnotationSnapshot] = field(default_factory=list)
 
 
 @dataclass
