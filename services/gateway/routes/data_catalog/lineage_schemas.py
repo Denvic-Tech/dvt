@@ -3,17 +3,28 @@
 from __future__ import annotations
 
 from src.modules.data_catalog.domain import (
+    ColumnGroup,
+    ColumnOccurrence,
+    ColumnRow,
+    DescriptionTarget,
     ExplainStep,
     FieldDependent,
     FieldExplanation,
     LineageGap,
     LineageRef,
+    NodeColumnAnnotation,
     NodeFieldsResult,
     NodeFieldView,
+    ProjectColumnsResult,
     ResolvedDescription,
+    UnresolvedPort,
 )
 
 from .schemas import (
+    ColumnGroupSchema,
+    ColumnOccurrenceSchema,
+    ColumnRowSchema,
+    DescriptionTargetSchema,
     ExplainStepSchema,
     FieldDependentSchema,
     FieldExplanationSchema,
@@ -21,6 +32,10 @@ from .schemas import (
     LineageRefSchema,
     NodeFieldSchema,
     NodeFieldsResponseSchema,
+    OrphanedAnnotationSchema,
+    ProjectColumnsResponseSchema,
+    ProjectOrphanedAnnotationSchema,
+    UnresolvedPortSchema,
 )
 
 
@@ -47,7 +62,21 @@ def field_view_to_schema(view: NodeFieldView) -> NodeFieldSchema:
         description=view.description,
         description_provenance=view.provenance.value,
         description_source=ref_to_schema(view.description_source) if view.description_source else None,
+        description_updated_by=view.description_updated_by,
+        description_updated_at=view.description_updated_at,
         explanation=view.explanation,
+        origin_field_name=view.origin_field_name,
+        origin_location=view.origin_location,
+    )
+
+
+def orphaned_annotation_to_schema(annotation: NodeColumnAnnotation) -> OrphanedAnnotationSchema:
+    return OrphanedAnnotationSchema(
+        column=annotation.column,
+        description=annotation.description,
+        origin_key=annotation.origin_key,
+        description_updated_by=annotation.description_updated_by,
+        updated_at=annotation.updated_at,
     )
 
 
@@ -63,6 +92,120 @@ def node_fields_to_schema(result: NodeFieldsResult) -> NodeFieldsResponseSchema:
         detail=result.detail,
         available_ports=list(result.available_ports),
         fields=[field_view_to_schema(view) for view in result.fields],
+        orphaned_annotations=[
+            orphaned_annotation_to_schema(item) for item in result.orphaned_annotations
+        ],
+    )
+
+
+def occurrence_to_schema(item: ColumnOccurrence) -> ColumnOccurrenceSchema:
+    description = item.description
+    return ColumnOccurrenceSchema(
+        ref=ref_to_schema(item.ref),
+        node_id=item.node_id,
+        node_name=item.node_name,
+        port=item.port,
+        role=item.role,
+        column=item.column,
+        op=item.op.value,
+        deps=[ref_to_schema(dep) for dep in item.deps],
+        deps_unknown=item.deps_unknown,
+        depth=item.depth,
+        description=description.text,
+        description_provenance=description.provenance.value,
+        description_source=ref_to_schema(description.source) if description.source else None,
+        description_updated_by=item.description_updated_by,
+        description_updated_at=item.description_updated_at,
+        is_override=item.is_override,
+    )
+
+
+def group_to_schema(group: ColumnGroup) -> ColumnGroupSchema:
+    description = group.description
+    return ColumnGroupSchema(
+        origin=ref_to_schema(group.origin),
+        kind=group.kind,
+        dataset_id=group.dataset_id,
+        dataset_location=group.dataset_location,
+        field_name=group.field_name,
+        origin_node_name=group.origin_node_name,
+        description=description.text,
+        description_provenance=description.provenance.value,
+        description_source=ref_to_schema(description.source) if description.source else None,
+        description_updated_by=group.description_updated_by,
+        description_updated_at=group.description_updated_at,
+        override_count=group.override_count,
+        occurrences=[occurrence_to_schema(item) for item in group.occurrences],
+    )
+
+
+def target_to_schema(target: DescriptionTarget) -> DescriptionTargetSchema:
+    return DescriptionTargetSchema(
+        scope=target.scope,
+        node_id=target.node_id,
+        port=target.port,
+        column=target.column,
+        dataset_id=target.dataset_id,
+        field_id=target.field_id,
+        field_name=target.field_name,
+    )
+
+
+def row_to_schema(row: ColumnRow) -> ColumnRowSchema:
+    description = row.description
+    return ColumnRowSchema(
+        id=row.id,
+        name=row.name,
+        origin=ref_to_schema(row.origin),
+        start=ref_to_schema(row.start),
+        kind=row.kind,
+        dataset_id=row.dataset_id,
+        dataset_location=row.dataset_location,
+        field_name=row.field_name,
+        origin_node_name=row.origin_node_name,
+        description=description.text,
+        description_provenance=description.provenance.value,
+        description_source=ref_to_schema(description.source) if description.source else None,
+        description_updated_by=row.description_updated_by,
+        description_updated_at=row.description_updated_at,
+        is_rename=row.is_rename,
+        renamed_from=row.renamed_from,
+        is_refinement=row.is_refinement,
+        targets=[target_to_schema(target) for target in row.targets],
+        depends_on=list(row.depends_on),
+        node_count=row.node_count,
+        occurrences=[occurrence_to_schema(item) for item in row.occurrences],
+    )
+
+
+def unresolved_port_to_schema(port: UnresolvedPort) -> UnresolvedPortSchema:
+    return UnresolvedPortSchema(
+        node_id=port.node_id,
+        node_name=port.node_name,
+        port=port.port,
+        role=port.role,
+        status=port.status.value,
+        reason=port.reason.value if port.reason else None,
+        detail=port.detail,
+    )
+
+
+def project_columns_to_schema(result: ProjectColumnsResult) -> ProjectColumnsResponseSchema:
+    return ProjectColumnsResponseSchema(
+        project_id=result.project_id,
+        lineage_available=result.lineage_available,
+        truncated=result.truncated,
+        rows=[row_to_schema(row) for row in result.rows],
+        groups=[group_to_schema(group) for group in result.groups],
+        unresolved_ports=[unresolved_port_to_schema(port) for port in result.unresolved_ports],
+        orphaned_annotations=[
+            ProjectOrphanedAnnotationSchema(
+                node_id=item.node_id,
+                port=item.port,
+                **orphaned_annotation_to_schema(item).model_dump(),
+            )
+            for item in result.orphaned_annotations
+        ],
     )
 
 

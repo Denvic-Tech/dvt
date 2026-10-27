@@ -37,11 +37,13 @@ def _safe_operation_summary(tool_name: str, arguments: dict[str, Any]) -> dict[s
         "node_id": arguments.get("node_id"),
         "field_id": arguments.get("field_id"),
         "column": arguments.get("column"),
+        "port": arguments.get("port"),
     }
-    if tool_name == "set_dataset_description":
+    if tool_name in ("set_dataset_description", "set_node_column_description"):
         # Текст описаний в audit-лог не попадает: только объём изменения.
         fields = arguments.get("fields")
         summary["fields_count"] = len(fields) if isinstance(fields, list) else 0
+    if tool_name == "set_dataset_description":
         summary["clear_description"] = bool(arguments.get("clear_description", False))
     for key in ("sql", "patch"):
         value = arguments.get(key)

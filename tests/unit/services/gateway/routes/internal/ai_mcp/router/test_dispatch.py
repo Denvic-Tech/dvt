@@ -51,6 +51,8 @@ DISPATCH_CASES = [
     ("get_node_fields", ("session",), True),
     ("explain_field", ("session",), True),
     ("get_field_dependents", ("session",), True),
+    ("get_project_columns", ("session",), True),
+    ("set_node_column_description", ("session",), True),
     ("run_project", ("session",), True),
     ("get_task", ("session",), False),
     ("wait_task", ("session",), False),

@@ -64,8 +64,21 @@ def test_lineage_routes_and_schemas_are_exposed():
         "source", "pass", "rename", "compute", "aggregate", "merge", "unknown",
     }
     assert set(components["NodeFieldSchema"]["properties"]["description_provenance"]["enum"]) == {
-        "declared", "source", "inherited", "derived", "unknown",
+        "declared", "source", "inherited", "derived", "none", "unknown",
     }
+    assert {"origin_field_name", "origin_location", "description_updated_by"} <= set(
+        components["NodeFieldSchema"]["properties"]
+    )
+    assert "orphaned_annotations" in components["NodeFieldsResponseSchema"]["properties"]
+    assert "patch" in paths["/projects/{project_id}/lineage/nodes/{node_id}/columns"]
+    assert "get" in paths["/projects/{project_id}/lineage/columns"]
+    assert set(components["ColumnGroupSchema"]["properties"]["kind"]["enum"]) == {"dataset_field", "node_column"}
+    assert {"depth", "is_override", "description_provenance"} <= set(components["ColumnOccurrenceSchema"]["properties"])
+    assert "lineage_available" in components["ProjectColumnsResponseSchema"]["required"]
+    assert "rows" in components["ProjectColumnsResponseSchema"]["properties"]
+    assert {"targets", "is_rename", "is_refinement", "depends_on"} <= set(components["ColumnRowSchema"]["properties"])
+    assert set(components["DescriptionTargetSchema"]["properties"]["scope"]["enum"]) == {"project", "global"}
+    assert "description" in components["ColumnDescriptionPatchSchema"]["required"]
     explain = paths["/projects/{project_id}/lineage/explain"]["get"]
     names = {parameter["name"] for parameter in explain["parameters"]}
     assert {"node_id", "column", "port", "direction", "max_depth", "X-Language"} <= names

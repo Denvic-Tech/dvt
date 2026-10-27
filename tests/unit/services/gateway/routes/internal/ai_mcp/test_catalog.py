@@ -276,3 +276,72 @@ async def test_lineage_tools_use_project_scope_and_filter_dependents(wire, monke
 
     with pytest.raises(AIMCPHTTPError):
         await catalog.explain_field(principal=_principal(), session=object(), project_id="p-allowed", node_id="n1", column="id", direction="sideways")
+
+
+@pytest.mark.asyncio
+async def test_get_project_columns_uses_project_scope(wire, monkeypatch):
+    from src.modules.data_catalog.domain import ProjectColumnsResult
+
+    use_cases = SimpleNamespace(
+        get_project_columns=SimpleNamespace(
+            execute=AsyncMock(return_value=ProjectColumnsResult(project_id="p-allowed", lineage_available=False))
+        ),
+    )
+    wire(use_cases=use_cases)
+    project = SimpleNamespace(id="p-allowed", organization_id="org")
+    guard = AsyncMock(return_value=project)
+    monkeypatch.setattr(catalog, "get_accessible_project", guard)
+
+    result = await catalog.get_project_columns(principal=_principal(), session=object(), project_id="p-allowed")
+
+    assert result == {
+        "project_id": "p-allowed", "lineage_available": False, "truncated": False,
+        "rows": [], "groups": [], "unresolved_ports": [], "orphaned_annotations": [],
+    }
+    assert guard.await_args.args[2] == "p-allowed"
+    assert use_cases.get_project_columns.execute.await_args.kwargs["organization_id"] == "org"
+
+
+@pytest.mark.asyncio
+async def test_set_node_column_description_validates_payload_and_returns_fields(wire, monkeypatch):
+    from src.modules.data_catalog.domain import (
+        ColumnDescriptionChange,
+        NodeColumnDescriptionsResult,
+        NodeFieldsResult,
+        PortStatus,
+    )
+
+    fields_result = NodeFieldsResult(
+        project_id="p-allowed", node_id="n1", node_name="DataFrameAddColumnByExpression", port="output", role="output",
+        status=PortStatus.RESOLVED, fields=(), available_ports=("output",),
+    )
+    use_cases = SimpleNamespace(
+        set_node_column_descriptions=SimpleNamespace(
+            execute=AsyncMock(return_value=NodeColumnDescriptionsResult(node_id="n1", port="output"))
+        ),
+        get_node_fields=SimpleNamespace(execute=AsyncMock(return_value=fields_result)),
+    )
+    wire(use_cases=use_cases)
+    project = SimpleNamespace(id="p-allowed", organization_id="org")
+    monkeypatch.setattr(catalog, "get_accessible_project", AsyncMock(return_value=project))
+
+    result = await catalog.set_node_column_description(
+        principal=_principal(), session=object(), project_id="p-allowed", node_id="n1",
+        fields=[{"column": "score", "description": "Скоринг"}, {"column": "old", "description": None}], locale="ru",
+    )
+
+    assert result["node_id"] == "n1" and result["orphaned_annotations"] == []
+    kwargs = use_cases.set_node_column_descriptions.execute.await_args.kwargs
+    assert kwargs["changes"] == (ColumnDescriptionChange("score", "Скоринг"), ColumnDescriptionChange("old", None))
+    assert (kwargs["actor_user_id"], kwargs["organization_id"], kwargs["port"]) == ("u1", "org", None)
+    assert use_cases.get_node_fields.execute.await_args.kwargs["locale"] == "ru"
+
+    with pytest.raises(AIMCPHTTPError) as invalid:
+        await catalog.set_node_column_description(
+            principal=_principal(), session=object(), project_id="p-allowed", node_id="n1", fields=[{"column": "x"}]
+        )
+    assert invalid.value.detail["code"] == "INVALID_ARGUMENTS"
+    with pytest.raises(AIMCPHTTPError):
+        await catalog.set_node_column_description(
+            principal=_principal(), session=object(), project_id="p-allowed", node_id="n1", fields=[]
+        )

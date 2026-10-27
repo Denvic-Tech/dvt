@@ -23,12 +23,14 @@ from services.gateway.routes.data_catalog.lineage_schemas import (
     dependent_to_schema,
     explanation_to_schema,
     node_fields_to_schema,
+    project_columns_to_schema,
 )
 
 from src.modules.ai_mcp_access.domain import ResourceScopeMode
 from src.modules.data_catalog.domain import (
     UNSET,
     CatalogViewer,
+    ColumnDescriptionChange,
     DatasetFieldNotFoundError,
     DatasetNotFoundError,
     DatasetSearchQuery,
@@ -205,6 +207,23 @@ class _SetDatasetDescriptionArguments(BaseModel):
     fields: list[_FieldDescriptionArguments] | None = None
 
 
+class _ColumnDescriptionArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    column: str = Field(min_length=1, max_length=512)
+    description: str | None = Field(max_length=20480)
+
+
+class _SetNodeColumnDescriptionArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(min_length=1)
+    node_id: str = Field(min_length=1)
+    fields: list[_ColumnDescriptionArguments] = Field(min_length=1, max_length=2000)
+    port: str | None = Field(default=None, max_length=128)
+    locale: str | None = None
+
+
 def _invalid(message: str) -> AIMCPHTTPError:
     return AIMCPHTTPError(422, "INVALID_ARGUMENTS", message)
 
@@ -358,6 +377,56 @@ async def get_node_fields(
         node_id=node_id,
         port=port,
         locale=_locale(locale),
+    )
+    return node_fields_to_schema(result).model_dump(mode="json")
+
+
+async def get_project_columns(
+    *,
+    principal: MCPPrincipal,
+    session: AsyncSession,
+    project_id: str,
+) -> dict[str, Any]:
+    project = await get_accessible_project(session, principal, project_id)
+    use_cases = get_data_catalog_use_cases(session)
+    result = await use_cases.get_project_columns.execute(
+        project_id=project.id, organization_id=project.organization_id
+    )
+    return project_columns_to_schema(result).model_dump(mode="json")
+
+
+async def set_node_column_description(
+    *,
+    principal: MCPPrincipal,
+    session: AsyncSession,
+    **arguments: Any,
+) -> dict[str, Any]:
+    """Описания колонок порта ноды внутри проекта. Сырой payload валидируется здесь, чтобы
+    вложенный `description: null` (удаление) дошёл до use case."""
+    try:
+        request = _SetNodeColumnDescriptionArguments.model_validate(arguments)
+    except (ValueError, ValidationError) as exc:
+        raise _invalid("Node column description arguments are invalid.") from exc
+    locale = _locale(request.locale)
+    project = await get_accessible_project(session, principal, request.project_id)
+    use_cases = get_data_catalog_use_cases(session)
+    written = await use_cases.set_node_column_descriptions.execute(
+        project_id=project.id,
+        organization_id=project.organization_id,
+        node_id=request.node_id,
+        port=request.port,
+        changes=tuple(
+            ColumnDescriptionChange(column=item.column, description=item.description)
+            for item in request.fields
+        ),
+        actor_user_id=principal.user.id,
+    )
+    result = await use_cases.get_node_fields.execute(
+        project_id=project.id,
+        organization_id=project.organization_id,
+        node_id=request.node_id,
+        port=written.port,
+        locale=locale,
     )
     return node_fields_to_schema(result).model_dump(mode="json")
 

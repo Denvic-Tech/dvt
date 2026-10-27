@@ -152,7 +152,7 @@ class RefreshOutcomeSchema(BaseModel):
 
 LineageOpLiteral = Literal["source", "pass", "rename", "compute", "aggregate", "merge", "unknown"]
 PortStatusLiteral = Literal["resolved", "partially_resolved", "unresolved"]
-LineageProvenanceLiteral = Literal["declared", "source", "inherited", "derived", "unknown"]
+LineageProvenanceLiteral = Literal["declared", "source", "inherited", "derived", "none", "unknown"]
 ExplainDirectionLiteral = Literal["upstream", "downstream"]
 
 
@@ -176,7 +176,25 @@ class NodeFieldSchema(BaseModel):
     description: str | None = None
     description_provenance: LineageProvenanceLiteral = "unknown"
     description_source: LineageRefSchema | None = None
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
     explanation: str | None = None
+    origin_field_name: str | None = Field(
+        default=None, description="Имя поля сущности, если колонка происходит из него."
+    )
+    origin_location: str | None = Field(
+        default=None, description="Человекочитаемый адрес сущности-источника колонки."
+    )
+
+
+class OrphanedAnnotationSchema(BaseModel):
+    """Описание колонки, которой больше нет на порту: осталось после переименования в ноде."""
+
+    column: str
+    description: str
+    origin_key: str | None = None
+    description_updated_by: str | None = None
+    updated_at: datetime
 
 
 class NodeFieldsResponseSchema(BaseModel):
@@ -190,6 +208,129 @@ class NodeFieldsResponseSchema(BaseModel):
     detail: str | None = None
     available_ports: list[str] = Field(default_factory=list)
     fields: list[NodeFieldSchema] = Field(default_factory=list)
+    orphaned_annotations: list[OrphanedAnnotationSchema] = Field(default_factory=list)
+
+
+class ColumnOccurrenceSchema(BaseModel):
+    """Колонка одного порта внутри группы; `is_override` отмечает переопределение не на origin."""
+
+    ref: LineageRefSchema
+    node_id: str
+    node_name: str
+    port: str
+    role: Literal["output", "input"]
+    column: str
+    op: LineageOpLiteral
+    deps: list[LineageRefSchema] = Field(default_factory=list)
+    deps_unknown: bool = False
+    depth: int = Field(ge=0, description="Хопов от origin по pass/rename/source.")
+    description: str | None = None
+    description_provenance: LineageProvenanceLiteral = "unknown"
+    description_source: LineageRefSchema | None = None
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
+    is_override: bool = False
+
+
+class ColumnGroupSchema(BaseModel):
+    """Все вхождения колонки с общим origin; группа это представление, а не сущность хранения."""
+
+    origin: LineageRefSchema
+    kind: Literal["dataset_field", "node_column"]
+    dataset_id: str | None = None
+    dataset_location: str | None = None
+    field_name: str | None = None
+    origin_node_name: str | None = None
+    description: str | None = None
+    description_provenance: LineageProvenanceLiteral = "unknown"
+    description_source: LineageRefSchema | None = None
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
+    override_count: int = Field(default=0, ge=0)
+    occurrences: list[ColumnOccurrenceSchema] = Field(default_factory=list)
+
+
+class UnresolvedPortSchema(BaseModel):
+    node_id: str
+    node_name: str
+    port: str
+    role: Literal["output", "input"]
+    status: PortStatusLiteral
+    reason: str | None = None
+    detail: str | None = None
+
+
+class ProjectOrphanedAnnotationSchema(OrphanedAnnotationSchema):
+    node_id: str
+    port: str
+
+
+class DescriptionTargetSchema(BaseModel):
+    """Куда пишется описание строки: `project` через PATCH колонок ноды, `global` через PATCH сущности."""
+
+    scope: Literal["project", "global"]
+    node_id: str | None = None
+    port: str | None = None
+    column: str | None = None
+    dataset_id: str | None = None
+    field_id: str | None = None
+    field_name: str | None = None
+
+
+class ColumnRowSchema(BaseModel):
+    """Отрезок цепочки с одним именем и одним текстом описания: строка общего окна каталога."""
+
+    id: str = Field(description="Ключ стартового вхождения; стабилен, пока не меняется граф.")
+    name: str
+    origin: LineageRefSchema
+    start: LineageRefSchema
+    kind: Literal["dataset_field", "node_column"]
+    dataset_id: str | None = None
+    dataset_location: str | None = None
+    field_name: str | None = None
+    origin_node_name: str | None = None
+    description: str | None = None
+    description_provenance: LineageProvenanceLiteral = "unknown"
+    description_source: LineageRefSchema | None = None
+    description_updated_by: str | None = None
+    description_updated_at: datetime | None = None
+    is_rename: bool = False
+    renamed_from: str | None = None
+    is_refinement: bool = Field(
+        default=False, description="Строка возникла из-за точечного описания в ноде старта."
+    )
+    targets: list[DescriptionTargetSchema] = Field(default_factory=list)
+    depends_on: list[str] = Field(default_factory=list, description="id строк, из которых собрана колонка.")
+    node_count: int = Field(default=0, ge=0)
+    occurrences: list[ColumnOccurrenceSchema] = Field(default_factory=list)
+
+
+class ProjectColumnsResponseSchema(BaseModel):
+    project_id: str
+    lineage_available: bool = Field(
+        description="false, если у проекта нет документа lineage даже после ленивого repair."
+    )
+    truncated: bool = False
+    rows: list[ColumnRowSchema] = Field(default_factory=list)
+    groups: list[ColumnGroupSchema] = Field(default_factory=list)
+    unresolved_ports: list[UnresolvedPortSchema] = Field(default_factory=list)
+    orphaned_annotations: list[ProjectOrphanedAnnotationSchema] = Field(default_factory=list)
+
+
+class ColumnDescriptionPatchSchema(BaseModel):
+    """Ключ description обязателен: null удаляет описание колонки."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    column: str = Field(min_length=1, max_length=512)
+    description: str | None = Field(max_length=20480)
+
+
+class NodeColumnDescriptionsPatchSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    port: str | None = Field(default=None, max_length=128)
+    fields: list[ColumnDescriptionPatchSchema] = Field(min_length=1, max_length=2000)
 
 
 class ExplainStepSchema(BaseModel):

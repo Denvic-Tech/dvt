@@ -12,13 +12,21 @@ from services.gateway.utils.detect_locale import detect_locale
 
 from src.db.fastapi.dependencies import AsyncSessionDepends
 from src.modules.data_catalog.domain import (
+    ColumnDescriptionChange,
     ExplainDirection,
     LineageColumnNotFoundError,
     LineageNodePortNotFoundError,
 )
+from src.modules.user.infra.fastapi.dependencies import UserAccessOnly
 
-from .lineage_schemas import explanation_to_schema, node_fields_to_schema
-from .schemas import ExplainDirectionLiteral, FieldExplanationSchema, NodeFieldsResponseSchema
+from .lineage_schemas import explanation_to_schema, node_fields_to_schema, project_columns_to_schema
+from .schemas import (
+    ExplainDirectionLiteral,
+    FieldExplanationSchema,
+    NodeColumnDescriptionsPatchSchema,
+    NodeFieldsResponseSchema,
+    ProjectColumnsResponseSchema,
+)
 
 router = APIRouter(prefix="/projects/{project_id}/lineage", tags=["Data Catalog"])
 
@@ -28,6 +36,21 @@ AcceptLanguage = Annotated[str | None, Header(alias="Accept-Language")]
 
 def _not_found(exc: Exception) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.get("/columns", response_model=ProjectColumnsResponseSchema)
+async def get_project_columns(
+    project: UserProjectByPath,
+    session: AsyncSessionDepends,
+) -> ProjectColumnsResponseSchema:
+    """Все колонки проекта группами по origin: обзор для окна каталога, без текстов объяснений."""
+    use_cases = get_data_catalog_use_cases(session)
+    result = await use_cases.get_project_columns.execute(
+        project_id=project.id,
+        organization_id=project.organization_id,
+    )
+    await session.commit()
+    return project_columns_to_schema(result)
 
 
 @router.get("/nodes/{node_id}/fields", response_model=NodeFieldsResponseSchema)
@@ -52,6 +75,45 @@ async def get_node_fields(
     except LineageNodePortNotFoundError as exc:
         raise _not_found(exc) from exc
     # Ленивый repair проекции мог пересобрать lineage: фиксируем результат.
+    await session.commit()
+    return node_fields_to_schema(result)
+
+
+@router.patch("/nodes/{node_id}/columns", response_model=NodeFieldsResponseSchema)
+async def set_node_column_descriptions(
+    project: UserProjectByPath,
+    node_id: str,
+    payload: NodeColumnDescriptionsPatchSchema,
+    session: AsyncSessionDepends,
+    user: UserAccessOnly,
+    x_language: XLanguage = None,
+    accept_language: AcceptLanguage = None,
+) -> NodeFieldsResponseSchema:
+    """Описания колонок порта ноды: `null` удаляет; ответ как у GET .../fields после записи."""
+    use_cases = get_data_catalog_use_cases(session)
+    locale = detect_locale(x_language, accept_language).value
+    changes = tuple(
+        ColumnDescriptionChange(column=item.column, description=item.description)
+        for item in payload.fields
+    )
+    try:
+        written = await use_cases.set_node_column_descriptions.execute(
+            project_id=project.id,
+            organization_id=project.organization_id,
+            node_id=node_id,
+            port=payload.port,
+            changes=changes,
+            actor_user_id=user.id,
+        )
+        result = await use_cases.get_node_fields.execute(
+            project_id=project.id,
+            organization_id=project.organization_id,
+            node_id=node_id,
+            port=written.port,
+            locale=locale,
+        )
+    except LineageNodePortNotFoundError as exc:
+        raise _not_found(exc) from exc
     await session.commit()
     return node_fields_to_schema(result)
 
