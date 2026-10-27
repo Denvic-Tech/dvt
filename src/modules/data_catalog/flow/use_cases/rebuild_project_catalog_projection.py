@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from src.logger import logger
@@ -25,6 +25,7 @@ from ...domain import (
     DiagnosticReason,
     ExpressionResolver,
     ExpressionUnresolvedError,
+    LinkDirection,
     ProjectCatalogProjection,
     ProjectGraphGateway,
     ProjectionDiagnostic,
@@ -34,11 +35,15 @@ from ...domain import (
     RebuildResult,
     SourceKindRegistry,
     SourceNotSupportedError,
+    SourceSeedContext,
     SqlReferenceExtractionError,
     SqlTableReferenceExtractor,
 )
 from ...domain.policies import SourceCandidate, is_projection_current, variables_fingerprint
 from ..exceptions import ProjectionRebuildFailedError
+
+if TYPE_CHECKING:
+    from .rebuild_project_lineage import RebuildProjectLineage
 
 _MAX_ERROR_LENGTH = 2000
 
@@ -56,9 +61,11 @@ class RebuildProjectCatalogProjection:
         expression_resolver: ExpressionResolver,
         sql_extractor: SqlTableReferenceExtractor,
         sources: SourceKindRegistry,
+        lineage_builder: RebuildProjectLineage | None = None,
         clock: Callable[[], datetime] | None = None,
         id_factory: Callable[[], str] | None = None,
     ) -> None:
+        self._lineage_builder = lineage_builder
         self._datasets = datasets
         self._connections = connections
         self._links = links
@@ -132,6 +139,7 @@ class RebuildProjectCatalogProjection:
         depends_on_variables = False
         links: dict[tuple[str, str, str], DatasetLink] = {}
         locator_cache: dict[str, ConnectionLocator | None] = {}
+        seeds: list[SourceSeedContext] = []
 
         for adapter in self._sources.adapters():
             candidates, adapter_diagnostics = adapter.extract_candidates(snapshot)
@@ -183,7 +191,10 @@ class RebuildProjectCatalogProjection:
                 diagnostics.extend(resolved.diagnostics)
                 depends_on_variables = depends_on_variables or resolved.used_variables
 
-                for locator in resolved.locators:
+                seed_dataset_ids: list[str] = []
+                seed_references: dict[str, str] = {}
+                for item in resolved.locators:
+                    locator = item.locator
                     dataset = await self._datasets.upsert(
                         Dataset(
                             id=self._new_id(),
@@ -198,6 +209,10 @@ class RebuildProjectCatalogProjection:
                     await self._connections.touch(
                         dataset.id, connection.id, connection.revision, now
                     )
+                    if dataset.id not in seed_dataset_ids:
+                        seed_dataset_ids.append(dataset.id)
+                    if item.reference:
+                        seed_references[item.reference] = dataset.id
                     link_key = (candidate.node_id, candidate.direction.value, dataset.id)
                     if link_key in links:
                         continue
@@ -215,7 +230,28 @@ class RebuildProjectCatalogProjection:
                         updated_at=now,
                     )
 
+                if candidate.direction is LinkDirection.READ and seed_dataset_ids:
+                    seeds.append(
+                        SourceSeedContext(
+                            node_id=candidate.node_id,
+                            node_name=candidate.node_name,
+                            dataset_ids=tuple(seed_dataset_ids),
+                            resolved_via=resolved.resolved_via,
+                            references=seed_references,
+                            sql=resolved.sql,
+                            dialect=resolved.dialect,
+                            column_filter=resolved.column_filter,
+                        )
+                    )
+
         await self._links.replace_for_project(project_id, list(links.values()))
+        lineage_result = await self._build_lineage(
+            project_id=project_id,
+            snapshot=snapshot,
+            project_variables=project_variables,
+            seeds=seeds,
+            diagnostics=diagnostics,
+        )
         projection = ProjectCatalogProjection(
             project_id=project_id,
             organization_id=organization_id,
@@ -227,7 +263,46 @@ class RebuildProjectCatalogProjection:
             diagnostics=tuple(diagnostics),
         )
         await self._projections.save(projection)
-        return RebuildResult(status="ok", projection=projection, link_count=len(links))
+        await self._projections.save_lineage(
+            project_id, lineage_result.lineage if lineage_result is not None else None
+        )
+        return RebuildResult(
+            status="ok",
+            projection=projection,
+            link_count=len(links),
+            port_count=lineage_result.port_count if lineage_result is not None else 0,
+            column_count=lineage_result.column_count if lineage_result is not None else 0,
+        )
+
+    async def _build_lineage(
+        self,
+        *,
+        project_id: str,
+        snapshot,
+        project_variables: Mapping[str, Any],
+        seeds: list[SourceSeedContext],
+        diagnostics: list[ProjectionDiagnostic],
+    ):
+        """Lineage не валит проекцию: сбой даёт диагностику LINEAGE_FAILED и пустой документ."""
+        if self._lineage_builder is None:
+            return None
+        try:
+            result = await self._lineage_builder.execute(
+                snapshot=snapshot, project_variables=project_variables, seeds=seeds
+            )
+        except Exception as exc:
+            logger.exception("Data catalog lineage build failed for project {}", project_id)
+            diagnostics.append(
+                ProjectionDiagnostic(
+                    node_id="*",
+                    node_name="*",
+                    reason=DiagnosticReason.LINEAGE_FAILED,
+                    detail=str(exc)[:_MAX_ERROR_LENGTH],
+                )
+            )
+            return None
+        diagnostics.extend(result.diagnostics)
+        return result
 
     async def _record_failure(
         self,

@@ -56,7 +56,7 @@ def _snapshot(*nodes: GraphNode, revision: int = 3, variables=None) -> ProjectGr
 
 
 class Harness:
-    def __init__(self, snapshot, *, locators=None, expressions=None, sql_tables=(), sql_fail=None):
+    def __init__(self, snapshot, *, locators=None, expressions=None, sql_tables=(), sql_fail=None, lineage_builder=None):
         self.datasets = InMemoryDatasetRepository()
         self.connections = InMemoryConnectionRepository()
         self.links = InMemoryLinkRepository()
@@ -72,6 +72,7 @@ class Harness:
             expression_resolver=FakeExpressionResolver(expressions),
             sql_extractor=FakeSqlExtractor(sql_tables, fail=sql_fail),
             sources=default_registry(),
+            lineage_builder=lineage_builder,
             clock=lambda: datetime(2026, 10, 7, tzinfo=UTC),
         )
 
@@ -214,3 +215,55 @@ async def test_unsupported_connection_type_becomes_diagnostic():
 async def test_missing_project_is_skipped():
     harness = Harness(None)
     assert (await harness.run()).status == "skipped"
+
+
+class _LineageBuilder:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.seeds = None
+
+    async def execute(self, *, snapshot, project_variables, seeds):
+        from src.modules.data_catalog.domain import (
+            LineageBuildResult,
+            PortLineage,
+            PortStatus,
+            ProjectLineage,
+        )
+
+        self.seeds = list(seeds)
+        if self.fail:
+            raise RuntimeError("lineage exploded")
+        port = PortLineage(node_id="r", node_name="ReadTableFromDBV3", port="output", status=PortStatus.RESOLVED)
+        return LineageBuildResult(lineage=ProjectLineage(ports=(port,)))
+
+
+@pytest.mark.asyncio
+async def test_lineage_stage_receives_seeds_and_stores_document():
+    reader = GraphNode("r", "ReadTableFromDBV3", {"table_name": GraphInputValue.const("customers"), "columns": GraphInputValue.const(["id"])})
+    sql_node = GraphNode("q", "ReadQueryFromDBV3", {"sql_code": GraphInputValue.const("select id from s1.a")})
+    writer = GraphNode("w", "WriteDataFrameToDBV4", {"table_name": GraphInputValue.const("out")})
+    builder = _LineageBuilder()
+    harness = Harness(_snapshot(reader, sql_node, writer), sql_tables=[SqlTableRef(table="a", schema="s1")], lineage_builder=builder)
+
+    result = await harness.run()
+
+    assert result.status == "ok" and result.port_count == 1
+    seeds = {seed.node_id: seed for seed in builder.seeds}
+    assert set(seeds) == {"r", "q"}, "writer is not a seed"
+    assert seeds["r"].column_filter == ("id",) and seeds["r"].references == {}
+    assert seeds["q"].sql == "select id from s1.a" and seeds["q"].dialect == "postgresql"
+    assert list(seeds["q"].references) == ["s1.a"]
+    assert harness.projections.lineage["p1"].ports[0].node_id == "r"
+
+
+@pytest.mark.asyncio
+async def test_lineage_failure_keeps_projection_ok_with_diagnostic():
+    reader = GraphNode("r", "ReadTableFromDBV3", {"table_name": GraphInputValue.const("t")})
+    harness = Harness(_snapshot(reader), lineage_builder=_LineageBuilder(fail=True))
+
+    result = await harness.run()
+
+    assert result.status == "ok"
+    assert result.projection.status is ProjectionStatus.OK
+    assert [d.reason for d in result.projection.diagnostics] == [DiagnosticReason.LINEAGE_FAILED]
+    assert harness.projections.lineage.get("p1") is None

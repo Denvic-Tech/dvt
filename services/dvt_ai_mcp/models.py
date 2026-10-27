@@ -277,3 +277,10 @@ class FieldDescriptionInput(FieldRefInput):
     """Description change for one field; description is required and null clears it."""
 
     description: str | None = Field(max_length=20480)
+
+
+class ColumnDescriptionInput(StrictModel):
+    """Description change for one node port column; null removes the description."""
+
+    column: str = Field(min_length=1, max_length=512)
+    description: str | None = Field(max_length=20480)

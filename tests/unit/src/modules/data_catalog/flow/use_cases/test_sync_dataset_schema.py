@@ -145,3 +145,27 @@ async def test_kind_without_schema_source_is_reported_as_unsupported():
 
     assert outcome.status == "unsupported"
     assert fields.items == {}
+
+
+@pytest.mark.asyncio
+async def test_new_or_missing_fields_mark_consumer_projections_stale():
+    from ..fakes import InMemoryProjectionRepository
+
+    projections = InMemoryProjectionRepository()
+    datasets = InMemoryDatasetRepository()
+    fields = InMemoryFieldRepository()
+    use_case = SyncDatasetSchema(
+        datasets=datasets,
+        fields=fields,
+        connections=InMemoryConnectionRepository(usable=("conn-1",)),
+        schema_sources={"db_table": FakeSchemaSource([ObservedField("id", "integer")])},
+        ttl_seconds=0,
+        projections=projections,
+        clock=lambda: NOW,
+    )
+
+    await use_case.execute(dataset=_dataset(), viewer=VIEWER, actor=ACTOR, force=True)
+    assert projections.stale_marks == ["d1"], "new field changes the source column set"
+
+    await use_case.execute(dataset=_dataset(), viewer=VIEWER, actor=ACTOR, force=True)
+    assert projections.stale_marks == ["d1"], "unchanged schema does not touch projections"

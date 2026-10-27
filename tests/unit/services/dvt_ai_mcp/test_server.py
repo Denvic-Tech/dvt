@@ -66,6 +66,11 @@ EXPECTED_TOOLS = {
     "set_dataset_description",
     "refresh_dataset",
     "confirm_field_rename",
+    "get_node_fields",
+    "explain_field",
+    "get_field_dependents",
+    "set_node_column_description",
+    "get_project_columns",
     "run_project",
     "get_task",
     "wait_task",
@@ -459,8 +464,13 @@ async def test_layout_protocol_defaults_to_preview_and_preserves_false(monkeypat
 
 def test_catalog_write_tools_have_expected_annotations() -> None:
     by_name = {tool.name: tool for tool in mcp._tool_manager.list_tools()}
+    for name in ("get_node_fields", "explain_field", "get_field_dependents", "get_project_columns"):
+        assert by_name[name].annotations.read_only_hint is True
+        assert by_name[name].annotations.open_world_hint is False
     assert by_name["set_dataset_description"].annotations.idempotent_hint is True
     assert by_name["set_dataset_description"].annotations.open_world_hint is False
+    assert by_name["set_node_column_description"].annotations.idempotent_hint is True
+    assert by_name["set_node_column_description"].annotations.read_only_hint is False
     assert by_name["refresh_dataset"].annotations.open_world_hint is True
     assert by_name["confirm_field_rename"].annotations.destructive_hint is True
 
@@ -492,3 +502,32 @@ async def test_set_dataset_description_preserves_nested_null_and_rejects_conflic
     assert name == "set_dataset_description"
     assert payload["fields"][0] == {"name": "id", "field_id": None, "description": None}
     assert "description" not in payload, "top-level null не передаётся: пропуск означает «не менять»"
+
+
+@pytest.mark.asyncio
+async def test_set_node_column_description_forwards_nested_null_and_defaults(monkeypatch):
+    from services.dvt_ai_mcp.gateway_client import _jsonable
+
+    captured = []
+
+    async def call(name, arguments):
+        captured.append((name, _jsonable(arguments)))
+        return {"node_id": "n1"}
+
+    monkeypatch.setattr(gateway_client, "call_tool", call)
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "set_node_column_description",
+            {"project_id": "p1", "node_id": "n1", "fields": [{"column": "score", "description": None}]},
+        )
+        assert not result.is_error
+        rejected = await client.call_tool(
+            "set_node_column_description",
+            {"project_id": "p1", "node_id": "n1", "fields": [{"column": "score"}]},
+        )
+        assert rejected.is_error, "description key is required so that null means removal"
+
+    name, payload = captured[0]
+    assert name == "set_node_column_description"
+    assert payload["fields"] == [{"column": "score", "description": None}]
+    assert (payload["locale"], payload["port"]) == ("en", None)

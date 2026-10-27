@@ -19,6 +19,7 @@ from src.modules.data_catalog.domain import (
     DatasetUsageEntry,
     ExpressionUnresolvedError,
     LinkDirection,
+    NodeColumnAnnotation,
     ObservedField,
     ProjectCatalogProjection,
     ProjectGraphSnapshot,
@@ -80,6 +81,9 @@ class InMemoryFieldRepository:
     async def delete(self, field_id: str) -> None:
         self.items.pop(field_id, None)
         self.deleted = [*getattr(self, "deleted", []), field_id]
+
+    async def list_for_datasets(self, dataset_ids: Sequence[str]) -> dict[str, list[DatasetField]]:
+        return {dataset_id: await self.list_for_dataset(dataset_id) for dataset_id in dataset_ids}
 
 
 class InMemoryConnectionRepository:
@@ -162,11 +166,51 @@ class InMemoryProjectionRepository:
             raise RuntimeError("storage unavailable")
         self.items[projection.project_id] = projection
 
+    async def save_lineage(self, project_id: str, lineage) -> None:
+        self.lineage = getattr(self, "lineage", {})
+        if lineage is None:
+            self.lineage.pop(project_id, None)
+        else:
+            self.lineage[project_id] = lineage
+
+    async def load_lineage(self, project_id: str):
+        return getattr(self, "lineage", {}).get(project_id)
+
+    async def load_lineage_many(self, project_ids: Sequence[str]):
+        stored = getattr(self, "lineage", {})
+        return {pid: stored[pid] for pid in project_ids if pid in stored}
+
+    async def mark_stale_for_dataset(self, dataset_id: str) -> int:
+        self.stale_marks = [*getattr(self, "stale_marks", []), dataset_id]
+        return 1
+
+
+class InMemoryAnnotationRepository:
+    def __init__(self) -> None:
+        self.items: dict[str, NodeColumnAnnotation] = {}
+
+    async def list_for_project(self, project_id: str) -> list[NodeColumnAnnotation]:
+        return [item for item in self.items.values() if item.project_id == project_id]
+
+    async def upsert_many(self, annotations: Sequence[NodeColumnAnnotation]) -> None:
+        for item in annotations:
+            self.items[item.id] = item
+
+    async def delete_many(self, annotation_ids: Sequence[str]) -> None:
+        for annotation_id in annotation_ids:
+            self.items.pop(annotation_id, None)
+
 
 class FakeGraphGateway:
-    def __init__(self, snapshot: ProjectGraphSnapshot | None) -> None:
+    def __init__(self, snapshot: ProjectGraphSnapshot | None, node_ids: Sequence[str] = ()) -> None:
         self.snapshot = snapshot
         self.locks = 0
+        self.node_ids = set(node_ids)
+
+    async def node_exists(self, project_id: str, organization_id: str | None, node_id: str) -> bool:
+        if node_id in self.node_ids:
+            return True
+        return self.snapshot is not None and any(node.ui_id == node_id for node in self.snapshot.nodes)
 
     async def load_stamp_source(self, project_id: str, organization_id: str) -> ProjectStampSource | None:
         return self.snapshot.stamp_source if self.snapshot is not None else None
@@ -220,3 +264,36 @@ class FakeSchemaSource:
         if self.fail:
             raise SchemaSourceUnavailableError("down")
         return self.fields
+
+
+class FakePortTypeGateway:
+    def __init__(self, types: Mapping[str, Any]) -> None:
+        self.types = dict(types)
+
+    def get_port_types(self, node_name: str):
+        return self.types.get(node_name)
+
+
+class FakeRenderer:
+    def render(self, template_key: str, params: Mapping[str, Any], locale: str) -> str | None:
+        return f"{locale}:{template_key}"
+
+
+class FakeSqlLineageExtractor:
+    def __init__(self, result) -> None:
+        self.result = result
+        self.calls: list[tuple[str, str]] = []
+
+    def extract(self, sql: str, dialect: str, project_variables: Mapping[str, Any], schema):
+        self.calls.append((sql, dialect))
+        self.schema = schema
+        return self.result
+
+
+class FakeFreshness:
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple[str, ...], str | None]] = []
+
+    async def ensure_fresh(self, *, project_ids: Sequence[str], organization_id: str | None) -> list[str]:
+        self.calls.append((tuple(project_ids), organization_id))
+        return []

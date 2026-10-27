@@ -171,7 +171,10 @@ def remap_graph_snapshot(
 
     Edges keep pointing at the same nodes, nodes and edges keep belonging to the
     same subgraphs, and node-attached file connections are re-owned to the
-    target project. Dangling references are preserved as-is.
+    target project. Dangling references are preserved as-is, except column
+    annotations of unknown nodes, which are dropped: they cannot exist without
+    their node. ``origin_key`` of an annotation refers to ids of the source
+    project and is reset.
     """
     mapping = GraphIdMapping()
 
@@ -217,11 +220,18 @@ def remap_graph_snapshot(
             )
         )
 
+    remapped_annotations = [
+        replace(annotation, node_ui_id=mapping.nodes[annotation.node_ui_id], origin_key=None)
+        for annotation in snapshot.column_annotations
+        if annotation.node_ui_id in mapping.nodes
+    ]
+
     return GraphRemapResult(
         snapshot=GraphSnapshot(
             subgraphs=remapped_subgraphs,
             nodes=remapped_nodes,
             edges=remapped_edges,
+            column_annotations=remapped_annotations,
         ),
         mapping=mapping,
         service_files_rewrites=rewrites,
@@ -298,7 +308,7 @@ def apply_connection_ids(
                 updated_values = deepcopy(node.input_values) if isinstance(node.input_values, dict) else {}
             updated_values[input_name] = {INPUT_TYPE_MARKER: CONST_INPUT_MARKER, "value": connection_id}
         nodes.append(node if updated_values is None else replace(node, input_values=updated_values))
-    return GraphSnapshot(subgraphs=list(snapshot.subgraphs), nodes=nodes, edges=list(snapshot.edges))
+    return replace(snapshot, nodes=nodes)
 
 
 # --- Folders ----------------------------------------------------------------

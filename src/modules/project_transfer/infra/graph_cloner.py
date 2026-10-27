@@ -14,6 +14,7 @@ from datetime import datetime
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.data_catalog.infra.db_models import NodeColumnAnnotationRecord
 from src.modules.file_storage.infra.db_models import DVTServiceFileObjectRecord
 from src.modules.pipeline_graph.infra.db_models import (
     GraphEdgeRecord,
@@ -21,6 +22,7 @@ from src.modules.pipeline_graph.infra.db_models import (
     SubgraphRecord,
 )
 from src.modules.project_transfer.domain.entities import (
+    ColumnAnnotationSnapshot,
     GraphEdgeSnapshot,
     GraphNodeSnapshot,
     GraphSnapshot,
@@ -86,10 +88,29 @@ async def read_graph_snapshot(session: AsyncSession, project_id: str) -> GraphSn
         )
     ).all()
 
+    annotation_rows = (
+        await session.execute(
+            sa.select(
+                NodeColumnAnnotationRecord.node_id.label("node_ui_id"),
+                NodeColumnAnnotationRecord.port,
+                NodeColumnAnnotationRecord.column_name.label("column"),
+                NodeColumnAnnotationRecord.description,
+                NodeColumnAnnotationRecord.origin_key,
+            )
+            .where(NodeColumnAnnotationRecord.project_id == project_id)
+            .order_by(
+                NodeColumnAnnotationRecord.node_id,
+                NodeColumnAnnotationRecord.port,
+                NodeColumnAnnotationRecord.column_name,
+            )
+        )
+    ).all()
+
     return GraphSnapshot(
         subgraphs=[GraphSubgraphSnapshot(**row._mapping) for row in subgraph_rows],
         nodes=[GraphNodeSnapshot(**row._mapping) for row in node_rows],
         edges=[GraphEdgeSnapshot(**row._mapping) for row in edge_rows],
+        column_annotations=[ColumnAnnotationSnapshot(**row._mapping) for row in annotation_rows],
     )
 
 
@@ -137,11 +158,34 @@ async def insert_graph_snapshot(
             sa.insert(GraphEdgeRecord.__table__),
             [{**asdict(edge), **_ownership(**ownership)} for edge in snapshot.edges],
         )
+    if snapshot.column_annotations:
+        # Author of the copy becomes the author of the copied descriptions.
+        await session.execute(
+            sa.insert(NodeColumnAnnotationRecord.__table__),
+            [
+                {
+                    "id": str(uuid.uuid4()),
+                    "project_id": project_id,
+                    "node_id": annotation.node_ui_id,
+                    "port": annotation.port,
+                    "column_name": annotation.column,
+                    "description": annotation.description,
+                    "origin_key": annotation.origin_key,
+                    "description_updated_by": user_id,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                for annotation in snapshot.column_annotations
+            ],
+        )
 
 
 async def delete_graph(session: AsyncSession, project_id: str) -> None:
     """Remove every graph element and node-attached file of a project."""
     await session.execute(sa.delete(GraphEdgeRecord).where(GraphEdgeRecord.project_id == project_id))
+    await session.execute(
+        sa.delete(NodeColumnAnnotationRecord).where(NodeColumnAnnotationRecord.project_id == project_id)
+    )
     await session.execute(sa.delete(GraphNodeRecord).where(GraphNodeRecord.project_id == project_id))
     await session.execute(sa.delete(SubgraphRecord).where(SubgraphRecord.project_id == project_id))
     await session.execute(

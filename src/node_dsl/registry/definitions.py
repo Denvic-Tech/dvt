@@ -169,6 +169,17 @@ def add(node_name: str, definition: "NodeDefinition", lang: str = "default") -> 
         NODE_DEFINITIONS[node_name][lang] = definition
 
 
+def has(node_name: str) -> bool:
+    """Есть ли определение в реестре; в отличие от get() не запускает bootstrap на промахе."""
+    with registry_transaction(), _REGISTRY_LOCK:
+        return bool(NODE_DEFINITIONS.get(node_name))
+
+
+def ensure_ready() -> None:
+    """Однократный bootstrap реестра, если он ещё пуст; повторные вызовы бесплатны."""
+    ensure_bootstrapped(is_ready=lambda: bool(NODE_DEFINITIONS))
+
+
 def get(node_name: str, lang: str = "default") -> "NodeDefinition":
     with registry_transaction(), _REGISTRY_LOCK:
         definitions_by_lang = NODE_DEFINITIONS.get(node_name)

@@ -129,6 +129,14 @@ class FieldDescriptionChange:
 
 
 @dataclass(frozen=True, slots=True)
+class ColumnDescriptionChange:
+    """Изменение описания колонки порта ноды; description=None означает удаление."""
+
+    column: str
+    description: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ObservedNodeSchema:
     """Схема таблицы, наблюдённая Read-нодой во время прогона пайплайна."""
 

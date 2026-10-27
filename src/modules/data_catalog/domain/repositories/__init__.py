@@ -17,6 +17,7 @@ from ..entities import (
     DatasetUsageEntry,
     ProjectCatalogProjection,
 )
+from ..lineage import NodeColumnAnnotation, ProjectLineage
 from ..types import LinkDirection
 
 
@@ -43,6 +44,10 @@ class DatasetFieldRepository(Protocol):
 
     async def delete(self, field_id: str) -> None:
         """Единственное физическое удаление: дубликат-наблюдение после подтверждения переименования."""
+        ...
+
+    async def list_for_datasets(self, dataset_ids: Sequence[str]) -> dict[str, list[DatasetField]]:
+        """Поля нескольких сущностей одним запросом; ключ — dataset_id."""
         ...
 
 
@@ -88,9 +93,29 @@ class DatasetLinkRepository(Protocol):
         ...
 
 
+class NodeColumnAnnotationRepository(Protocol):
+    async def list_for_project(self, project_id: str) -> list[NodeColumnAnnotation]: ...
+
+    async def upsert_many(self, annotations: Sequence[NodeColumnAnnotation]) -> None: ...
+
+    async def delete_many(self, annotation_ids: Sequence[str]) -> None: ...
+
+
 class ProjectionRepository(Protocol):
     async def get(self, project_id: str) -> ProjectCatalogProjection | None: ...
 
     async def get_many(self, project_ids: Sequence[str]) -> dict[str, ProjectCatalogProjection]: ...
 
     async def save(self, projection: ProjectCatalogProjection) -> None: ...
+
+    async def save_lineage(self, project_id: str, lineage: ProjectLineage | None) -> None:
+        """Заменяет документ lineage проекции; None очищает его."""
+        ...
+
+    async def load_lineage(self, project_id: str) -> ProjectLineage | None: ...
+
+    async def load_lineage_many(self, project_ids: Sequence[str]) -> dict[str, ProjectLineage]: ...
+
+    async def mark_stale_for_dataset(self, dataset_id: str) -> int:
+        """Сбрасывает версию семантики проекций проектов, читающих сущность; возвращает их число."""
+        ...

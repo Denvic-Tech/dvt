@@ -18,6 +18,7 @@ from .gateway_client import (
     gateway_client,
 )
 from .models import (
+    ColumnDescriptionInput,
     DataFrameMetadata,
     DDLColumn,
     FieldDescriptionInput,
@@ -644,6 +645,96 @@ async def confirm_field_rename(
     the duplicate new row is removed. Requires `missing` status on the old field.
     """
     return await _call("confirm_field_rename", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_node_fields(
+    project_id: str,
+    node_id: str,
+    port: str | None = None,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """List the columns of a node's DataFrame port with their lineage and inherited descriptions.
+
+    Each field carries `op` (source/pass/rename/compute/aggregate/merge/unknown), its `origin`
+    reference, dependencies, an `explanation` text and the effective description with provenance
+    (declared/source/inherited/derived/none/unknown). `none` means the source is known but has no
+    text; `derived` means the column is computed and needs its own description via
+    `set_node_column_description`. `orphaned_annotations` lists descriptions of columns that no
+    longer exist on the port. Lineage is static knowledge from the saved graph.
+    """
+    return await _call("get_node_fields", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_project_columns(project_id: str) -> dict[str, Any]:
+    """Overview of every DataFrame column in a project: `rows` to read and describe, `groups` for impact.
+
+    Each row is a chain segment where the column name and the description text do not change,
+    so a row has exactly one `description` and one place to write it (`targets`: `project` writes
+    an annotation on the `start` node column via `set_node_column_description`; `global`, offered
+    only for the first segment read from a table, writes the dataset field via
+    `set_dataset_description`). A rename starts a new row (`is_rename`, `renamed_from`); a
+    description written mid-chain starts a new row too (`is_refinement`), and clearing it merges
+    the rows back. `depends_on` lists the rows a computed column is built from. `groups` keep the
+    whole origin chain with `occurrences` and `is_override` for impact analysis. `unresolved_ports`
+    show where lineage is unknown, `orphaned_annotations` list descriptions of columns that no
+    longer exist. No explanation texts: use `explain_field`.
+    """
+    return await _call("get_project_columns", locals())
+
+
+@mcp.tool(annotations=WRITE_CATALOG)
+async def set_node_column_description(
+    project_id: str,
+    node_id: str,
+    fields: list[ColumnDescriptionInput],
+    port: str | None = None,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """Describe columns of a node's DataFrame port in business terms, inside one project.
+
+    Use it for columns whose text cannot be inherited from a source field (`derived` or `none`
+    provenance in `get_node_fields`): computed metrics, aggregates, merged columns. The text
+    becomes `declared` on that column, takes priority over inherited text, and is inherited
+    downstream through pass/rename and through merges (join keys, unions) whose other parents have
+    no text of their own; two different parent texts leave the column `derived`. Each item carries `column` and
+    `description` (null removes). Descriptions belong to the node and move with project copies,
+    exports and imports. Omit `port` to target the main DataFrame output. Returns the same
+    payload as `get_node_fields`.
+    """
+    return await _call("set_node_column_description", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def explain_field(
+    project_id: str,
+    node_id: str,
+    column: str,
+    port: str | None = None,
+    direction: Literal["upstream", "downstream"] = "upstream",
+    max_depth: int = 20,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """Trace one node column to its sources (upstream) or to its consumers (downstream) in a project.
+
+    Steps follow the saved graph; `gaps` list places where lineage is unknown (dynamic inputs,
+    custom code, sources without a static schema).
+    """
+    return await _call("explain_field", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_field_dependents(
+    dataset_id: str,
+    field_id: str,
+    max_depth: int = 20,
+) -> dict[str, Any]:
+    """List node columns in every accessible project that depend on a catalog dataset field.
+
+    Use before changing or dropping a source column: the result is the blast radius across projects.
+    """
+    return await _call("get_field_dependents", locals())
 
 
 @mcp.tool(annotations=WRITE_EXECUTION)

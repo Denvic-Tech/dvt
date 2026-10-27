@@ -10,9 +10,11 @@ from ...domain import (
     DatasetFieldRepository,
     DatasetLinkRepository,
     DatasetRepository,
+    FieldStatus,
     LinkDirection,
     ObservationOutcome,
     ObservedNodeSchema,
+    ProjectionRepository,
     SourceKindRegistry,
     UnknownSourceKindError,
 )
@@ -30,8 +32,10 @@ class RecordObservedSchema:
         connections: DatasetConnectionRepository,
         links: DatasetLinkRepository,
         sources: SourceKindRegistry,
+        projections: ProjectionRepository | None = None,
         id_factory: Callable[[], str] | None = None,
     ) -> None:
+        self._projections = projections
         self._sources = sources
         self._datasets = datasets
         self._fields = fields
@@ -78,6 +82,10 @@ class RecordObservedSchema:
                 observation.connection_revision,
                 observation.observed_at,
             )
+            if self._projections is not None and any(
+                field.status in (FieldStatus.NEW, FieldStatus.MISSING) for field in merged
+            ):
+                await self._projections.mark_stale_for_dataset(dataset.id)
 
             dataset.observed_at_run = observation.observed_at
             if observation.trust_types and not observation.partial:
