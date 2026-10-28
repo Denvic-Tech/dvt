@@ -45,6 +45,7 @@ from src.modules.data_catalog.infra.db_models import (  # noqa: F403
     DatasetLinkRecord,
     DatasetRecord,
     NodeColumnAnnotationRecord,
+    NodePortObservationRecord,
     ProjectCatalogProjectionRecord,
 )
 
