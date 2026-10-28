@@ -153,7 +153,7 @@ async def test_on_node_metadata_catalog_commits_when_datasets_updated(monkeypatc
         sessions.append(session)
         return session
 
-    record = AsyncMock(return_value=SimpleNamespace(dataset_ids=("d1",), trusted_types=True))
+    record = AsyncMock(return_value=SimpleNamespace(dataset_ids=("d1",), trusted_types=True, port_count=0))
     monkeypatch.setattr(src.db, "AsyncSessionLocal", session_factory)
     monkeypatch.setattr(data_catalog, "record_observed_node_metadata", record)
 
@@ -162,8 +162,22 @@ async def test_on_node_metadata_catalog_commits_when_datasets_updated(monkeypatc
         user_id="u", project_id="p", task_id="t", node=node, metadata={"output": None}, extra="ignored"
     )
 
-    record.assert_awaited_once_with(session=sessions[0], project_id="p", node=node, metadata={"output": None})
+    record.assert_awaited_once_with(
+        session=sessions[0], project_id="p", node=node, metadata={"output": None}, task_id="t"
+    )
     sessions[0].commit.assert_awaited_once()
+
+    record.return_value = SimpleNamespace(dataset_ids=(), trusted_types=False, port_count=2)
+    await pipeline_callbacks.on_node_metadata_catalog(
+        user_id="u", project_id="p", task_id="t", node=node, metadata={"output": None}
+    )
+    sessions[1].commit.assert_awaited_once(), "port observations alone are worth a commit"
+
+    record.return_value = SimpleNamespace(dataset_ids=(), trusted_types=False, port_count=0)
+    await pipeline_callbacks.on_node_metadata_catalog(
+        user_id="u", project_id="p", task_id="t", node=node, metadata={"output": None}
+    )
+    sessions[2].commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
