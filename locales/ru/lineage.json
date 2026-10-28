@@ -28,5 +28,7 @@
   "lineage.compute.column_input": "Задано из колоночного входа {port}",
   "lineage.aggregate": "{function} по {source} внутри группы",
   "lineage.merge.union": "Слито из {count} ветвей объединения",
-  "lineage.merge.join_key": "Ключ соединения, общий для обеих сторон ({left} = {right})"
+  "lineage.merge.join_key": "Ключ соединения, общий для обеих сторон ({left} = {right})",
+  "lineage.observed": "Колонка наблюдена при последнем прогоне ноды {node}; происхождение неизвестно",
+  "lineage.pass.observed": "Колонка с тем же именем пришла в {node} через вход {input}; считается прошедшей сквозь, код мог её изменить"
 }

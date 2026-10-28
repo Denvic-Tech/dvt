@@ -18,6 +18,13 @@ from .grouping import (
     group_columns_by_origin,
 )
 from .index import LineageIndex, index_lineage
+from .observed import (
+    ASSUMED_PASS_TEMPLATE,
+    OBSERVABLE_REASONS,
+    OBSERVED_TEMPLATE,
+    can_use_observation,
+    observed_port_columns,
+)
 from .rules import DYNAMIC, LineageRule, LineageRuleRegistry, RuleContext, is_dynamic
 from .sql_mapping import (
     build_schema_hint,
@@ -26,9 +33,12 @@ from .sql_mapping import (
 )
 
 __all__ = [
+    "ASSUMED_PASS_TEMPLATE",
     "DYNAMIC",
     "DYNAMIC_SCHEMA_NODES",
     "NON_STATIC_SOURCE_NODES",
+    "OBSERVABLE_REASONS",
+    "OBSERVED_TEMPLATE",
     "PASSTHROUGH_NODES",
     "SINK_NODES",
     "DescriptionResolver",
@@ -39,6 +49,7 @@ __all__ = [
     "build_builtin_rules",
     "build_column_rows",
     "build_schema_hint",
+    "can_use_observation",
     "collect_dependents",
     "collect_orphaned_annotations",
     "collect_unresolved_ports",
@@ -51,6 +62,7 @@ __all__ = [
     "index_lineage",
     "is_dynamic",
     "match_field_name",
+    "observed_port_columns",
     "source_columns_from_fields",
     "sql_lineage_to_port_columns",
 ]

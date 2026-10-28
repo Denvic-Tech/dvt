@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from ..catalog_values import CatalogViewer
+from ..catalog_values import CatalogViewer, ObservedPortSchema
 from ..entities import (
     Dataset,
     DatasetConnection,
@@ -101,6 +101,16 @@ class NodeColumnAnnotationRepository(Protocol):
     async def delete_many(self, annotation_ids: Sequence[str]) -> None: ...
 
 
+class NodePortObservationRepository(Protocol):
+    async def list_for_project(self, project_id: str) -> list[ObservedPortSchema]: ...
+
+    async def list_for_node(self, project_id: str, node_id: str) -> list[ObservedPortSchema]: ...
+
+    async def upsert_many(self, observations: Sequence[ObservedPortSchema]) -> None:
+        """Одна строка на (project_id, node_id, port); повторное наблюдение перезаписывает её."""
+        ...
+
+
 class ProjectionRepository(Protocol):
     async def get(self, project_id: str) -> ProjectCatalogProjection | None: ...
 
@@ -115,6 +125,10 @@ class ProjectionRepository(Protocol):
     async def load_lineage(self, project_id: str) -> ProjectLineage | None: ...
 
     async def load_lineage_many(self, project_ids: Sequence[str]) -> dict[str, ProjectLineage]: ...
+
+    async def mark_stale_for_project(self, project_id: str) -> bool:
+        """Сбрасывает версию семантики проекции одного проекта; False, если она уже сброшена."""
+        ...
 
     async def mark_stale_for_dataset(self, dataset_id: str) -> int:
         """Сбрасывает версию семантики проекций проектов, читающих сущность; возвращает их число."""

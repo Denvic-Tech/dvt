@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from ...catalog_values import ProjectionDiagnostic
+from ...catalog_values import ObservedPortSchema, ProjectionDiagnostic
 from ...gateways import ColumnRulePlanner
 from ...graph import GraphNode, ProjectGraphSnapshot
 from ...lineage import (
@@ -21,6 +21,7 @@ from ...lineage import (
 )
 from ...types import MAX_COLUMNS_PER_PORT, DiagnosticReason, LineageOp, PortStatus
 from .builtin_rules import NON_STATIC_SOURCE_NODES
+from .observed import can_use_observation, observed_port_columns
 from .rules import LineageRuleRegistry, RuleContext, details, pass_column
 
 _INTERNAL_PREFIX = "__dvt"
@@ -45,7 +46,9 @@ def derive_project_lineage(
     seeds: Mapping[str, Mapping[str, PortColumns]],
     planner: ColumnRulePlanner | None = None,
     max_columns_per_port: int = MAX_COLUMNS_PER_PORT,
+    observed: Mapping[tuple[str, str], ObservedPortSchema] | None = None,
 ) -> tuple[ProjectLineage, list[ProjectionDiagnostic]]:
+    """observed: наблюдённые схемы по (node_id, port); подставляются там, где статика бессильна."""
     diagnostics: list[ProjectionDiagnostic] = []
     topology = _build_topology(snapshot, port_types, seeds, diagnostics)
 
@@ -79,6 +82,8 @@ def derive_project_lineage(
                 outputs = rule(RuleContext(node=node, inputs=inputs, port_types=types, planner=planner))
         else:
             outputs = {}
+        if observed:
+            outputs = _apply_observations(node, types, outputs, observed, inputs)
 
         for port_name in types.dataframe_outputs:
             result = outputs.get(port_name) or PortColumns.unresolved(
@@ -244,6 +249,26 @@ def _finalize(
         columns=tuple(columns),
     )
     return port, truncated
+
+
+def _apply_observations(
+    node: GraphNode,
+    types: NodePortTypes,
+    outputs: Mapping[str, PortColumns],
+    observed: Mapping[tuple[str, str], ObservedPortSchema],
+    inputs: Mapping[str, PortLineage],
+) -> Mapping[str, PortColumns]:
+    patched = dict(outputs)
+    for port_name in types.dataframe_outputs:
+        observation = observed.get((node.ui_id, port_name))
+        if observation is None:
+            continue
+        result = patched.get(port_name) or PortColumns.unresolved(
+            DiagnosticReason.LINEAGE_RULE_MISSING, f"rule produced nothing for port {port_name}"
+        )
+        if can_use_observation(result):
+            patched[port_name] = observed_port_columns(observation, node.name, result, inputs)
+    return patched
 
 
 def _origin_for(column: ColumnLineage, own_ref: LineageRef, origins: Mapping[str, LineageRef]) -> LineageRef:

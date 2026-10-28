@@ -21,6 +21,7 @@ from src.modules.data_catalog.domain import (
     LinkDirection,
     NodeColumnAnnotation,
     ObservedField,
+    ObservedPortSchema,
     ProjectCatalogProjection,
     ProjectGraphSnapshot,
     ProjectStampSource,
@@ -183,6 +184,27 @@ class InMemoryProjectionRepository:
     async def mark_stale_for_dataset(self, dataset_id: str) -> int:
         self.stale_marks = [*getattr(self, "stale_marks", []), dataset_id]
         return 1
+
+    async def mark_stale_for_project(self, project_id: str) -> bool:
+        self.stale_projects = [*getattr(self, "stale_projects", []), project_id]
+        return True
+
+
+class InMemoryPortObservationRepository:
+    def __init__(self) -> None:
+        self.items: dict[tuple[str, str, str], ObservedPortSchema] = {}
+
+    async def list_for_project(self, project_id: str) -> list[ObservedPortSchema]:
+        return [item for item in self.items.values() if item.project_id == project_id]
+
+    async def list_for_node(self, project_id: str, node_id: str) -> list[ObservedPortSchema]:
+        return [
+            item for item in self.items.values() if item.project_id == project_id and item.node_id == node_id
+        ]
+
+    async def upsert_many(self, observations: Sequence[ObservedPortSchema]) -> None:
+        for item in observations:
+            self.items[(item.project_id, item.node_id, item.port)] = item
 
 
 class InMemoryAnnotationRepository:

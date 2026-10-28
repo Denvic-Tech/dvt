@@ -17,6 +17,8 @@ from ..domain import (
     LinkDirection,
     LinkKind,
     NodeColumnAnnotation,
+    ObservedField,
+    ObservedPortSchema,
     ProjectCatalogProjection,
     ProjectionDiagnostic,
     ProjectionStamp,
@@ -29,6 +31,7 @@ from .db_models import (
     DatasetLinkRecord,
     DatasetRecord,
     NodeColumnAnnotationRecord,
+    NodePortObservationRecord,
     ProjectCatalogProjectionRecord,
 )
 
@@ -208,6 +211,49 @@ def apply_annotation(
 
 def annotation_to_record(annotation: NodeColumnAnnotation) -> NodeColumnAnnotationRecord:
     return apply_annotation(NodeColumnAnnotationRecord(id=annotation.id), annotation)
+
+
+def port_observation_to_domain(record: NodePortObservationRecord) -> ObservedPortSchema:
+    columns = tuple(
+        ObservedField(
+            name=str(item.get("name", "")),
+            dtype=item.get("dtype"),
+            nullable=item.get("nullable"),
+            ordinal=item.get("ordinal"),
+        )
+        for item in (record.columns or [])
+        if isinstance(item, dict) and item.get("name")
+    )
+    return ObservedPortSchema(
+        project_id=record.project_id,
+        node_id=record.node_id,
+        port=record.port,
+        columns=columns,
+        observed_at=aware(record.observed_at),
+        graph_revision=record.graph_revision,
+        task_id=record.task_id,
+    )
+
+
+def apply_port_observation(
+    record: NodePortObservationRecord,
+    observation: ObservedPortSchema,
+) -> NodePortObservationRecord:
+    record.project_id = observation.project_id
+    record.node_id = observation.node_id
+    record.port = observation.port
+    record.columns = [
+        {"name": column.name, "dtype": column.dtype, "nullable": column.nullable, "ordinal": column.ordinal}
+        for column in observation.columns
+    ]
+    record.graph_revision = observation.graph_revision
+    record.task_id = observation.task_id
+    record.observed_at = observation.observed_at
+    return record
+
+
+def port_observation_to_record(observation: ObservedPortSchema) -> NodePortObservationRecord:
+    return apply_port_observation(NodePortObservationRecord(), observation)
 
 
 def diagnostics_to_json(diagnostics: tuple[ProjectionDiagnostic, ...]) -> list[dict[str, Any]]:

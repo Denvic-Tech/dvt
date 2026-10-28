@@ -13,7 +13,7 @@ from src.node_dsl.connection_types import SqlConnectionRecord
 from src.node_dsl.variables import is_unresolved_value
 from src.pipeline.execution_mode import PipelineExecutionMode
 
-from ...domain import ObservedField, ObservedNodeSchema
+from ...domain import ObservedField, ObservedNodeSchema, ObservedPortSchema
 
 OBSERVED_READ_NODES = frozenset({"ReadTableFromDBV3"})
 _SERVICE_NODE_PREFIX = "__service_output"
@@ -24,6 +24,44 @@ def _text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def build_port_observations(
+    node: Any,
+    metadata: Mapping[str, Any] | None,
+    *,
+    project_id: str,
+    task_id: str | None = None,
+) -> tuple[ObservedPortSchema, ...]:
+    """Состав колонок каждого DataFrame-выхода ноды; выходы без DataFrame и служебные ноды пропускаются."""
+    node_id = getattr(node, "node_id", None) or getattr(node, "_node_id", None)
+    if not node_id or str(node_id).startswith(_SERVICE_NODE_PREFIX):
+        return ()
+    observed_at = datetime.now(UTC)
+    result: list[ObservedPortSchema] = []
+    for output_name, output in (metadata or {}).items():
+        if not isinstance(output, DataFrameMetadata):
+            continue
+        columns = tuple(
+            ObservedField(
+                name=column.name,
+                dtype=str(column.dtype) if column.dtype is not None else None,
+                nullable=column.nullable,
+                ordinal=position,
+            )
+            for position, column in enumerate(output.columns, start=1)
+        )
+        result.append(
+            ObservedPortSchema(
+                project_id=project_id,
+                node_id=str(node_id),
+                port=str(output_name),
+                columns=columns,
+                observed_at=observed_at,
+                task_id=task_id,
+            )
+        )
+    return tuple(result)
 
 
 def build_observation(

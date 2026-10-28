@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import dask.dataframe as dd
@@ -34,6 +34,7 @@ from .flow import (
     RebuildProjectCatalogProjection,
     RebuildProjectLineage,
     ReconcileCatalogProjections,
+    RecordObservedPortSchemas,
     RecordObservedSchema,
     RefreshDatasetSchema,
     SearchDatasets,
@@ -54,12 +55,14 @@ from .infra import (
     SQLAlchemyDatasetLinkRepository,
     SQLAlchemyDatasetRepository,
     SQLAlchemyNodeColumnAnnotationRepository,
+    SQLAlchemyNodePortObservationRepository,
     SQLAlchemyProjectGraphGateway,
     SQLAlchemyProjectionRepository,
     SQLConnectionLocatorGateway,
     SqlglotColumnLineageExtractor,
     SqlglotTableReferenceExtractor,
     build_observation,
+    build_port_observations,
 )
 
 DEFAULT_SCHEMA_SYNC_TTL_SEC = 300
@@ -87,6 +90,7 @@ class DataCatalogUseCases:
     set_descriptions: SetDatasetDescriptions
     confirm_rename: ConfirmFieldRename
     record_observed: RecordObservedSchema
+    record_observed_ports: RecordObservedPortSchemas
     get_node_fields: GetNodeFields
     explain_field: ExplainField
     get_field_dependents: GetFieldDependents
@@ -113,6 +117,7 @@ def build_data_catalog_use_cases(
     links = SQLAlchemyDatasetLinkRepository(session)
     projections = SQLAlchemyProjectionRepository(session)
     annotations = SQLAlchemyNodeColumnAnnotationRepository(session)
+    observations = SQLAlchemyNodePortObservationRepository(session)
     graph_gateway = SQLAlchemyProjectGraphGateway(session)
     planner = NodeDslColumnRulePlanner()
     lineage_builder = RebuildProjectLineage(
@@ -121,6 +126,7 @@ def build_data_catalog_use_cases(
         rules=build_builtin_rules(planner),
         sql_lineage=SqlglotColumnLineageExtractor(),
         planner=planner,
+        observations=observations,
     )
 
     rebuild = RebuildProjectCatalogProjection(
@@ -171,6 +177,9 @@ def build_data_catalog_use_cases(
         get_usage=GetDatasetUsage(datasets=datasets, links=links, freshness=freshness),
         set_descriptions=SetDatasetDescriptions(datasets=datasets, fields=fields),
         confirm_rename=ConfirmFieldRename(datasets=datasets, fields=fields),
+        record_observed_ports=RecordObservedPortSchemas(
+            observations=observations, projections=projections, graph_gateway=graph_gateway
+        ),
         record_observed=RecordObservedSchema(
             datasets=datasets,
             fields=fields,
@@ -258,13 +267,20 @@ async def record_observed_node_metadata(
     project_id: str,
     node: Any,
     metadata: Mapping[str, Any] | None,
+    task_id: str | None = None,
 ) -> ObservationOutcome | None:
-    """Точка входа воркера: наблюдённая Read-нодой схема попадает в каталог. Без commit."""
+    """Точка входа воркера: схема таблицы Read-ноды и состав колонок всех DataFrame-выходов
+    попадают в каталог. Без commit."""
     observation = build_observation(node, metadata, project_id=project_id)
-    if observation is None:
+    ports = build_port_observations(node, metadata, project_id=project_id, task_id=task_id)
+    if observation is None and not ports:
         return None
     use_cases = build_data_catalog_use_cases(session=session)
-    return await use_cases.record_observed.execute(observation)
+    outcome = ObservationOutcome()
+    if observation is not None:
+        outcome = await use_cases.record_observed.execute(observation)
+    port_count = await use_cases.record_observed_ports.execute(ports) if ports else 0
+    return replace(outcome, port_count=port_count)
 
 
 async def reconcile_catalog_projections(

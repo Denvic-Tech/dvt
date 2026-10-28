@@ -13,6 +13,7 @@ from .reconcile_catalog_projections import (
     ProjectRebuildRunner,
     ReconcileCatalogProjections,
 )
+from .record_observed_port_schemas import RecordObservedPortSchemas
 from .record_observed_schema import RecordObservedSchema
 from .refresh_dataset_schema import RefreshDatasetSchema
 from .search_datasets import SearchDatasets
@@ -34,6 +35,7 @@ __all__ = [
     "RebuildProjectCatalogProjection",
     "RebuildProjectLineage",
     "ReconcileCatalogProjections",
+    "RecordObservedPortSchemas",
     "RecordObservedSchema",
     "RefreshDatasetSchema",
     "SearchDatasets",

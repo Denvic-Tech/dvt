@@ -152,6 +152,23 @@ class ObservedNodeSchema:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservedPortSchema:
+    """Состав колонок DataFrame-выхода ноды, наблюдённый при прогоне; происхождение неизвестно."""
+
+    project_id: str
+    node_id: str
+    port: str
+    columns: tuple[ObservedField, ...]
+    observed_at: datetime
+    graph_revision: int | None = None
+    task_id: str | None = None
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(column.name for column in self.columns)
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectRef:
     """Идентификатор проекта с его организацией; достаточно для пересборки проекции."""
 

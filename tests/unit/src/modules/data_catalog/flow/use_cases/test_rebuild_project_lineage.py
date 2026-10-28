@@ -11,6 +11,8 @@ from src.modules.data_catalog.domain import (
     GraphNode,
     LineageOp,
     NodePortTypes,
+    ObservedField,
+    ObservedPortSchema,
     PortStatus,
     ProjectGraphSnapshot,
     ProjectStampSource,
@@ -24,7 +26,12 @@ from src.modules.data_catalog.domain import (
 from src.modules.data_catalog.domain.policies import build_builtin_rules
 from src.modules.data_catalog.flow import RebuildProjectLineage
 
-from ..fakes import FakePortTypeGateway, FakeSqlLineageExtractor, InMemoryFieldRepository
+from ..fakes import (
+    FakePortTypeGateway,
+    FakeSqlLineageExtractor,
+    InMemoryFieldRepository,
+    InMemoryPortObservationRepository,
+)
 
 NOW = datetime(2026, 10, 20, tzinfo=UTC)
 TYPES = {
@@ -51,6 +58,43 @@ def _snapshot() -> ProjectGraphSnapshot:
             GraphEdge("q", "j", "output-output", "input-right"),
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_observed_port_schemas_fill_dynamic_nodes():
+    fields = InMemoryFieldRepository()
+    fields.items["d-cust-id"] = _field("d-cust", "id")
+    types = {
+        "ReadTableFromDBV3": NodePortTypes(dataframe_outputs=("output",)),
+        "DataFrameExecCode": NodePortTypes(dataframe_inputs=frozenset({"df"}), dataframe_outputs=("output",)),
+    }
+    snapshot = ProjectGraphSnapshot(
+        stamp_source=ProjectStampSource("p1", "org", 3),
+        nodes=(
+            GraphNode("r", "ReadTableFromDBV3", {"table_name": GraphInputValue.const("customers")}),
+            GraphNode("x", "DataFrameExecCode", {"code": GraphInputValue.const("df['score'] = 1")}),
+        ),
+        edges=(GraphEdge("r", "x", "output-output", "input-df"),),
+    )
+    observations = InMemoryPortObservationRepository()
+    observations.items[("p1", "x", "output")] = ObservedPortSchema(
+        "p1", "x", "output", (ObservedField("id", "INT", False, 1), ObservedField("score", "INT", True, 2)), NOW, graph_revision=3
+    )
+    use_case = RebuildProjectLineage(
+        fields=fields, port_types=FakePortTypeGateway(types), rules=build_builtin_rules(), observations=observations
+    )
+    seeds = [SourceSeedContext(node_id="r", node_name="ReadTableFromDBV3", dataset_ids=("d-cust",), resolved_via=ResolvedVia.CONST)]
+
+    result = await use_case.execute(snapshot=snapshot, project_variables={}, seeds=seeds)
+
+    port = next(item for item in result.lineage.ports if item.node_id == "x")
+    assert (port.status, port.reason) == (PortStatus.PARTIALLY_RESOLVED, DiagnosticReason.LINEAGE_SCHEMA_OBSERVED)
+    assert [(column.name, column.op, column.deps_unknown) for column in port.columns] == [
+        ("id", LineageOp.PASS, False),
+        ("score", LineageOp.UNKNOWN, True),
+    ]
+    assert port.columns[0].origin.key == "ds:d-cust:d-cust-id", "same-named input column passes through"
+    assert port.columns[1].origin.key == "node:x:output:score"
 
 
 @pytest.mark.asyncio

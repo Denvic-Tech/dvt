@@ -198,6 +198,8 @@ class ObservationOutcome:
 
     dataset_ids: tuple[str, ...] = ()
     trusted_types: bool = False
+    port_count: int = 0
+    """Сколько DataFrame-выходов ноды записано как наблюдённая схема порта."""
 
 
 @dataclass(frozen=True, slots=True)
