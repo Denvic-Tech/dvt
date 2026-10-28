@@ -28,5 +28,7 @@
   "lineage.compute.column_input": "Set from the {port} column input",
   "lineage.aggregate": "{function} of {source} per group",
   "lineage.merge.union": "Merged from {count} union branches",
-  "lineage.merge.join_key": "Join key shared by both sides ({left} = {right})"
+  "lineage.merge.join_key": "Join key shared by both sides ({left} = {right})",
+  "lineage.observed": "Column observed at the last run of {node}; origin unknown",
+  "lineage.pass.observed": "A column with the same name entered {node} through {input}; assumed to pass through, the code may have changed it"
 }

@@ -125,6 +125,28 @@ def compute_column(
     )
 
 
+def combine_sides(
+    *sides: tuple[str, PortLineage | None],
+) -> tuple[PortStatus, DiagnosticReason | None, str | None]:
+    """Статус и диагностика многовходовой ноды (join, union) по её входам.
+
+    Неизвестный вход даёт `LINEAGE_INPUT_MISSING`. Если все входы известны, но какой-то разобран
+    частично (например, состав колонок из наблюдения), его причина и detail переносятся дальше:
+    так потребители наблюдённой схемы не выглядят как ноды с отсутствующим входом.
+    """
+    statuses = [port.status if port is not None and port.known else PortStatus.UNRESOLVED for _, port in sides]
+    status = combine_status(*statuses)
+    if status is PortStatus.RESOLVED:
+        return status, None, None
+    for name, port in sides:
+        if port is None or not port.known:
+            return status, DiagnosticReason.LINEAGE_INPUT_MISSING, f"{name} input lineage is unknown"
+    for _, port in sides:
+        if port is not None and port.status is PortStatus.PARTIALLY_RESOLVED and port.reason is not None:
+            return status, port.reason, port.detail
+    return status, DiagnosticReason.LINEAGE_INPUT_MISSING, "input lineage is partially unknown"
+
+
 def combine_status(*statuses: PortStatus) -> PortStatus:
     if any(status is PortStatus.UNRESOLVED for status in statuses):
         return PortStatus.PARTIALLY_RESOLVED if any(

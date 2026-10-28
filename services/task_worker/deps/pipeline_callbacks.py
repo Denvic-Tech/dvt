@@ -346,8 +346,9 @@ async def on_node_metadata_catalog(
                 project_id=project_id,
                 node=node,
                 metadata=metadata,
+                task_id=task_id,
             )
-            if outcome is not None and outcome.dataset_ids:
+            if outcome is not None and (outcome.dataset_ids or outcome.port_count):
                 await session.commit()
     except Exception as exc:
         logger.warning(

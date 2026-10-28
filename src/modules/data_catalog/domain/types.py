@@ -1,7 +1,11 @@
 from enum import Enum, StrEnum, auto
 
-LINEAGE_SCHEMA_VERSION = 2
-"""Версия семантики каталожной проекции; бамп инвалидирует все проекции без миграции."""
+LINEAGE_SCHEMA_VERSION = 4
+"""Версия семантики каталожной проекции; бамп инвалидирует все проекции без миграции.
+
+3: наблюдённые схемы портов и перенос причины частичного разбора через join/union.
+4: наблюдённые колонки с тем же именем на входе считаются прошедшими сквозь ноду.
+"""
 
 MAX_COLUMNS_PER_PORT = 2000
 """Защита документа lineage от взрывного роста: лишние колонки порта отбрасываются с диагностикой."""
@@ -142,6 +146,7 @@ class DiagnosticReason(StrEnum):
     LINEAGE_INPUT_INVALID = "lineage_input_invalid"
     LINEAGE_INPUT_MISSING = "lineage_input_missing"
     LINEAGE_SCHEMA_NOT_SYNCED = "lineage_schema_not_synced"
+    LINEAGE_SCHEMA_OBSERVED = "lineage_schema_observed"
     LINEAGE_SOURCE_NOT_STATIC = "lineage_source_not_static"
     LINEAGE_SQL_UNSUPPORTED = "lineage_sql_unsupported"
     LINEAGE_DUPLICATE_COLUMN = "lineage_duplicate_column"

@@ -10,6 +10,7 @@ from src.models import (
 from src.modules.data_catalog.infra.db_models import (
     DatasetLinkRecord,
     NodeColumnAnnotationRecord,
+    NodePortObservationRecord,
     ProjectCatalogProjectionRecord,
 )
 from src.modules.pipeline_graph.infra.db_models import (
@@ -54,6 +55,11 @@ async def delete_projects_permanently(
     await session.execute(
         sa.delete(NodeColumnAnnotationRecord).where(
             NodeColumnAnnotationRecord.project_id.in_(normalized_project_ids)
+        )
+    )
+    await session.execute(
+        sa.delete(NodePortObservationRecord).where(
+            NodePortObservationRecord.project_id.in_(normalized_project_ids)
         )
     )
     await session.execute(

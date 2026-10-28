@@ -25,7 +25,7 @@ from ...lineage import (
     ResolvedDescription,
     UnresolvedPort,
 )
-from ...types import LineageOp, LineageProvenance, PortStatus
+from ...types import DiagnosticReason, LineageOp, LineageProvenance, PortStatus
 from .description_resolution import DescriptionResolver
 from .index import LineageIndex
 
@@ -230,6 +230,11 @@ def _renamed_from(start: ColumnOccurrence) -> str | None:
 
 
 def collect_unresolved_ports(lineage: ProjectLineage) -> tuple[UnresolvedPort, ...]:
+    """Порты, у которых каталог не знает колонок.
+
+    Порты с наблюдённой схемой и всё, что от них наследует `lineage_schema_observed`, сюда не
+    попадают: их колонки известны, неизвестно только происхождение, и это видно по самим колонкам.
+    """
     return tuple(
         UnresolvedPort(
             node_id=port.node_id,
@@ -242,6 +247,7 @@ def collect_unresolved_ports(lineage: ProjectLineage) -> tuple[UnresolvedPort, .
         )
         for port in lineage.ports
         if port.status is not PortStatus.RESOLVED
+        and port.reason is not DiagnosticReason.LINEAGE_SCHEMA_OBSERVED
     )
 
 

@@ -84,7 +84,9 @@ class DescriptionResolver:
             return _DERIVED
         if column.op in (LineageOp.COMPUTE, LineageOp.AGGREGATE):
             return _DERIVED
-        return _UNKNOWN
+        # Колонка известна (например, наблюдена при прогоне), но её родители нет: текста нет,
+        # а источник, куда его написать, известен.
+        return ResolvedDescription(text=None, provenance=LineageProvenance.NONE, source=ref)
 
     def _field_description(self, ref: LineageRef) -> ResolvedDescription:
         field = self._fields.get(ref.key)

@@ -10,6 +10,7 @@ from ...domain import (
     DatasetFieldRepository,
     DiagnosticReason,
     LineageBuildResult,
+    NodePortObservationRepository,
     NodePortTypeGateway,
     PortColumns,
     ProjectGraphSnapshot,
@@ -38,12 +39,14 @@ class RebuildProjectLineage:
         rules: LineageRuleRegistry,
         sql_lineage: SqlColumnLineageExtractor | None = None,
         planner: ColumnRulePlanner | None = None,
+        observations: NodePortObservationRepository | None = None,
     ) -> None:
         self._fields = fields
         self._port_types = port_types
         self._rules = rules
         self._sql_lineage = sql_lineage
         self._planner = planner
+        self._observations = observations
 
     async def execute(
         self,
@@ -70,12 +73,19 @@ class RebuildProjectLineage:
                     )
                 )
 
+        observed = None
+        if self._observations is not None:
+            observed = {
+                (item.node_id, item.port): item
+                for item in await self._observations.list_for_project(snapshot.stamp_source.project_id)
+            }
         lineage, derived_diagnostics = derive_project_lineage(
             snapshot,
             port_types=self._port_types.get_port_types,
             rules=self._rules,
             seeds=seed_ports,
             planner=self._planner,
+            observed=observed or None,
         )
         diagnostics.extend(derived_diagnostics)
         return LineageBuildResult(lineage=lineage, diagnostics=tuple(diagnostics))

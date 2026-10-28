@@ -29,11 +29,13 @@ _LAZY_EXPORTS: dict[str, str] = {
     "DataFrameSchemaMapper": ".mappers",
     "DataFrameSchemaMapping": ".mappers",
     "build_observation": ".observers",
+    "build_port_observations": ".observers",
     "SQLAlchemyDatasetConnectionRepository": ".repositories",
     "SQLAlchemyDatasetFieldRepository": ".repositories",
     "SQLAlchemyDatasetLinkRepository": ".repositories",
     "SQLAlchemyDatasetRepository": ".repositories",
     "SQLAlchemyNodeColumnAnnotationRepository": ".repositories",
+    "SQLAlchemyNodePortObservationRepository": ".repositories",
     "SQLAlchemyProjectionRepository": ".repositories",
 }
 
@@ -54,12 +56,14 @@ __all__ = [
     "SQLAlchemyDatasetLinkRepository",
     "SQLAlchemyDatasetRepository",
     "SQLAlchemyNodeColumnAnnotationRepository",
+    "SQLAlchemyNodePortObservationRepository",
     "SQLAlchemyProjectGraphGateway",
     "SQLAlchemyProjectionRepository",
     "SQLConnectionLocatorGateway",
     "SqlglotColumnLineageExtractor",
     "SqlglotTableReferenceExtractor",
     "build_observation",
+    "build_port_observations",
     "to_graph_input_value",
 ]
 

@@ -285,3 +285,39 @@ class NodeColumnAnnotationRecord(SQLModel, table=True):
             name="uq_node_column_annotations_project_node_port_column",
         ),
     )
+
+
+class NodePortObservationRecord(SQLModel, table=True):
+    """Состав колонок DataFrame-выхода ноды, наблюдённый воркером при прогоне."""
+
+    __tablename__ = "node_port_observations"
+
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    project_id: str = Field(sa_column=sa.Column(sa.String(), nullable=False, index=True))
+    node_id: str = Field(sa_column=sa.Column(sa.String(), nullable=False))
+    port: str = Field(sa_column=sa.Column(sa.String(length=128), nullable=False))
+    columns: list[dict[str, Any]] = Field(
+        default_factory=list,
+        sa_column=sa.Column(JSONBCompat, nullable=False),
+    )
+    graph_revision: int | None = Field(default=None, sa_column=sa.Column(sa.Integer(), nullable=True))
+    task_id: str | None = Field(default=None, sa_column=sa.Column(sa.String(), nullable=True))
+    observed_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False),
+    )
+
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["node_id", "project_id"],
+            ["graph_nodes.ui_id", "graph_nodes.project_id"],
+            name="fk_node_port_observations_graph_node",
+            ondelete="CASCADE",
+        ),
+        sa.UniqueConstraint(
+            "project_id",
+            "node_id",
+            "port",
+            name="uq_node_port_observations_project_node_port",
+        ),
+    )

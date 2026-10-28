@@ -74,6 +74,14 @@ class SQLAlchemyProjectionRepository(ProjectionRepository):
                 result[project_id] = lineage
         return result
 
+    async def mark_stale_for_project(self, project_id: str) -> bool:
+        outcome = await self._session.execute(
+            sa.update(_PROJECTIONS)
+            .where(_PROJECTIONS.c.project_id == project_id, _PROJECTIONS.c.lineage_schema_version != 0)
+            .values(lineage_schema_version=0)
+        )
+        return bool(outcome.rowcount)
+
     async def mark_stale_for_dataset(self, dataset_id: str) -> int:
         consumers = sa.select(DatasetLinkRecord.project_id).where(DatasetLinkRecord.dataset_id == dataset_id)
         outcome = await self._session.execute(

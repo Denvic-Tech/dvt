@@ -661,7 +661,9 @@ async def get_node_fields(
     (declared/source/inherited/derived/none/unknown). `none` means the source is known but has no
     text; `derived` means the column is computed and needs its own description via
     `set_node_column_description`. `orphaned_annotations` lists descriptions of columns that no
-    longer exist on the port. Lineage is static knowledge from the saved graph.
+    longer exist on the port. Lineage is static knowledge from the saved graph; for nodes whose
+    columns cannot be derived (custom code, pivot), the column set comes from the last run
+    (`partially_resolved`, reason `lineage_schema_observed`) and columns carry `op: unknown`.
     """
     return await _call("get_node_fields", locals())
 

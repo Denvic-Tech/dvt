@@ -72,7 +72,7 @@ def explain(
             )
         )
         if column.deps_unknown:
-            gaps.append(LineageGap(ref=ref, reason="deps_unknown", detail=column.details.get("template")))
+            gaps.append(LineageGap(ref=ref, reason="deps_unknown", detail=render(column.details)))
         if depth >= max_depth:
             if (direction is ExplainDirection.UPSTREAM and column.deps) or (
                 direction is ExplainDirection.DOWNSTREAM and index.dependents.get(ref.key)

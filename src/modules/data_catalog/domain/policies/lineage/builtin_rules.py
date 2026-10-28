@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 
 from ...gateways import ColumnRulePlanner
 from ...lineage import ColumnLineage, LineageRef, PortColumns, PortLineage
-from ...types import DiagnosticReason, LineageOp, PortStatus
+from ...types import DiagnosticReason, LineageOp
 from .expression_deps import expression_dependencies
 from .rules import (
     DYNAMIC,
@@ -19,7 +19,7 @@ from .rules import (
     RuleContext,
     as_str_dict,
     as_str_list,
-    combine_status,
+    combine_sides,
     compute_column,
     details,
     dynamic_input,
@@ -197,18 +197,13 @@ def _join_rule(ctx: RuleContext) -> Mapping[str, PortColumns]:
     right_keys = as_str_list(right_on) or []
 
     columns = ColumnSet()
-    statuses: list[PortStatus] = []
     left_names: set[str] = set()
     if left is not None and left.known:
-        statuses.append(left.status)
         for column in left.columns:
             left_names.add(column.name)
             columns.put(pass_column(left, column, "lineage.pass.join", side="left"))
-    else:
-        statuses.append(PortStatus.UNRESOLVED)
 
     if right is not None and right.known:
-        statuses.append(right.status)
         key_pairs = dict(zip(right_keys, left_keys, strict=False)) if how != "cross" else {}
         for column in right.columns:
             name = column.name
@@ -224,15 +219,9 @@ def _join_rule(ctx: RuleContext) -> Mapping[str, PortColumns]:
                 columns.put(rename_column(right, name, f"{name}_right", "lineage.rename.join_suffix", side="right"))
             elif not columns.has(name):
                 columns.put(pass_column(right, column, "lineage.pass.join", side="right"))
-    else:
-        statuses.append(PortStatus.UNRESOLVED)
 
-    status = combine_status(*statuses)
-    detail = None
-    if status is not PortStatus.RESOLVED:
-        unknown_side = "right" if right is None or not right.known else "left"
-        detail = f"{unknown_side} input lineage is unknown"
-    return {"output": columns.to_port(status, DiagnosticReason.LINEAGE_INPUT_MISSING if status is not PortStatus.RESOLVED else None, detail)}
+    status, reason, detail = combine_sides(("left", left), ("right", right))
+    return {"output": columns.to_port(status, reason, detail)}
 
 
 def _group_by_rule(ctx: RuleContext) -> Mapping[str, PortColumns]:
@@ -317,15 +306,10 @@ def _union_rule(ctx: RuleContext) -> Mapping[str, PortColumns]:
     right_to_left = {right: left for left, right in mapping.items()}
 
     columns = ColumnSet()
-    statuses: list[PortStatus] = []
     if first is not None and first.known:
-        statuses.append(first.status)
         for column in first.columns:
             columns.put(pass_column(first, column, "lineage.pass.union", side="df1"))
-    else:
-        statuses.append(PortStatus.UNRESOLVED)
     if second is not None and second.known:
-        statuses.append(second.status)
         for column in second.columns:
             target = right_to_left.get(column.name, column.name)
             existing = columns.items.get(target)
@@ -343,11 +327,7 @@ def _union_rule(ctx: RuleContext) -> Mapping[str, PortColumns]:
                 columns.put(rename_column(second, column.name, target, "lineage.rename.union", side="df2"))
             else:
                 columns.put(pass_column(second, column, "lineage.pass.union", side="df2"))
-    else:
-        statuses.append(PortStatus.UNRESOLVED)
-    status = combine_status(*statuses)
-    reason = DiagnosticReason.LINEAGE_INPUT_MISSING if status is not PortStatus.RESOLVED else None
-    detail = "one union side lineage is unknown" if status is not PortStatus.RESOLVED else None
+    status, reason, detail = combine_sides(("df1", first), ("df2", second))
     return {"output": columns.to_port(status, reason, detail)}
 
 
