@@ -165,10 +165,42 @@ When the service is enabled, the installation manager generates a missing intern
 preserves an existing one during updates. It must never be reused as a user MCP token or exposed
 outside the DVT service network.
 
+## Connecting agents with a one-time link
+
+Users do not have to configure MCP clients by hand or paste tokens into a chat. Gateway issues
+a connection link whose Markdown instruction an AI agent (Claude Code, Codex, Cursor, Gemini CLI
+and other coding agents) follows to configure its own client with the client's native commands
+(`claude mcp add`, `codex mcp add`, `mcp.json`, `code --add-mcp`).
+
+1. `POST /api/agents/connect` (cookie auth) with the token `access_scope`, optional `name` and
+   `token_expires_at` returns `{ id, code, connect_url, expires_at }`. No token exists yet.
+2. The user gives `connect_url` (`/api/agents/connect/<code>.md`) to the agent. The instruction
+   is anonymous and contains no secret: only the address of the exchange endpoint.
+3. The agent runs the command from the instruction, which embeds
+   `$(curl -sf <dvt>/api/agents/claim/<code>)`: the shell substitutes the token straight into
+   the client configuration, so it never reaches the model context or the chat history.
+4. `GET /api/agents/claim/<code>` creates the MCP token for the link's owner and returns it as
+   plain text. Every claim issues a new token and revokes the previous one, so an agent whose
+   first attempt to store the token failed simply retries. A code lives
+   `DVT_AGENT_CONNECT_CODE_TTL_SEC` (600 s) and accepts at most `DVT_AGENT_CONNECT_MAX_CLAIMS`
+   (5) exchanges; afterwards the endpoint answers 410.
+5. `GET /api/agents/connect` lists the user's links with `status`
+   (`pending | claimed | expired | revoked`); `DELETE /api/agents/connect/<id>` revokes a link
+   and the token it issued.
+
+The UI sends its origin (`base_url`, `window.location.origin`) when creating a link; Gateway
+accepts it only if it is one of the installation's public addresses (`GATEWAY_ORIGINS`, filled
+from `DVT_PUBLIC_URL`) and builds every link in the instruction from it, so multi-host
+installations get links for the host the user actually uses. Codes are stored in Valkey (digest
+only) with key TTLs; nothing is persisted in Postgres except the MCP token itself. The
+instruction template is `services/gateway/routes/agents/connect_template.md`. Delivering the
+`dvt-mcp-projects` skill to agents is out of scope here and will be designed separately.
+
 ## Codex
 
 Create a purpose-bound MCP token through `POST /api/mcp-tokens`, copy the returned token once, and
-store it in an environment variable. A Codex configuration is:
+store it in an environment variable, or use the connection link above and let Codex configure
+itself. A Codex configuration is:
 
 ```toml
 [mcp_servers.dvt]

@@ -350,6 +350,18 @@ class AI_MCP:
             )
 
 
+class AGENT_CONNECT:
+    """One-time links that let an AI agent obtain its own MCP token (see routes/agents).
+
+    Links in the instruction are built from the origin the UI reports, validated against
+    GATEWAY.GATEWAY_ORIGINS (the public addresses of this installation).
+    """
+
+    CODE_TTL_SEC = _get_positive_int_env("DVT_AGENT_CONNECT_CODE_TTL_SEC", 600)
+    MAX_CLAIMS = _get_positive_int_env("DVT_AGENT_CONNECT_MAX_CLAIMS", 5)
+    RECORD_TTL_SEC = _get_positive_int_env("DVT_AGENT_CONNECT_RECORD_TTL_SEC", 24 * 3600)
+
+
 class TASK_WORKER:
     TASK_WORKER_MAX_CONCURRENT = os.getenv("TASK_WORKER_MAX_CONCURRENT", "1")
     TASK_WORKER_HEARTBEAT_INTERVAL = int(os.getenv("TASK_WORKER_HEARTBEAT_INTERVAL", "2"))
