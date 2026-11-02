@@ -22,6 +22,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "rebuild_project_catalog_projection": (".facade", "rebuild_project_catalog_projection"),
     "reconcile_catalog_projections": (".facade", "reconcile_catalog_projections"),
     "record_observed_node_metadata": (".facade", "record_observed_node_metadata"),
+    "resolve_port_descriptions": (".facade", "resolve_port_descriptions"),
 }
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "rebuild_project_catalog_projection",
     "reconcile_catalog_projections",
     "record_observed_node_metadata",
+    "resolve_port_descriptions",
 ]
 
 
