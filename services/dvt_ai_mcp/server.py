@@ -702,8 +702,10 @@ async def set_node_column_description(
     downstream through pass/rename and through merges (join keys, unions) whose other parents have
     no text of their own; two different parent texts leave the column `derived`. Each item carries `column` and
     `description` (null removes). Descriptions belong to the node and move with project copies,
-    exports and imports. Omit `port` to target the main DataFrame output. Returns the same
-    payload as `get_node_fields`.
+    exports and imports. Omit `port` to target the main DataFrame output. A description on the
+    `df` input of a write node becomes the target column comment (DB) or Parquet field metadata on
+    the next run when the node keeps `sync_column_descriptions` enabled. Returns the same payload
+    as `get_node_fields`.
     """
     return await _call("set_node_column_description", locals())
 

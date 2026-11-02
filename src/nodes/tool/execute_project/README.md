@@ -8,7 +8,7 @@ Start another DVT project. Use it to coordinate reusable child pipelines; its ou
 
 ## Inputs and configuration
 
-Set `target_project_id` to the accessible project's immutable ID; `target_project_name` is a display label. `wait_for_completion=false` by default. With waiting enabled, optional `timeout_sec` limits each child wait; `cancel_on_timeout=false` leaves the child running after timeout. Optional `variables_df` is a DataFrame edge and requires `wait_for_completion=true`. Base values come from `input_variables`. `unresolved_variables_policy` defaults to `error`; `system_variables_policy` defaults to `include`.
+Set `target_project_id` to the accessible project's immutable ID; `target_project_name` is a display label. `wait_for_completion=false` by default. With waiting enabled, optional `timeout_sec` limits each child wait; `cancel_on_timeout=false` leaves the child running after timeout. Optional `variables_df` is a DataFrame edge and requires `wait_for_completion=true`. Base values are the parent project's global variables (when `project_variables_policy=include`, the default) overridden by linked `input_variables` with the same names; `project_variables_policy=skip` forwards only `input_variables`. `unresolved_variables_policy` defaults to `error`; `system_variables_policy` defaults to `include`.
 
 ## Outputs
 
@@ -16,7 +16,7 @@ Set `target_project_id` to the accessible project's immutable ID; `target_projec
 
 ## Behavior and limitations
 
-Without `variables_df`, one child is submitted. With it, the entire frame is computed in memory and each row starts one child sequentially; row columns override base variables with the same names. Column names must be unique non-empty strings; nulls and pandas/numpy scalars are normalized. An empty frame starts no children. Metadata mode starts no tasks. Nested synchronous runs are subject to runtime capacity and access checks; a later failure does not undo completed children.
+Without `variables_df`, one child is submitted. With it, the entire frame is computed in memory and each row starts one child sequentially; row columns override base variables with the same names. Forwarded variables override the child's stored variables with the same names; variables defined only in the child keep their stored values. Column names must be unique non-empty strings; nulls and pandas/numpy scalars are normalized. An empty frame starts no children. Metadata mode starts no tasks. Nested synchronous runs are subject to runtime capacity and access checks; a later failure does not undo completed children.
 
 ## Examples
 

@@ -6,7 +6,7 @@
 
 ## Inputs and configuration
 
-Connect a DataFrame to `df` and `GetExistDBConnection.connection` to `connection`. Set `table_name`, optional `database_name` and `schema_name`. `write_mode` defaults to `append`; `truncate` replaces all rows; `upsert` requires `upsert_config={"key_column":"id"}` using the target key name. Supply `upsert_config` only for upsert. `column_mapping` contains `source_name` / `target_name` pairs, with optional `dtype` / `nullable`. `on_extra_df_columns` defaults to `ignore`; `on_missing_df_columns` defaults to `ignore_if_default`. `chunksize` defaults to 1000.
+Connect a DataFrame to `df` and `GetExistDBConnection.connection` to `connection`. Set `table_name`, optional `database_name` and `schema_name`. `write_mode` defaults to `append`; `truncate` replaces all rows; `upsert` requires `upsert_config={"key_column":"id"}` using the target key name. Supply `upsert_config` only for upsert. `column_mapping` contains `source_name` / `target_name` pairs, with optional `dtype` / `nullable`. `on_extra_df_columns` defaults to `ignore`; `on_missing_df_columns` defaults to `ignore_if_default`. `chunksize` defaults to 1000. `sync_column_descriptions` defaults to `true`: after each successful write the node copies Data Catalog descriptions of the input columns into the target column comments.
 
 Through MCP, inspect the exact target and known input schema before configuring the writer. Call `resolve_write_columns` on initial setup or schema changes: `typed_create` for a missing table, `existing_table` otherwise. Prepare missing objects with `create_database`, `create_schema`, `create_table`; create_table never alters an existing table. For column changes use `apply_table_column_actions`: preview each batch with `dry_run=true` (default), review SQL/diagnostics, then apply the same batch with `dry_run=false`. Reread `get_database_table`, resolve again after changes and set explicit `column_mapping`. Unchanged configured pipelines need no repeated resolution for every run. One-time MCP preparation needs no DDL node or signal edge; runtime DDL or unsupported MCP operations may use a justified specialized/SQL node with the appropriate dependency.
 
@@ -19,6 +19,8 @@ This is a sink: there is no DataFrame result port. System variables `target_tabl
 ## Behavior and limitations
 
 Internal DVT columns are removed. Mapping does not alter the target schema. Missing columns remain subject to target defaults/nullability and the chosen policy. Upsert uses one key column, stages input, removes matching target rows and inserts staged rows; it is not a partial update of selected fields. It does not deduplicate input. Truncate/upsert need temporary-table permissions and dialect support. Writes may use separate transactions for chunks and stages; do not assume whole-run atomicity. Repeating append can duplicate data; a failed write can have partial effects.
+
+Column comment sync runs after the data write on every run and in every mode. Descriptions come from the Data Catalog lineage of the `df` input (field descriptions of source tables, node column descriptions and inherited texts) and are mapped to target names through `column_mapping`. Only differing comments are updated; the catalog wins where it has text, and an empty catalog description never clears an existing comment. Dialects without column comments are skipped; a failed comment update is logged as a warning and does not fail the node.
 
 ## Examples
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import pandas as pd
@@ -24,6 +25,8 @@ _TIME64_RE = re.compile(r"^time64\[(?P<unit>us|ns)\]$", re.IGNORECASE)
 DVT_LOGICAL_SCHEMA_KEY = b"DVT:logical_schema:v1"
 DVT_PARTITION_COLUMNS_KEY = b"DVT:partition_columns:v1"
 DVT_EMPTY_PARTITIONED_DATASET_KEY = b"DVT:empty_partitioned_dataset:v1"
+DVT_COLUMN_DESCRIPTIONS_KEY = b"DVT:column_descriptions:v1"
+FIELD_DESCRIPTION_KEY = b"description"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +86,7 @@ def build_dataset_schema(
     write_index: bool,
     parquet_types: dict[str, str] | None,
     partition_on: tuple[str, ...] = (),
+    column_descriptions: Mapping[str, str] | None = None,
 ) -> ParquetDatasetSchema:
     if parquet_types and not isinstance(parquet_types, dict):
         raise TypeError("Input 'parquet_types' must be a dictionary {column_name: parquet_type}.")
@@ -107,6 +111,7 @@ def build_dataset_schema(
         prepared_names=tuple(prepared_meta.index.names),
     )
     logical = _apply_type_overrides(logical, parquet_types)
+    logical = _apply_column_descriptions(logical, column_descriptions)
 
     physical_meta = prepared_meta.drop(columns=list(partition_on), errors="ignore")
     if not write_index and partition_on and len(physical_meta.columns) == 0:
@@ -118,6 +123,7 @@ def build_dataset_schema(
         prepared_names=tuple(prepared_meta.index.names),
     )
     physical = _apply_type_overrides(physical, parquet_types)
+    physical = _apply_column_descriptions(physical, column_descriptions)
 
     partition = pa.schema([logical.field(column) for column in partition_on])
     physical = _attach_dataset_metadata(
@@ -242,6 +248,57 @@ def ensure_append_schema_compatible(
         "Cannot append Parquet data because schema does not match the existing dataset"
         f"{location}. Expected {expected.remove_metadata()}, existing {actual.remove_metadata()}."
     )
+
+
+def _apply_column_descriptions(
+    schema: pa.Schema,
+    descriptions: Mapping[str, str] | None,
+) -> pa.Schema:
+    """Описания колонок как метаданные полей Arrow плюс сводный блок в метаданных схемы."""
+    if not descriptions:
+        return schema
+    present: dict[str, str] = {}
+    fields: list[pa.Field] = []
+    for field in schema:
+        text = descriptions.get(field.name)
+        text = text.strip() if isinstance(text, str) else None
+        if not text:
+            fields.append(field)
+            continue
+        present[field.name] = text
+        field_metadata = dict(field.metadata or {})
+        field_metadata[FIELD_DESCRIPTION_KEY] = text.encode("utf-8")
+        fields.append(field.with_metadata(field_metadata))
+    if not present:
+        return schema
+    metadata = dict(schema.metadata or {})
+    metadata[DVT_COLUMN_DESCRIPTIONS_KEY] = json.dumps(
+        present, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    return pa.schema(fields, metadata=metadata)
+
+
+def column_descriptions_from_schema(schema: pa.Schema) -> dict[str, str]:
+    """Описания колонок из метаданных полей; сводный блок DVT дополняет их для старых файлов."""
+    result: dict[str, str] = {}
+    payload = (schema.metadata or {}).get(DVT_COLUMN_DESCRIPTIONS_KEY)
+    if payload:
+        try:
+            stored = json.loads(payload.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            stored = {}
+        if isinstance(stored, dict):
+            result.update({str(k): str(v) for k, v in stored.items() if isinstance(v, str) and v})
+    for field in schema:
+        raw = (field.metadata or {}).get(FIELD_DESCRIPTION_KEY)
+        if raw:
+            try:
+                text = raw.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                continue
+            if text:
+                result[field.name] = text
+    return result
 
 
 def _apply_type_overrides(

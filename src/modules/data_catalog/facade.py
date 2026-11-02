@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .domain import (
     DatasetSchemaSource,
+    LineageNodePortNotFoundError,
     LineageTextRenderer,
+    NodeFieldsResult,
     ObservationOutcome,
     ProjectRef,
     RebuildResult,
@@ -222,6 +224,46 @@ def build_data_catalog_use_cases(
         sync_schema=sync_schema,
         refresh_schema=refresh_schema,
     )
+
+
+class _NullRenderer:
+    """Объяснения на воркере не нужны: экспортируются только тексты описаний."""
+
+    def render(self, template_key: str, params: Mapping[str, Any], locale: str) -> str | None:  # noqa: ARG002
+        return None
+
+
+def descriptions_from_node_fields(result: NodeFieldsResult) -> dict[str, str]:
+    """`имя колонки -> непустой эффективный текст описания`."""
+    return {view.name: view.description for view in result.fields if view.description}
+
+
+async def resolve_port_descriptions(
+    *,
+    session: AsyncSession,
+    project_id: str,
+    node_id: str,
+    port: str,
+) -> dict[str, str]:
+    """Точка входа воркера: описания колонок порта ноды для экспорта в физический слой.
+
+    Читает сохранённый документ lineage и аннотации без пересборки проекции и без локали;
+    пустой словарь, если порта нет в lineage.
+    """
+    use_case = GetNodeFields(
+        projections=SQLAlchemyProjectionRepository(session),
+        fields=SQLAlchemyDatasetFieldRepository(session),
+        renderer=_NullRenderer(),
+        annotations=SQLAlchemyNodeColumnAnnotationRepository(session),
+        datasets=SQLAlchemyDatasetRepository(session),
+    )
+    try:
+        result = await use_case.execute(
+            project_id=project_id, organization_id=None, node_id=node_id, port=port
+        )
+    except LineageNodePortNotFoundError:
+        return {}
+    return descriptions_from_node_fields(result)
 
 
 def _default_renderer() -> LineageTextRenderer:
