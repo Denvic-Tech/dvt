@@ -123,6 +123,7 @@ def _write_simple(
         ddf._meta_nonempty,
         write_index=request.write_index,
         parquet_types=request.parquet_types,
+        column_descriptions=request.column_descriptions,
     )
     compression = None if request.compression in {None, "none"} else request.compression
     _validate_overwrite_source_overlap(ddf, filesystem, request)
@@ -194,6 +195,7 @@ def _write_advanced(
         write_index=request.write_index,
         parquet_types=request.parquet_types,
         partition_on=request.normalized_partition_on,
+        column_descriptions=request.column_descriptions,
     )
     plan = plan_advanced_write(filesystem, request, source_partitions=ddf.npartitions)
     if plan.mode is ParquetWriteMode.APPEND:

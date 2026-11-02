@@ -24,6 +24,11 @@ from src.modules.pipeline_cache import create_sa_engine_fingerprint
 from src.node_dsl import BaseNode, InputField
 from src.node_dsl.connection_types import SqlConnectionRecord
 from src.node_dsl.runtime.connections import resolve_sql_connection_url, resolve_sql_engine
+from src.nodes.write._shared.catalog_descriptions import (
+    load_catalog_descriptions,
+    map_descriptions_to_targets,
+)
+from src.nodes.write._shared.column_comments_sync import sync_table_column_comments
 
 import config
 
@@ -124,6 +129,17 @@ class WriteDataFrameToDBV4(BaseNode):
             "the input and needs temporary-table permissions and dialect support."
         ),
     )
+    sync_column_descriptions: bool = InputField(
+        default=True,
+        description="Sync target column comments with Data Catalog descriptions on every run.",
+        agent_description=(
+            "When true, after each successful write the node compares Data Catalog descriptions of "
+            "the input DataFrame columns with the target table column comments and updates only the "
+            "differences. The catalog wins where it has text; an empty catalog description never "
+            "clears an existing comment. Dialects without column comments are skipped; a failed "
+            "comment update is logged and does not fail the write."
+        ),
+    )
     column_mapping: list[WriteColumnMapping] | None = InputField(
         default=None,
         agent_description=(
@@ -214,13 +230,52 @@ class WriteDataFrameToDBV4(BaseNode):
                 engine.dispose()
             raise
 
+    async def _load_target_descriptions(self) -> dict[str, str]:
+        """Описания каталога для колонок DataFrame, переведённые в имена целевых колонок."""
+        if not self.sync_column_descriptions:
+            return {}
+        descriptions = await load_catalog_descriptions(
+            project_id=self._project_id, node_id=self._node_id, port="df"
+        )
+        if not descriptions:
+            return {}
+        mapping = {
+            item.source_name: item.target_name
+            for item in (self._coerce_model(raw, WriteColumnMapping) for raw in self.column_mapping or [])
+            if item.target_name
+        }
+        return map_descriptions_to_targets(descriptions, mapping)
+
+    def _sync_column_comments(self, engine: Engine, descriptions: dict[str, str]) -> int:
+        """Блокирующая синхронизация комментариев; ошибка не валит запись."""
+        try:
+            updated = sync_table_column_comments(
+                engine,
+                table_name=self.table_name,
+                schema_name=self.schema_name,
+                database_name=self.database_name,
+                descriptions=descriptions,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"write_v4: column comments were not synced for {self.table_name}: {exc}"
+            )
+            return 0
+        if updated:
+            logger.info(f"write_v4: synced {updated} column comment(s) for {self.table_name}")
+        return updated
+
     async def process(self) -> None:
         self.df = self._drop_internal_columns(self.df)
+        descriptions = await self._load_target_descriptions()
         engine: Engine | None = None
         owned_by_node = False
         try:
             result, engine, owned_by_node = await asyncio.to_thread(self._run_blocking_write_sync)
-            if str(result.mode) in ("append", "truncate", "upsert"):
+            synced = 0
+            if descriptions:
+                synced = await asyncio.to_thread(self._sync_column_comments, engine, descriptions)
+            if str(result.mode) in ("append", "truncate", "upsert") or synced:
                 await self._invalidate_connection_meta_cache(engine)
             self.emit_system_variables(
                 WriteDataFrameToDBV4SystemVariables(

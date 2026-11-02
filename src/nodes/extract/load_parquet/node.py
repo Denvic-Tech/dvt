@@ -13,7 +13,10 @@ from loguru import logger
 from core.parquet.write.dask import mark_source_path_arg
 from core.parquet.write.filesystem import ParquetFilesystem
 from core.parquet.write.partitioning import partition_value_type
-from core.parquet.write.schema import stored_dataset_schema_from_arrow
+from core.parquet.write.schema import (
+    column_descriptions_from_schema,
+    stored_dataset_schema_from_arrow,
+)
 from core.types import Column, DataFrameMetadata, DataType
 
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
@@ -336,11 +339,37 @@ class LoadParquet(FileConnectionInputMixin, DFOutputBaseNode):
             logger.error(f"Error loading Parquet from {self.path}: {e}")
             raise
 
+    def _read_column_descriptions(self) -> dict[str, str]:
+        """Описания колонок из метаданных первого файла; любая проблема даёт пустой словарь."""
+        try:
+            runtime = self._get_file_runtime(path=self.path)
+            ctx = runtime.context
+            if ctx.protocol == "ftp":
+                first_path = _list_ftp_parquet_files(runtime)[0][0]
+            else:
+                files = [
+                    path
+                    for path in runtime.list_files(
+                        required=False, subject="Parquet file(s)", operation="listing Parquet files"
+                    )
+                    if str(path).lower().endswith(".parquet")
+                ]
+                if not files:
+                    return {}
+                first_path = files[0]
+            schema = _read_parquet_schema(ctx.fs, first_path)
+            stored = stored_dataset_schema_from_arrow(schema)
+            return column_descriptions_from_schema(stored.logical or schema)
+        except Exception as exc:
+            logger.debug(f"Column descriptions are unavailable for Parquet {self.path}: {exc}")
+            return {}
+
     def infer_metadata(self) -> NodeMetadata:
         try:
             logger.info(f"Infer metadata for Parquet: {self.path}")
 
             ddf = self._read_parquet()
+            descriptions = self._read_column_descriptions()
 
             columns: list[Column] = []
             for col, dtype in ddf.dtypes.items():
@@ -350,6 +379,7 @@ class LoadParquet(FileConnectionInputMixin, DFOutputBaseNode):
                         dtype=DataType.from_type(dtype),
                         nullable=True,
                         index=(col == ddf.index.name),
+                        comment=descriptions.get(str(col)),
                     )
                 )
 

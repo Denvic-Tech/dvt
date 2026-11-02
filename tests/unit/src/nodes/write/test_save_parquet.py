@@ -1,3 +1,6 @@
+import asyncio
+from unittest.mock import AsyncMock
+
 import dask.dataframe as dd
 import fsspec
 import pandas as pd
@@ -8,6 +11,14 @@ from core.types import FsCtx
 
 from src.node_dsl import IO, get_definition
 from src.nodes.write.save_parquet import SaveParquet
+
+
+@pytest.fixture(autouse=True)
+def _no_catalog(monkeypatch):
+    # Описания каталога требуют БД: по умолчанию тесты работают без них.
+    monkeypatch.setattr(
+        "src.nodes.write.save_parquet.node.load_catalog_descriptions", AsyncMock(return_value={})
+    )
 
 
 def _mock_fs_context(protocol="s3", node=None) -> FsCtx:
@@ -110,7 +121,7 @@ def test_save_parquet_single_partition_uses_dataset_name_without_number(monkeypa
     monkeypatch.setattr(node, "_get_fs_context", lambda: _mock_fs_context("s3", node=node))
     captured = _capture_to_parquet_call(monkeypatch)
 
-    node.process()
+    asyncio.run(node.process())
 
     name_function = _assert_name_function(captured["kwargs"])
     assert name_function(0) == "dataset.parquet"
@@ -123,7 +134,7 @@ def test_save_parquet_multiple_partitions_use_numbered_dataset_names(monkeypatch
     monkeypatch.setattr(node, "_get_fs_context", lambda: _mock_fs_context("s3", node=node))
     captured = _capture_to_parquet_call(monkeypatch)
 
-    node.process()
+    asyncio.run(node.process())
 
     name_function = _assert_name_function(captured["kwargs"])
     assert name_function(0) == "dataset.00000.parquet"
@@ -150,7 +161,7 @@ def test_save_parquet_process_applies_row_cap_and_schema_contract(monkeypatch):
 
     captured = _capture_to_parquet_call(monkeypatch)
 
-    node.process()
+    asyncio.run(node.process())
 
     # Теперь утверждение пройдет корректно
     assert captured["path"] == "s3://bucket/user-space/reports/dataset.parquet"
@@ -181,7 +192,7 @@ def test_save_parquet_process_raises_for_unknown_contract_column(monkeypatch):
     monkeypatch.setattr(node, "_parquet_dataset_exists", lambda target, storage_options: True)
 
     with pytest.raises(ValueError, match="do not exist in DataFrame"):
-        node.process()
+        asyncio.run(node.process())
 
 
 def test_save_parquet_process_raises_for_unsupported_parquet_type(monkeypatch):
@@ -193,7 +204,7 @@ def test_save_parquet_process_raises_for_unsupported_parquet_type(monkeypatch):
     monkeypatch.setattr(node, "_parquet_dataset_exists", lambda target, storage_options: True)
 
     with pytest.raises(ValueError, match="Unsupported parquet type"):
-        node.process()
+        asyncio.run(node.process())
 
 
 def test_parse_parquet_type_supports_timestamp_with_timezone_and_decimal():
@@ -227,7 +238,7 @@ def test_save_parquet_process_falls_back_to_create_when_append_target_is_missing
     monkeypatch.setattr(node, "_parquet_dataset_exists", lambda target, storage_options: False)
     captured = _capture_to_parquet_call(monkeypatch)
 
-    node.process()
+    asyncio.run(node.process())
 
     assert captured["path"] == "s3://bucket/user-space/reports/dataset.parquet"
     kwargs = captured["kwargs"]
@@ -247,7 +258,7 @@ def test_save_parquet_process_keeps_append_when_target_dataset_exists(monkeypatc
     monkeypatch.setattr(node, "_parquet_dataset_exists", lambda target, storage_options: True)
     captured = _capture_to_parquet_call(monkeypatch)
 
-    node.process()
+    asyncio.run(node.process())
 
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
@@ -269,7 +280,7 @@ def test_save_parquet_process_does_not_check_existing_dataset_for_create(monkeyp
     )
     captured = _capture_to_parquet_call(monkeypatch)
 
-    node.process()
+    asyncio.run(node.process())
 
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
@@ -291,7 +302,7 @@ def test_save_parquet_process_does_not_check_existing_dataset_for_overwrite(monk
     )
     captured = _capture_to_parquet_call(monkeypatch)
 
-    node.process()
+    asyncio.run(node.process())
 
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
@@ -316,7 +327,7 @@ def test_save_parquet_process_raises_when_append_dataset_check_returns_non_not_f
     )
 
     with pytest.raises(RuntimeError, match="broken dataset lookup"):
-        node.process()
+        asyncio.run(node.process())
 
 
 def test_save_parquet_definition_keeps_parquet_types_as_schema_input():
@@ -336,3 +347,33 @@ def test_save_parquet_definition_defaults_to_new_compatibility_mode():
 
     assert compatibility_input.default == "new"
     assert compatibility_input.is_hidden is True
+
+
+_OWNER = next(cls for cls in SaveParquet.__mro__[1:] if "_get_fs_context" in vars(cls))
+
+
+def test_save_parquet_new_mode_passes_catalog_descriptions_to_the_writer(monkeypatch):
+    monkeypatch.setattr(
+        "src.nodes.write.save_parquet.node.load_catalog_descriptions",
+        AsyncMock(return_value={"id": "Идентификатор", "name": "Имя"}),
+    )
+    captured = {}
+
+    def fake_write(df, ctx, request):
+        captured["request"] = request
+        return type("R", (), {"layout": type("L", (), {"value": "simple"})(), "rows_written": 1, "files_written": 1})()
+
+    monkeypatch.setattr("src.nodes.write.save_parquet.node.write_dataframe", fake_write)
+    node = _build_node(dd.from_pandas(pd.DataFrame({"id": [1], "name": ["a"]}), npartitions=1), compatibility_mode="new")
+    monkeypatch.setattr(_OWNER, "_get_fs_context", lambda self, **kwargs: _mock_fs_context("s3", node=node))
+
+    asyncio.run(node.process())
+
+    assert captured["request"].column_descriptions == {"id": "Идентификатор", "name": "Имя"}
+
+    disabled = _build_node(
+        dd.from_pandas(pd.DataFrame({"id": [1]}), npartitions=1), compatibility_mode="new", sync_column_descriptions=False
+    )
+    monkeypatch.setattr(_OWNER, "_get_fs_context", lambda self, **kwargs: _mock_fs_context("s3", node=disabled))
+    asyncio.run(disabled.process())
+    assert captured["request"].column_descriptions is None
