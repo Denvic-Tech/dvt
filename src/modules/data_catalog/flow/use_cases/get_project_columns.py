@@ -7,6 +7,7 @@ from ...domain import (
     DatasetFieldRepository,
     DatasetRepository,
     NodeColumnAnnotationRepository,
+    NodePortObservationRepository,
     ProjectColumnsResult,
     ProjectionRepository,
 )
@@ -20,7 +21,7 @@ from ...domain.policies import (
     index_lineage,
 )
 from ..providers import ProjectionFreshnessProvider
-from .get_node_fields import load_annotation_lookup, load_field_lookup
+from .get_node_fields import load_annotation_lookup, load_field_lookup, load_observed_comment_lookup
 
 
 class GetProjectColumns:
@@ -32,12 +33,14 @@ class GetProjectColumns:
         datasets: DatasetRepository,
         annotations: NodeColumnAnnotationRepository,
         freshness: ProjectionFreshnessProvider | None = None,
+        observations: NodePortObservationRepository | None = None,
     ) -> None:
         self._projections = projections
         self._fields = fields
         self._datasets = datasets
         self._annotations = annotations
         self._freshness = freshness
+        self._observations = observations
 
     async def execute(self, *, project_id: str, organization_id: str | None) -> ProjectColumnsResult:
         if self._freshness is not None:
@@ -51,7 +54,8 @@ class GetProjectColumns:
         fields = await load_field_lookup(self._fields, index)
         annotations = await load_annotation_lookup(self._annotations, project_id)
         datasets = await self._load_origin_datasets(index)
-        resolver = DescriptionResolver(index, fields, annotations)
+        observed_comments = await load_observed_comment_lookup(self._observations, project_id)
+        resolver = DescriptionResolver(index, fields, annotations, observed_comments)
         groups = group_columns_by_origin(
             index, resolver, fields=fields, datasets=datasets, annotations=annotations
         )

@@ -177,3 +177,49 @@ def test_join_and_union_downstream_of_an_observed_port_keep_the_observed_reason(
     assert ports["j"].names == ("a", "q", "u")
     assert (ports["u"].status, ports["u"].reason) == (PortStatus.PARTIALLY_RESOLVED, DiagnosticReason.LINEAGE_SCHEMA_OBSERVED)
     assert collect_unresolved_ports(seen) == ()
+
+
+def _commented(node_id: str, comments: dict[str, str | None], port: str = "output") -> ObservedPortSchema:
+    return ObservedPortSchema(
+        project_id="p1", node_id=node_id, port=port,
+        columns=tuple(
+            ObservedField(name, "STRING", True, index, comment=comment)
+            for index, (name, comment) in enumerate(comments.items(), start=1)
+        ),
+        observed_at=NOW, graph_revision=1, task_id="t1",
+    )
+
+
+def test_observed_column_comment_is_a_source_description_below_annotations():
+    graph = snapshot(
+        node("lp", "LoadParquet", path="sales.parquet"),
+        node("rn", "DataFrameRenameColumns", mapping={"group": "category"}),
+        node("w", "WriteDataFrameToDBV4"),
+        node("a", "ReadTableFromDBV3", table_name="deals"),
+        edges=(edge("lp", "rn"), edge("rn", "w")),
+    )
+    lineage, _ = derive_project_lineage(
+        graph, port_types=port_types, rules=RULES, seeds={"a": {"output": source_seed("da", "a")}},
+        observed={("lp", "output"): _commented("lp", {"group": "Товарная группа", "amount": None})},
+    )
+    index = index_lineage("p1", lineage)
+    group = LineageRef.node_column("lp", "output", "group")
+    comments = {group.key: "Товарная группа", LineageRef.node_column("a", "output", "a").key: "stale"}
+    resolver = DescriptionResolver(index, {}, {}, comments)
+
+    own = resolver.resolve(group)
+    assert (own.text, own.provenance, own.source) == ("Товарная группа", LineageProvenance.SOURCE, group)
+    renamed = resolver.resolve(LineageRef.node_column("w", "df", "category"))
+    assert (renamed.text, renamed.provenance, renamed.source) == ("Товарная группа", LineageProvenance.INHERITED, group)
+    bare = resolver.resolve(LineageRef.node_column("lp", "output", "amount"))
+    assert (bare.text, bare.provenance) == (None, LineageProvenance.NONE)
+    assert resolver.resolve(LineageRef.node_column("a", "output", "a")).text is None, (
+        "a statically resolved port ignores observed comments"
+    )
+
+    annotation = NodeColumnAnnotation(
+        id="an", project_id="p1", node_id="lp", port="output", column="group", description="Своё",
+        created_at=NOW, updated_at=NOW, description_updated_by="u",
+    )
+    declared = DescriptionResolver(index, {}, {annotation.ref.key: annotation}, comments).resolve(group)
+    assert (declared.text, declared.provenance) == ("Своё", LineageProvenance.DECLARED)

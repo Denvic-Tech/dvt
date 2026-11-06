@@ -13,11 +13,17 @@ from ...domain import (
     LineageRef,
     LineageTextRenderer,
     NodeColumnAnnotationRepository,
+    NodePortObservationRepository,
     ProjectionRepository,
 )
 from ...domain.policies import DescriptionResolver, explain, index_lineage
 from ..providers import ProjectionFreshnessProvider
-from .get_node_fields import load_annotation_lookup, load_field_lookup, select_port
+from .get_node_fields import (
+    load_annotation_lookup,
+    load_field_lookup,
+    load_observed_comment_lookup,
+    select_port,
+)
 
 DEFAULT_MAX_DEPTH = 20
 MAX_DEPTH_LIMIT = 100
@@ -32,12 +38,14 @@ class ExplainField:
         renderer: LineageTextRenderer,
         freshness: ProjectionFreshnessProvider | None = None,
         annotations: NodeColumnAnnotationRepository | None = None,
+        observations: NodePortObservationRepository | None = None,
     ) -> None:
         self._projections = projections
         self._fields = fields
         self._renderer = renderer
         self._freshness = freshness
         self._annotations = annotations
+        self._observations = observations
 
     async def execute(
         self,
@@ -75,7 +83,8 @@ class ExplainField:
             fields=fields,
         )
         annotations = await load_annotation_lookup(self._annotations, project_id)
-        description = DescriptionResolver(index, fields, annotations).resolve(root)
+        observed_comments = await load_observed_comment_lookup(self._observations, project_id)
+        description = DescriptionResolver(index, fields, annotations, observed_comments).resolve(root)
         return FieldExplanation(
             root=explanation.root,
             direction=explanation.direction,

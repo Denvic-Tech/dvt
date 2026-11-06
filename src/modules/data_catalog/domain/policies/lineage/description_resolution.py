@@ -6,6 +6,9 @@
 Аннотация на колонке ноды (`NodeColumnAnnotation`) даёт `declared` для самой колонки и
 побеждает унаследованный текст; ниже по цепочке она наследуется так же, как описание поля
 сущности. Поле без текста даёт `none` с известным источником, и `none` переносится вниз.
+
+Комментарий колонки, наблюдённый воркером (например, описание из метаданных Parquet), даёт
+`source` только на порту с наблюдённой схемой и только когда другого текста нет.
 """
 
 from __future__ import annotations
@@ -13,8 +16,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ...entities import DatasetField
-from ...lineage import LineageRef, NodeColumnAnnotation, ResolvedDescription
-from ...types import LineageOp, LineageProvenance
+from ...lineage import (
+    ColumnLineage,
+    LineageRef,
+    NodeColumnAnnotation,
+    PortLineage,
+    ResolvedDescription,
+)
+from ...types import DiagnosticReason, LineageOp, LineageProvenance
 from ..descriptions import effective_field_description
 from .index import LineageIndex
 
@@ -28,11 +37,14 @@ class DescriptionResolver:
         index: LineageIndex,
         fields: Mapping[str, DatasetField],
         annotations: Mapping[str, NodeColumnAnnotation] | None = None,
+        observed_comments: Mapping[str, str] | None = None,
     ) -> None:
-        """fields: `ds:<dataset_id>:<field_id>` → поле; annotations: `node:<id>:<port>:<col>` → аннотация."""
+        """fields: `ds:<dataset_id>:<field_id>` → поле; annotations и observed_comments:
+        `node:<id>:<port>:<col>` → аннотация / непустой наблюдённый комментарий."""
         self._index = index
         self._fields = fields
         self._annotations = annotations or {}
+        self._observed_comments = observed_comments or {}
         self._memo: dict[str, ResolvedDescription] = {}
 
     def resolve(self, ref: LineageRef) -> ResolvedDescription:
@@ -50,7 +62,7 @@ class DescriptionResolver:
         self._memo[ref.key] = result
         return result
 
-    def _compute(self, ref: LineageRef, visiting: set[str]) -> ResolvedDescription:  # noqa: PLR0911
+    def _compute(self, ref: LineageRef, visiting: set[str]) -> ResolvedDescription:
         if ref.is_dataset_field:
             return self._field_description(ref)
 
@@ -63,7 +75,22 @@ class DescriptionResolver:
         found = self._index.column(ref)
         if found is None:
             return _UNKNOWN
-        _, column = found
+        port, column = found
+        resolved = self._from_lineage(ref, column, visiting)
+        if resolved.text is None:
+            comment = self._observed_comment(port, ref)
+            if comment is not None:
+                return ResolvedDescription(text=comment, provenance=LineageProvenance.SOURCE, source=ref)
+        return resolved
+
+    def _observed_comment(self, port: PortLineage, ref: LineageRef) -> str | None:
+        if port.reason is not DiagnosticReason.LINEAGE_SCHEMA_OBSERVED:
+            return None
+        return self._observed_comments.get(ref.key)
+
+    def _from_lineage(  # noqa: PLR0911
+        self, ref: LineageRef, column: ColumnLineage, visiting: set[str]
+    ) -> ResolvedDescription:
         if column.op in (LineageOp.PASS, LineageOp.RENAME, LineageOp.SOURCE):
             if len(column.deps) == 1 and not column.deps_unknown:
                 parent = self._resolve(column.deps[0], visiting)

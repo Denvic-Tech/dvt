@@ -48,6 +48,7 @@ def build_port_observations(
                 dtype=str(column.dtype) if column.dtype is not None else None,
                 nullable=column.nullable,
                 ordinal=position,
+                comment=_text(getattr(column, "comment", None)),
             )
             for position, column in enumerate(output.columns, start=1)
         )
