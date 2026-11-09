@@ -1,15 +1,16 @@
 import platform
 import sys
+from contextlib import suppress
 from typing import Annotated, Literal
 
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, Field, HttpUrl
 
-import config
-
 from src.modules.extension_management.domain.catalog import (
     CatalogRelease,
     CatalogVersion,
+    CompatibilityDifference,
+    CompatibilityField,
     RuntimeTarget,
     stable_upgrade,
 )
@@ -17,6 +18,8 @@ from src.modules.extension_management.domain.policies import (
     release_incompatibility,
     resolve_package_operation,
 )
+
+import config
 
 
 class ReleasePayload(BaseModel):
@@ -74,16 +77,27 @@ def catalog_view(
     versions = []
     stable = None
     target = runtime_target()
+    current_dvt_version = config.APP.VERSION or None
     for release in releases:
         reason = release_incompatibility(
-            release, current_dvt_version=config.APP.VERSION or None, target=target
+            release, current_dvt_version=current_dvt_version, target=target
         )
+        differences: list[CompatibilityDifference] = []
+        if reason == "target":
+            fields: tuple[CompatibilityField, ...] = ("os", "architecture", "python", "implementation")
+            for field in fields:
+                current = getattr(target, field)
+                required = getattr(release.target, field)
+                if current != required:
+                    differences.append(CompatibilityDifference(field, current, required))
+        elif reason == "dvt_version" and release.dvt_version is not None:
+            differences = [
+                CompatibilityDifference("dvt_version", current_dvt_version, release.dvt_version)
+            ]
         operation = None
         if reason is None:
-            try:
+            with suppress(InvalidVersion):
                 operation = resolve_package_operation(current_version, release.version).value
-            except InvalidVersion:
-                pass
             if stable is None and release.channel == "stable":
                 stable = release.version
         versions.append(
@@ -94,6 +108,7 @@ def catalog_view(
                 dvt_version=release.dvt_version,
                 incompatibility=reason,
                 operation=operation,
+                incompatibility_details=differences,
             )
         )
     return versions, stable_upgrade(stable, current_version)

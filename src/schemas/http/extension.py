@@ -41,6 +41,12 @@ class ExtensionManifestSchema(BaseModel):
     nodes: list[ExtensionManifestNodeSchema] = Field(default_factory=list)
 
 
+class ExtensionCompatibilityDifferenceSchema(BaseModel):
+    field: Literal["os", "architecture", "python", "implementation", "dvt_version"]
+    current: str | None
+    required: str
+
+
 class ExtensionCatalogVersionSchema(BaseModel):
     version: str
     channel: Literal["stable", "rc"]
@@ -48,6 +54,7 @@ class ExtensionCatalogVersionSchema(BaseModel):
     dvt_version: str | None = None
     incompatibility: Literal["target", "dvt_version"] | None = None
     operation: Literal["install", "upgrade", "downgrade", "reinstall"] | None = None
+    incompatibility_details: list[ExtensionCompatibilityDifferenceSchema] = Field(default_factory=list)
 
 
 class ExtensionReadSchema(BaseModel):

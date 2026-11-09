@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from packaging.version import InvalidVersion, Version
@@ -23,6 +23,16 @@ class CatalogRelease:
     download_url: str
 
 
+type CompatibilityField = Literal["os", "architecture", "python", "implementation", "dvt_version"]
+
+
+@dataclass(frozen=True)
+class CompatibilityDifference:
+    field: CompatibilityField
+    current: str | None
+    required: str
+
+
 @dataclass(frozen=True)
 class CatalogVersion:
     version: str
@@ -31,6 +41,7 @@ class CatalogVersion:
     dvt_version: str | None
     incompatibility: Literal["target", "dvt_version"] | None
     operation: str | None
+    incompatibility_details: list[CompatibilityDifference] = field(default_factory=list)
 
 
 def stable_upgrade(stable_version: str | None, current_version: str | None) -> str | None:
