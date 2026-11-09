@@ -52,9 +52,21 @@ class ExtensionManagementGatewayAdapter:
             for item in await self._manager.sync_installed_extensions()
         ]
 
-    async def install_extension(self, name: str, version: str | None = None) -> Extension:
+    async def install_extension(
+        self,
+        name: str,
+        version: str | None = None,
+        *,
+        allow_downgrade: bool = False,
+        allow_reinstall: bool = False,
+    ) -> Extension:
         return extension_record_to_domain(
-            await self._manager.install_extension(name, version=version)
+            await self._manager.install_extension(
+                name,
+                version=version,
+                allow_downgrade=allow_downgrade,
+                allow_reinstall=allow_reinstall,
+            )
         )
 
     async def uninstall_extension(
@@ -66,8 +78,10 @@ class ExtensionManagementGatewayAdapter:
             )
         )
 
-    async def reload_extension(self, name: str) -> Extension:
-        return extension_record_to_domain(await self._manager.reload_extension(name))
+    async def reload_extension(self, name: str, *, local_only: bool = False) -> Extension:
+        return extension_record_to_domain(
+            await self._manager.reload_extension(name, local_only=local_only)
+        )
 
     async def set_enabled(self, name: str, enabled: bool) -> Extension:
         return extension_record_to_domain(await self._manager.set_enabled(name, enabled))

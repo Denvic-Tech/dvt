@@ -36,6 +36,8 @@ class ExtensionRecord(TimestampedModel, SQLModel, table=True):
     state_json: dict[str, Any] = Field(default_factory=dict, sa_type=JSON, nullable=False)
     available_versions: list[str] | None = Field(default_factory=list, sa_type=JSON, nullable=True)
 
+    catalog_releases: list[dict[str, Any]] | None = Field(default=None, sa_type=JSON, nullable=True)
+
     error_message: str | None = Field(default=None, nullable=True)
     installed_at: datetime | None = Field(default=None, nullable=True)
 

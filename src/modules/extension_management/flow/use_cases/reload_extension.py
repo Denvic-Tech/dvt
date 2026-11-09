@@ -8,5 +8,5 @@ class ReloadExtensionUseCase:
     def __init__(self, gateway: ExtensionLifecycleGateway) -> None:
         self._gateway = gateway
 
-    async def execute(self, name: str) -> Extension:
-        return await self._gateway.reload_extension(name)
+    async def execute(self, name: str, *, local_only: bool = False) -> Extension:
+        return await self._gateway.reload_extension(name, local_only=local_only)

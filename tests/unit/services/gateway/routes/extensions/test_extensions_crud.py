@@ -3,7 +3,9 @@ from unittest.mock import patch
 
 import pytest
 
+from src.modules.extension_management.domain.entities import Extension
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.mappers import extension_record_to_domain
 
 
 @pytest.mark.asyncio
@@ -110,7 +112,7 @@ async def test_install_extension(
     db_session.add(extension)
     db_session.commit()
     with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.install_extension') as mock_install:
-        mock_install.return_value = ExtensionRecord(
+        mock_install.return_value = Extension(
             name="test-extension",
             display_name="Test Extension",
             description="test description",
@@ -130,7 +132,9 @@ async def test_install_extension(
         data = response.json()
         assert data["name"] == "test-extension"
         assert data["is_installed"] is True
-        mock_install.assert_awaited_once_with("test-extension", version=None)
+        mock_install.assert_awaited_once_with(
+            "test-extension", version=None, allow_downgrade=False, allow_reinstall=False
+        )
 
 
 @pytest.mark.asyncio
@@ -156,7 +160,7 @@ async def test_install_extension_with_version_query(
     db_session.add(extension)
     db_session.commit()
     with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.install_extension') as mock_install:
-        mock_install.return_value = ExtensionRecord(
+        mock_install.return_value = Extension(
             name="test-extension",
             display_name="Test Extension",
             description="test description",
@@ -178,7 +182,9 @@ async def test_install_extension_with_version_query(
         data = response.json()
         assert data["name"] == "test-extension"
         assert data["is_installed"] is True
-        mock_install.assert_awaited_once_with("test-extension", version="1.2.3")
+        mock_install.assert_awaited_once_with(
+            "test-extension", version="1.2.3", allow_downgrade=False, allow_reinstall=False
+        )
 
 
 @pytest.mark.asyncio
@@ -207,7 +213,7 @@ async def test_uninstall_extension(
     db_session.commit()
 
     with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.uninstall_extension') as mock_uninstall:
-        mock_uninstall.return_value = extension
+        mock_uninstall.return_value = extension_record_to_domain(extension)
 
         response = await gateway_client.delete(f"{router_prefix}/extensions/test-extension/uninstall")
 
@@ -238,9 +244,12 @@ async def test_reload_extension(
     db_session.commit()
 
     with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.reload_extension') as mock_reload:
-        mock_reload.return_value = extension
+        mock_reload.return_value = extension_record_to_domain(extension)
 
-        response = await gateway_client.post(f"{router_prefix}/extensions/test-extension/reload")
+        response = await gateway_client.post(
+            f"{router_prefix}/extensions/test-extension/reload", params={"local_only": True}
+        )
+        mock_reload.assert_awaited_once_with("test-extension", local_only=True)
 
         assert response.status_code == 200
         data = response.json()
@@ -270,7 +279,7 @@ async def test_enable_extension(
 
     with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.set_enabled') as mock_enable:
         extension.is_enabled = True
-        mock_enable.return_value = extension
+        mock_enable.return_value = extension_record_to_domain(extension)
 
         response = await gateway_client.post(f"{router_prefix}/extensions/test-extension/enable")
 
@@ -303,7 +312,7 @@ async def test_disable_extension(
 
     with patch('src.modules.extension_management.flow.providers.ExtensionManagementProvider.set_enabled') as mock_disable:
         extension.is_enabled = False
-        mock_disable.return_value = extension
+        mock_disable.return_value = extension_record_to_domain(extension)
 
         response = await gateway_client.post(f"{router_prefix}/extensions/test-extension/disable")
 

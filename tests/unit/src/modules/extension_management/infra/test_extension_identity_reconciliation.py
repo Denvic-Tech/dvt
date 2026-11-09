@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from tests.fixtures.extension_catalog import release_payload
+
 from src.enums import ExtensionDepsStatus
 from src.modules.extension_management.domain.entities import ExtensionCreate
 from src.modules.extension_management.domain.policies import normalize_extension_identity
@@ -40,6 +42,7 @@ async def test_upgrade_from_dvt_121_legacy_db_to_122_canonical_catalog_preserves
         install_path="/var/lib/dvt/extensions/repository-name",
         manifest_json={
             "name": "repository-name",
+            "package_name": "canonical-package",
             "version": "1.0.0",
             "state_schema": {"license": "str"},
         },
@@ -57,9 +60,8 @@ async def test_upgrade_from_dvt_121_legacy_db_to_122_canonical_catalog_preserves
                         "name": "canonical-package",
                         "display_name": "Canonical Extension",
                         "description": "Canonical catalog description",
-                        "repository_url": "https://git.example/repository-name",
-                        "legacy_aliases": ["repository-name", "old_tool_name"],
-                        "versions": ["1.2.0", "1.1.0"],
+
+                        "versions": [release_payload("1.2.0"), release_payload("1.1.0")],
                     }
                 ]
             }
@@ -89,7 +91,7 @@ async def test_upgrade_from_dvt_121_legacy_db_to_122_canonical_catalog_preserves
     assert upgraded.manifest_json["state_schema"] == {"license": "str"}
     assert upgraded.manifest_json["package_name"] == "canonical-package"
     assert "repository-name" in upgraded.manifest_json["legacy_names"]
-    assert upgraded.repository_url == "https://git.example/repository-name"
+    assert upgraded.repository_url == "https://git.example/legacy-download.zip"
     assert upgraded.available_versions == ["1.2.0", "1.1.0"]
 
 
@@ -103,7 +105,9 @@ async def test_upgrade_from_dvt_121_uninstalled_legacy_db_to_122_keeps_one_recor
         display_name="Legacy Catalog Entry",
         is_installed=False,
         is_enabled=True,
-        manifest_json={"name": "repository-name", "version": "1.0.0"},
+        manifest_json={
+            "name": "repository-name", "package_name": "canonical-package", "version": "1.0.0"
+        },
         state_json={},
     )
     async_test_db_session.add(legacy)
@@ -117,9 +121,8 @@ async def test_upgrade_from_dvt_121_uninstalled_legacy_db_to_122_keeps_one_recor
                         "name": "canonical-package",
                         "display_name": "Canonical Extension",
                         "description": "Catalog description",
-                        "repository_url": "https://git.example/repository-name",
-                        "legacy_aliases": ["repository-name"],
-                        "versions": ["1.2.0"],
+
+                        "versions": [release_payload("1.2.0")],
                     }
                 ]
             }
@@ -274,9 +277,8 @@ async def test_catalog_dvtx_uninstall_and_resync_keep_single_record(
                         "name": "foo-connector",
                         "display_name": "Foo Connector",
                         "description": "Catalog description",
-                        "repository_url": "https://git.example/repository-name",
-                        "legacy_aliases": ["repository-name", "foo_connector"],
-                        "versions": ["1.2.0", "1.1.0"],
+
+                        "versions": [release_payload("1.2.0"), release_payload("1.1.0")],
                     }
                 ]
             }
@@ -327,7 +329,6 @@ async def test_catalog_dvtx_uninstall_and_resync_keep_single_record(
     assert len(rows) == 1
     assert installed.id == catalog.id
     assert installed.is_installed is True
-    assert installed.repository_url == "https://git.example/repository-name"
     assert installed.available_versions == ["1.2.0", "1.1.0"]
     assert installed.state_json == {"license": "encrypted-value"}
     assert installed.manifest_json["state_schema"] == {"license": "str"}
@@ -344,7 +345,6 @@ async def test_catalog_dvtx_uninstall_and_resync_keep_single_record(
     assert len(rows) == 1
     assert rows[0].id == catalog.id
     assert rows[0].is_installed is False
-    assert rows[0].repository_url == "https://git.example/repository-name"
     assert rows[0].available_versions == ["1.2.0", "1.1.0"]
     assert rows[0].state_json == {"license": "encrypted-value"}
     assert rows[0].manifest_json["state_schema"] == {"license": "str"}
@@ -473,3 +473,34 @@ async def test_repeated_reconciliation_and_error_updates_preserve_timestamp(asyn
     timestamp = changed.updated_at
     await manager.set_runtime_error(changed, "Runtime failure")
     assert changed.updated_at == timestamp
+
+@pytest.mark.asyncio
+async def test_catalog_removal_preserves_installed_version_and_state(async_test_db_session) -> None:
+    record = ExtensionRecord(
+        name="removed",
+        display_name="Removed extension",
+        is_installed=True,
+        current_version="1.0.0",
+        last_version="2.0.0",
+        available_versions=["2.0.0", "1.0.0"],
+        catalog_releases=[release_payload("2.0.0"), release_payload("1.0.0")],
+        state_json={"license": "saved"},
+    )
+    async_test_db_session.add(record)
+    await async_test_db_session.commit()
+    distributor = SimpleNamespace(list_extensions=AsyncMock(return_value={"extensions": [{}]}))
+    manager = ExtensionManager(async_test_db_session, distributor)
+
+    with pytest.raises(ValueError):
+        await manager.sync_available_extensions()
+    assert record.available_versions == ["2.0.0", "1.0.0"]
+    assert [release["version"] for release in record.catalog_releases] == ["2.0.0", "1.0.0"]
+
+    distributor.list_extensions.return_value = {"extensions": []}
+    await manager.sync_available_extensions()
+
+    assert record.available_versions == []
+    assert record.catalog_releases == []
+    assert record.last_version == record.current_version == "1.0.0"
+    assert record.is_installed
+    assert record.state_json == {"license": "saved"}
