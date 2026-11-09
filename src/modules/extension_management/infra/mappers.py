@@ -3,10 +3,15 @@ from __future__ import annotations
 from src.modules.extension_management.domain.entities import Extension
 from src.modules.extension_management.domain.types import ExtensionDependencyStatus
 from src.modules.extension_management.domain.value_objects import ExtensionPackagePreview
+from src.modules.extension_management.infra.catalog import catalog_view
 from src.modules.extension_management.infra.db_models import ExtensionRecord
 
 
 def extension_record_to_domain(record: ExtensionRecord) -> Extension:
+    versions, recommended = catalog_view(
+        record.catalog_releases or [],
+        record.current_version if record.is_installed else None,
+    )
     return Extension(
         id=record.id,
         name=record.name,
@@ -22,6 +27,8 @@ def extension_record_to_domain(record: ExtensionRecord) -> Extension:
         manifest_json=dict(record.manifest_json or {}),
         state_json=dict(record.state_json or {}),
         available_versions=list(record.available_versions or []),
+        catalog_versions=versions,
+        recommended_version=recommended,
         error_message=record.error_message,
         installed_at=record.installed_at,
         created_at=record.created_at,

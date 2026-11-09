@@ -104,7 +104,7 @@ class NODES:
 
 
 class EXTENSIONS:
-    __default_distributor_url = "https://extensions.distribution.denvic.tech"
+    __default_distributor_url = "https://dvt.distribution.denvic.tech"
 
     DISTRIBUTOR_URL = os.getenv("EXTENSIONS_DISTRIBUTOR_URL", __default_distributor_url)
     ENABLED = os.getenv("EXTENSIONS_ENABLED", "true").lower() in _TRUE_STATEMENT_TOKENS

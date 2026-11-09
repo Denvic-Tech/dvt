@@ -14,7 +14,7 @@ class DenvicExtensionsDistributor:
         base_url: str,
         *,
         connect_timeout: float = 1.0,
-        read_timeout: float = 5.0,
+        read_timeout: float = 30.0,
         write_timeout: float = 5.0,
         pool_timeout: float = 3.0,
         retries: int = 2,
@@ -84,44 +84,15 @@ class DenvicExtensionsDistributor:
                 logger.exception(f"{self.NAME}: unexpected error during request to {self.base_url}{url}")
                 raise
 
-    async def list_extensions(
-        self, *, dvt_version: str | None = None, dvt_channel: str | None = None
-    ) -> dict:
-        params = {}
-        if dvt_version:
-            params["dvt_version"] = dvt_version
-        if dvt_channel:
-            params["dvt_channel"] = dvt_channel
-        response = await self._request("GET", "/extensions", params=params or None)
+    async def list_extensions(self) -> dict:
+        response = await self._request("GET", "/extensions")
         return response.json()
 
-    async def list_extension_versions(
-        self, name: str, *, dvt_version: str | None = None, dvt_channel: str | None = None
-    ) -> dict:
-        params = {}
-        if dvt_version:
-            params["dvt_version"] = dvt_version
-        if dvt_channel:
-            params["dvt_channel"] = dvt_channel
-        response = await self._request(
-            "GET", f"/extensions/{name}/versions", params=params or None
-        )
+    async def list_extension_versions(self, name: str) -> dict | None:
+        try:
+            response = await self._request("GET", f"/extensions/{name}/versions")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
         return response.json()
-
-    async def download_extension_version(
-        self, name: str, version: str, *, dvt_channel: str | None = None
-    ) -> bytes:
-        params = {"dvt_channel": dvt_channel} if dvt_channel else None
-        response = await self._request(
-            "GET", f"/extensions/{name}/versions/{version}/download", params=params
-        )
-        return response.content
-
-    async def download_extension_archive(
-        self, project_path: str, *, ref: str | None = None
-    ) -> bytes:
-        params = {"ref": ref} if ref else None
-        response = await self._request(
-            "GET", f"/extensions/{project_path}/archive", params=params
-        )
-        return response.content

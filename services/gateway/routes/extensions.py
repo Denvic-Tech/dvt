@@ -1,4 +1,7 @@
+from dataclasses import asdict
 from typing import Annotated
+
+import httpx
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.params import Query
@@ -12,6 +15,7 @@ from src.modules.extension_management.infra.state_manager import ExtensionStateM
 from src.modules.user.infra.fastapi.dependencies import UserAccessOnly, UserSuperadminAccessOnly
 from src.schemas.http.common import CommonResponse
 from src.schemas.http.extension import (
+    ExtensionCatalogVersionSchema,
     ExtensionFrontendReadSchema,
     ExtensionPackagePreviewSchema,
     ExtensionReadSchema,
@@ -42,6 +46,10 @@ def _to_extension_read(item: Extension) -> ExtensionReadSchema:
         manifest_json=item.manifest_json or {},
         state_json=item.state_json or {},
         available_versions=item.available_versions,
+        catalog_versions=[
+            ExtensionCatalogVersionSchema(**asdict(version)) for version in item.catalog_versions
+        ],
+        recommended_version=item.recommended_version,
         error_message=item.error_message,
         installed_at=item.installed_at,
         created_at=item.created_at,
@@ -55,7 +63,10 @@ async def sync_extensions(
     extension_manager: ExtensionManagerDep,
 ) -> list[ExtensionReadSchema]:
     """Синхронизирует доступные расширения из дистрибьютора с состоянием БД."""
-    items = await extension_manager.sync_available_extensions()
+    try:
+        items = await extension_manager.sync_available_extensions()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Extension catalog unavailable") from exc
     return [_to_extension_read(item=item) for item in items]
 
 
@@ -178,10 +189,15 @@ async def install_extension(
     user: UserSuperadminAccessOnly,  # noqa: ARG001
     extension_manager: ExtensionManagerDep,
     version: Annotated[str | None, Query()] = None,
+    allow_downgrade: Annotated[bool, Query()] = False,
+    allow_reinstall: Annotated[bool, Query()] = False,
 ) -> ExtensionReadSchema:
     """Устанавливает файлы расширения, зависимости и обновляет состояние БД."""
     try:
-        extension = await extension_manager.install_extension(extension_name, version=version)
+        extension = await extension_manager.install_extension(
+            extension_name, version=version,
+            allow_downgrade=allow_downgrade, allow_reinstall=allow_reinstall,
+        )
         return _to_extension_read(item=extension)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -196,10 +212,11 @@ async def reload_extension(
     extension_name: str,
     user: UserSuperadminAccessOnly,  # noqa: ARG001
     extension_manager: ExtensionManagerDep,
+    local_only: Annotated[bool, Query()] = False,
 ) -> ExtensionReadSchema:
     """Перезагружает уже установленное расширение с диска в рантайм и БД."""
     try:
-        extension = await extension_manager.reload_extension(extension_name)
+        extension = await extension_manager.reload_extension(extension_name, local_only=local_only)
         return _to_extension_read(item=extension)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

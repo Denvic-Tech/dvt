@@ -41,7 +41,10 @@ class _Gateway:
     async def sync_installed_extensions(self) -> list[Extension]:
         return [self.extension]
 
-    async def install_extension(self, name: str, version: str | None = None) -> Extension:
+    async def install_extension(
+        self, name: str, version: str | None = None, *,
+        allow_downgrade: bool = False, allow_reinstall: bool = False,
+    ) -> Extension:
         self.install_calls.append((name, version))
         return self.extension
 
@@ -50,7 +53,7 @@ class _Gateway:
     ) -> Extension:
         return self.extension
 
-    async def reload_extension(self, name: str) -> Extension:
+    async def reload_extension(self, name: str, *, local_only: bool = False) -> Extension:
         return self.extension
 
     async def set_enabled(self, name: str, enabled: bool) -> Extension:
