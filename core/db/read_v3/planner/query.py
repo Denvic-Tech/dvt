@@ -36,6 +36,7 @@ from core.db.read_v3.planner.boundaries import (
 )
 from core.db.read_v3.query_metadata import describe_query_columns
 from core.db.read_v3.sql_runner import read_sql_df
+from core.utils.dataframe_index import available_index_name
 
 
 def _build_lookup(columns: Sequence[str]) -> dict[str, str]:
@@ -432,8 +433,8 @@ class QueryReadPlanner:
             for column, sql_name in zip(selected_columns, selected_sql_columns, strict=False)
         }
         select_exprs: list[str] = [output_column_select_exprs[column] for column in selected_columns]
-        partition_key_alias = "__dvt_partition_key"
-        hash_bucket_alias = "__dvt_partition_bucket"
+        partition_key_alias = available_index_name("__dvt_partition_key", selected_columns)
+        hash_bucket_alias = available_index_name("__dvt_partition_bucket", selected_columns)
         index_column_name = resolved_partition_col
         adapter_reason = "custom grouping"
 

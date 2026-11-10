@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_valid
 
 from core.types.data_type import DataType
 from core.utils import get_useful_indexes
+from core.utils.dataframe_index import carry_physical_index
 
 from src.logger import logger
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
@@ -230,7 +231,7 @@ def _resolve_operand(
         if column_name not in columns_and_indexes:
             raise KeyError(f"Column '{column_name}' not found in DataFrame")
 
-        if column_name in useful_indexes:
+        if column_name in useful_indexes and column_name not in df.columns:
             return df.index.to_series(), True
         return df[column_name], True
 
@@ -477,8 +478,10 @@ class DataFrameFilter(DFOutputBaseNode):
             logger.error(f"Error while evaluating DataFrameFilter conditions: {error}")
             raise
 
-        self.output = _apply_mask_df(self.df, combined_mask)
-        self.inverted_output = _apply_mask_df(self.df, _invert_mask(combined_mask))
+        self.output = carry_physical_index(self.df, _apply_mask_df(self.df, combined_mask))
+        self.inverted_output = carry_physical_index(
+            self.df, _apply_mask_df(self.df, _invert_mask(combined_mask))
+        )
 
     def process_metadata(self) -> None:
         useful_indexes = set(get_useful_indexes(self.df))

@@ -20,7 +20,7 @@ Before configuring partitioning, assess the query result's size, selected row wi
 
 The query must be suitable for the read planner's partitioned execution. Prefer stable non-null partition keys. Partition settings do not aggregate business data or guarantee row order. Metadata inference describes query columns against the source; unresolved/empty SQL can give empty metadata. It does not prove full execution succeeds.
 
-If `npartitions` is omitted, the planner estimates the target count from the query result and instance settings. Default segmentation uses ranges for orderable non-null keys and hash buckets otherwise. An explicit range mode rejects null keys. `max_rows_per_partition` fails an oversized segment; it does not automatically split it. Planning and reading can evaluate the query more than once, including count/sample queries; use stable results and account for source cost. A result key may also be the output index while remaining a data column.
+A result key may also be the output index while remaining a data column.
 
 ## Examples
 

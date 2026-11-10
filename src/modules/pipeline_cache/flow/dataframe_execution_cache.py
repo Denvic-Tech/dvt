@@ -5,6 +5,8 @@ from time import time
 from typing import Any
 from uuid import uuid4
 
+from core.types.dataframe_index import PhysicalDataFrameIndex
+
 from ..domain.dataframe_cache import (
     DATAFRAME_CACHE_FORMAT_VERSION,
     ActiveDataFrameGeneration,
@@ -62,6 +64,7 @@ class DataFrameExecutionCache:
         npartitions: int,
         known_divisions: bool,
         divisions: tuple[Any, ...] | None,
+        physical_index: PhysicalDataFrameIndex | None = None,
     ) -> DataFrameCacheManifest:
         if npartitions <= 0:
             raise ValueError("DataFrame cache requires at least one partition")
@@ -76,6 +79,7 @@ class DataFrameExecutionCache:
             npartitions=npartitions,
             known_divisions=known_divisions,
             divisions=tuple(divisions) if known_divisions and divisions is not None else None,
+            physical_index=physical_index,
         )
         await self.data_store.put(
             dataframe_manifest_key(

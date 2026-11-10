@@ -9,6 +9,9 @@ import pandas as pd
 import pytest
 from dask import delayed
 
+from core.types.dataframe_index import PhysicalDataFrameIndex
+from core.utils.dataframe_index import get_physical_index, set_physical_index
+
 from src.modules.pipeline_cache import (
     CodecObjectStore,
     DumpEngineCodec,
@@ -32,6 +35,7 @@ from src.modules.pipeline_cache.infra.dask_dataframe_cache import (
     _build_restore_batches,
 )
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
+from src.nodes.transform.df_join import DataFrameJoin
 from src.pipeline.execution_mode import PipelineExecutionMode
 
 
@@ -275,9 +279,14 @@ async def test_missing_partition_turns_ready_generation_into_cache_miss() -> Non
 
 
 @pytest.mark.asyncio
-async def test_known_divisions_round_trip() -> None:
-    pdf = pd.DataFrame({"value": np.arange(100)}, index=pd.Index(np.arange(100), name="id"))
-    original = dd.from_pandas(pdf, npartitions=5, sort=True)
+async def test_physical_index_and_known_divisions_round_trip() -> None:
+    name = "__dvt_partition_key"
+    descriptor = PhysicalDataFrameIndex(
+        name=name, strategy="range", source_column="id", bound_column="id"
+    )
+    pdf = pd.DataFrame({"id": np.arange(100), "value": np.arange(100)})
+    pdf = pdf.set_index("id", drop=False).rename_axis(name)
+    original = set_physical_index(dd.from_pandas(pdf, npartitions=5), descriptor)
     assert original.known_divisions
     store, index = _data_store(), _index_store()
     node = _IdentityNode(
@@ -285,6 +294,7 @@ async def test_known_divisions_round_trip() -> None:
         df_in=original, data_store=store, data_index_store=index, store_enabled=True,
     )
     _, outputs = await _execute_and_snapshot(node)
+    assert get_physical_index(outputs["output"].value) == descriptor
     restored = await DFOutputBaseNode.restore_execution_snapshot(
         project_id=node.project_id, node_id=node.node_id, node_name=node.__class__.__name__,
         expected_output_names=tuple(outputs), data_store=store, data_index_store=index,
@@ -294,7 +304,18 @@ async def test_known_divisions_round_trip() -> None:
     cached = restored.outputs["output"].value
     assert cached.known_divisions
     assert cached.divisions == original.divisions
+    assert get_physical_index(cached) == descriptor
     pd.testing.assert_frame_equal(cached.loc[20:30].compute(), original.loc[20:30].compute())
+    join = DataFrameJoin(
+        user_id="u", project_id="div-p", task_id="t", node_id="join",
+        left=original, right=cached, left_on=["id"], right_on=["id"], how="inner",
+    )
+    join.process()
+    assert all(
+        "shuffle" not in type(expr).__name__.lower()
+        for expr in join.output.optimize(fuse=False).expr.walk()
+    )
+    assert sorted(join.output.compute()["id"]) == list(range(100))
 
 
 @pytest.mark.asyncio

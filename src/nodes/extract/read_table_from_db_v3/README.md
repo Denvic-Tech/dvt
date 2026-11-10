@@ -18,7 +18,7 @@ Input definitions expose concise localized UI descriptions and separate, non-loc
 
 Partition grouping controls physical reading, not business aggregation. Do not infer a guaranteed row order from partitioning. Metadata-only execution builds an empty DataFrame from reflected metadata; it does not prove that the full read succeeds. Unresolved target variables can leave metadata empty. Source comments are descriptive context. A persisted graph must not use a null `columns` entry as shorthand for all columns: null in an MCP input update removes that saved input.
 
-`npartitions` is a target partition count; if omitted, the planner estimates it from row count, row width and instance settings. Without explicit grouping, orderable non-null keys use ranges; nullable or non-orderable keys use hash buckets. Explicit `{"mode":"range"}` rejects null keys; `{"mode":"hash","buckets":8}` requests hash buckets. `max_rows_per_partition` is a per-segment safety ceiling: exceeding it fails the read rather than splitting that segment automatically. Skewed keys can therefore fail even with many partitions. A key can also become the DataFrame index; selected key columns remain in the data. Each segment is read separately; do not assume a consistent snapshot of a changing source across those reads.
+A key can also become the DataFrame index; selected key columns remain in the data.
 
 ## Choosing partitions before building a graph
 
