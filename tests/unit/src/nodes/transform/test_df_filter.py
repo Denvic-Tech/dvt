@@ -83,6 +83,14 @@ def test_filter_supports_business_partition_index_column() -> None:
     assert result.index.name == "k"
 
 
+def test_filter_prefers_column_values_over_old_index_values() -> None:
+    df = pd.DataFrame({"id": [11, 12]}, index=pd.Index([1, 2], name="id"))
+    node = _build_node(df, _condition(_column("id"), "==", _literal(11)))
+    node.process()
+    pd.testing.assert_frame_equal(node.output.compute(), df.iloc[:1])
+    pd.testing.assert_frame_equal(node.inverted_output.compute(), df.iloc[1:])
+
+
 def test_filter_supports_nested_and_or_tree() -> None:
     df = pd.DataFrame(
         {

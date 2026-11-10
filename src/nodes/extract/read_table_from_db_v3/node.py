@@ -343,22 +343,10 @@ class ReadTableFromDBV3(DFOutputBaseNode):
                 schema_name=self.schema_name,
                 database_name=self.database_name,
             )
-            dialect = engine.dialect.name.lower()
-            normalized_columns = []
-            for column in table.columns:
-                if dialect == "postgresql":
-                    index = bool(column.index or column.primary_key)
-                elif dialect == "sqlite":
-                    index = bool(column.index)
-                else:
-                    index = False
-                normalized_columns.append(column.model_copy(update={"index": index}))
-
-            columns = (
-                [column for column in normalized_columns if column.name in self.columns]
-                if self.columns
-                else normalized_columns
-            )
+            columns = [column.model_copy(update={"index": False}) for column in table.columns]
+            if self.columns:
+                by_name = {column.name: column for column in columns}
+                columns = [by_name[name] for name in self.columns if name in by_name]
             return {"output": DataFrameMetadata(columns=columns, comment=table.comment)}
         except ValueError as exc:
             raise ValueError("No matched table from engine") from exc

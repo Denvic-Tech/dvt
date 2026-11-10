@@ -63,7 +63,7 @@ def create_node_inputs_fingerprint(
         payload["parent_hashes"] = sorted(parent_hashes.items())
     if constant_inputs:
         payload["constant_inputs"] = sorted(constant_inputs.items())
-    return f"inputs:{get_hash(payload, deep=False).hex()}"
+    return f"inputs:v2:{get_hash(payload, deep=False).hex()}"
 
 
 def create_node_output_fingerprint(project_id: str, node_id: str, output_name: str) -> str:

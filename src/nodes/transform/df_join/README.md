@@ -14,7 +14,7 @@ Connect DataFrame edges to `left` and `right`. Set `left_on` and `right_on` to l
 
 ## Behavior and limitations
 
-Duplicate keys produce all matching combinations: a left join can increase the row count. Validate uniqueness of lookup keys and compatible key types beforehand. Null keys follow the underlying DataFrame merge behavior; do not assume SQL NULL semantics. Row order is not guaranteed. Matching useful index names enable index joins; other useful indexes are reset before merging. Cross join forms the Cartesian product and can be very large. The fixed `_right` suffix does not resolve every possible naming collision; rename ambiguous columns first.
+Explicit keys select ordinary columns when present; a named business index can supply a key that exists only on the index. A verified DBV3 range index can accelerate a join on the same key with known divisions. The shared key remains a column. Duplicate keys produce all matching combinations. Null keys follow the underlying DataFrame merge behavior. Row order is unspecified. Cross joins form a Cartesian product, and `_right` suffixes may require renaming conflicting fields before the join.
 
 ## Examples
 

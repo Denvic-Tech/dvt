@@ -11,6 +11,7 @@ from core.db.read_v3.errors import ReadV3ConfigError, ReadV3PlanningError
 from core.db.read_v3.models import PartitionStrategy, ValueKind
 from core.db.read_v3.resolver import resolve_executor, resolve_planner
 from core.metadata import get_df_metadata
+from core.utils.dataframe_index import get_physical_index
 
 import config
 
@@ -83,9 +84,10 @@ def test_table_mode_range_produces_known_divisions(tmp_path) -> None:
 
     assert ddf.known_divisions is True
     assert "id" in ddf.columns
-    assert ddf.index.name == "id"
+    assert ddf.index.name == "__dvt_partition_key"
+    assert get_physical_index(ddf).bound_column == "id"
     metadata_by_name = {column.name: column for column in get_df_metadata(ddf).columns}
-    assert metadata_by_name["id"].index is True
+    assert metadata_by_name["id"].index is False
     result = ddf.compute().reset_index(drop=True).sort_values("id").reset_index(drop=True)
     assert len(result) == 100
     assert result.iloc[0]["id"] == 1
@@ -111,6 +113,9 @@ def test_table_mode_nullable_key_selects_hash(tmp_path) -> None:
     ddf = frame_from_executor(executor, plan)
 
     assert ddf.known_divisions is True
+    assert ddf.index.name == "__dvt_partition_bucket"
+    assert get_physical_index(ddf).source_column == "category"
+    assert get_physical_index(ddf).bound_column is None
     assert len(ddf.compute()) == 100
 
 
@@ -146,8 +151,31 @@ def test_query_mode_range_by_datetime(tmp_path) -> None:
     ddf = frame_from_executor(executor, plan)
 
     assert ddf.known_divisions is True
+    assert ddf.index.name == "__dvt_partition_key"
+    assert get_physical_index(ddf).bound_column == "created_at"
     result = ddf.compute()
     assert len(result) == 100
+
+
+def test_query_mode_keeps_business_column_that_collides_with_index_name(tmp_path) -> None:
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'query_collision.sqlite'}")
+    _seed(engine)
+    plan = resolve_planner(mode="query").build_plan(
+        engine=engine,
+        query="SELECT id, value AS __dvt_partition_key FROM read_v3_test",
+        columns=["__dvt_partition_key"],
+        partition_col="id",
+        npartitions=3,
+        **STRICT_PARTITIONING_KWARGS,
+    )
+    ddf = frame_from_executor(resolve_executor(engine), plan)
+
+    assert ddf.index.name == "__dvt_partition_key_1"
+    assert get_physical_index(ddf).bound_column is None
+    result = ddf.compute()
+    assert result.columns.tolist() == ["__dvt_partition_key"]
+    assert result.index.tolist() == list(range(1, 101))
+    assert result["__dvt_partition_key"].iloc[-1] == 150
 
 
 def test_table_mode_limit_preserves_known_divisions(tmp_path) -> None:
@@ -550,3 +578,5 @@ def test_table_mode_partition_grouping_prefix_for_empty_table_builds_single_empt
     assert ddf.known_divisions is True
     assert result.empty
     assert result.columns.tolist() == ["id", "category", "created_at", "value"]
+    assert ddf.index.name == "__dvt_partition_bucket"
+    assert get_physical_index(ddf).bound_column is None

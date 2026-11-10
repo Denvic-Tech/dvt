@@ -256,7 +256,7 @@ def test_read_table_from_db_v3_infer_metadata_loads_only_target_table(monkeypatc
 
     assert isinstance(metadata["output"], DataFrameMetadata)
     assert metadata["output"].columns == [
-        DBColumn(name="id", dtype=DataType.INT, nullable=False, index=True)
+        DBColumn(name="id", dtype=DataType.INT, nullable=False, index=False)
     ]
     assert calls[0][1] == {
         "table_name": "users",

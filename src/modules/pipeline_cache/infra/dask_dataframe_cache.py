@@ -9,6 +9,8 @@ import dask.dataframe as dd
 import pandas as pd
 from dask import delayed
 
+from core.utils.dataframe_index import set_physical_index
+
 logger = logging.getLogger(__name__)
 
 from ..domain.dataframe_cache import (
@@ -93,7 +95,7 @@ def build_lazy_dataframe(
     }
     if manifest.known_divisions and manifest.divisions is not None:
         kwargs["divisions"] = manifest.divisions
-    return dd.from_delayed(delayed_partitions, **kwargs)
+    return set_physical_index(dd.from_delayed(delayed_partitions, **kwargs), manifest.physical_index)
 
 
 class DaskPartitionCacheWriter:
