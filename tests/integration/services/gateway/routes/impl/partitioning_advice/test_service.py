@@ -78,6 +78,39 @@ async def test_postgres_query_advice_runs_in_a_read_only_session(
     assert sequence_called is False
 
 
+async def test_postgres_query_advice_keeps_percent_signs_of_user_sql(
+    postgres_db_connection, postgres_test_engine: sa.Engine
+):
+    table_name = f"advice_pct_{uuid4().hex[:8]}"
+    names = ("A{}", "A%{}", "B{}", "%%{}")
+    with postgres_test_engine.begin() as conn:
+        conn.execute(text(f"CREATE TABLE {table_name} (id BIGINT PRIMARY KEY, name TEXT)"))
+        conn.execute(
+            text(f"INSERT INTO {table_name} (id, name) VALUES (:id, :name)"),
+            [{"id": row_id, "name": names[row_id % 4].format(row_id)} for row_id in range(1, 1201)],
+        )
+    try:
+        # LIKE wildcard, a literal of two percent signs (as in psql) and the modulo operator.
+        response = await suggest_read_partitioning(
+            _connection_string(postgres_db_connection),
+            PartitioningAdviceRequest(
+                sql_code=(
+                    f"SELECT id, name FROM {table_name} "
+                    "WHERE (name LIKE 'A%' OR left(name, 2) = '%%') AND id % 3 = 0"
+                ),
+                npartitions=4,
+            ),
+        )
+    finally:
+        with postgres_test_engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+
+    expected = [row_id for row_id in range(1, 1201) if row_id % 4 != 2 and row_id % 3 == 0]
+    assert response.relation.mode == "query"
+    assert response.relation.total_rows == len(expected)
+    assert {item.name for item in response.statistics} == {"id", "name"}
+
+
 async def test_clickhouse_table_and_query_advice(
     clickhouse_db_connection, clickhouse_http_test_engine: sa.Engine
 ):

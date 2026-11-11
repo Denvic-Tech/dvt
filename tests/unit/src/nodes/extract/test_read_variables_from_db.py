@@ -7,6 +7,7 @@ from sqlalchemy import text
 from src.nodes.extract.read_variables_from_db import node as read_variables_module
 from src.node_dsl import IO, NodeValidationError
 from src.nodes.extract.read_variables_from_db import ReadVariablesFromDB
+from tests.fixtures.percent_format_sqlite import percent_format_sqlite_engine
 
 
 def _build_engine(tmp_path, filename: str = "read_variables_from_db.sqlite") -> sa.Engine:
@@ -226,6 +227,30 @@ def test_read_variables_from_db_sql_mode_maps_columns_to_variables(tmp_path) -> 
     assert node.output_variables["orders_count"].type == "INT"
     assert node.output_variables["max_total"].value == 150.0
     assert node.output_variables["max_total"].type == "FLOAT"
+
+
+def test_read_variables_from_db_sql_mode_keeps_percent_signs_of_user_sql(tmp_path) -> None:
+    _build_engine(tmp_path, filename="read_variables_percent.sqlite")
+    calls: list[tuple[str, object]] = []
+    engine = percent_format_sqlite_engine(str(tmp_path / "read_variables_percent.sqlite"), calls)
+    node = _build_node(
+        engine,
+        mode="sql",
+        sql_code="""
+            SELECT
+                (SELECT COUNT(*) FROM customers WHERE name LIKE 'A%') AS a_customers,
+                (SELECT COUNT(*) FROM orders WHERE id % 2 = 1) AS odd_orders,
+                '%%' AS double_percent
+        """,
+    )
+
+    node.process()
+
+    assert node.output_variables["a_customers"].value == 1
+    assert node.output_variables["odd_orders"].value == 2
+    # '%%' stays two percent signs, as in the database's own client.
+    assert node.output_variables["double_percent"].value == "%%"
+    assert all(params is None for sql, params in calls if "a_customers" in sql)
 
 
 def test_read_variables_from_db_sql_mode_prefers_described_boolean_type_over_string_value(

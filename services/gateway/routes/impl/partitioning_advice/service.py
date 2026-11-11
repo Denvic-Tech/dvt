@@ -24,6 +24,7 @@ from core.db.connect.engine import build_engine_from_connection_string
 from core.db.read_v3.errors import ReadV3ConfigError, ReadV3PlanningError
 from core.db.read_v3.key_stats import RelationKeyStats, collect_key_statistics
 from core.db.read_v3.partition_advice import PartitionAdvice, advise_partitioning
+from core.db.read_v3.sql_runner import execute_literal_sql
 
 from services.gateway.routes.internal.ai_mcp.data import (
     _configure_sync_readonly,
@@ -85,7 +86,7 @@ class _ReadOnlyQueryRunner:
             try:
                 if self._connection_type is not None:
                     _configure_sync_readonly(connection, self._connection_type, self._timeout_sec)
-                result = connection.exec_driver_sql(sql)
+                result = execute_literal_sql(connection, sql)
                 if not result.returns_rows:
                     return pd.DataFrame()
                 return pd.DataFrame(result.fetchall(), columns=list(result.keys()))
