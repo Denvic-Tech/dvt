@@ -72,7 +72,7 @@ class ClickHouseWriteExecutor(WriteExecutor):
                         table,
                         pdf,
                         request,
-                        use_async_insert=True,
+                        use_async_insert=request.async_insert,
                     ),
                     max_workers=request.write_workers,
                 )

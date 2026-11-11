@@ -34,7 +34,7 @@ from core.db.write_v4.resolver import resolve_executor
 
 def write_dataframe(ddf: dd.DataFrame, engine: sa.Engine, request: WriteRequest) -> WriteResult:
     plan = plan_write(engine, request)
-    executor = resolve_executor(engine)
+    executor = resolve_executor(engine, pg_copy=request.pg_copy)
     return executor.execute(ddf, request, plan)
 
 

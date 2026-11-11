@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import dask.dataframe as dd
@@ -9,6 +10,7 @@ import pytest
 from db_connection.domain import ConnectionRecord
 from sqlalchemy import create_engine
 
+from core.db import concurrency
 from core.db.write_v4 import WriteColumnMapping
 from core.types import DataType
 
@@ -16,10 +18,14 @@ from src.node_dsl import SqlConnectionRecord, get_definition
 from src.nodes.write.write_df_to_db_v4 import WriteDataFrameToDBV4
 from src.schemas.internal import ProjectSettings
 
+import config
+
 
 class _FakeEngine:
     def __init__(self) -> None:
         self.dispose_calls = 0
+        # The node resolves the default chunksize from the engine dialect.
+        self.dialect = SimpleNamespace(name="sqlite")
 
     def dispose(self) -> None:
         self.dispose_calls += 1
@@ -136,7 +142,7 @@ def test_write_dataframe_to_db_v4_build_request_includes_column_mapping() -> Non
         project_settings=ProjectSettings(store_enabled=False, ttl_time=600, workers_count=2),
     )
 
-    request = node._build_request()
+    request = node._build_request(engine)
 
     assert request.column_mapping == [
         WriteColumnMapping(
@@ -146,6 +152,78 @@ def test_write_dataframe_to_db_v4_build_request_includes_column_mapping() -> Non
             nullable=False,
         )
     ]
+
+
+@pytest.mark.parametrize(("policy", "expected"), [("dialect", 3), ("legacy", 7)])
+def test_write_dataframe_to_db_v4_build_request_resolves_workers_from_engine_dialect(
+    monkeypatch, policy, expected
+) -> None:
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", policy)
+    monkeypatch.setattr(config.OTHER, "DB_WRITE_WORKERS_OVERRIDES", {})
+    monkeypatch.setattr(config.OTHER, "BULK_INSERT_NUM_WORKERS", 7)
+    monkeypatch.setitem(
+        concurrency.DIALECT_CONCURRENCY,
+        "sqlite",
+        concurrency.DialectConcurrency(write_workers=3, read_queries=1),
+    )
+    engine = create_engine("sqlite://")
+    node = _node(
+        connection=engine,
+        project_settings=ProjectSettings(store_enabled=False, ttl_time=600, workers_count=0),
+    )
+
+    assert node._build_request(engine).write_workers == expected
+
+
+@pytest.mark.parametrize(
+    ("chunksize", "async_insert", "expected_chunksize"), [(None, False, 700), (25, True, 25)]
+)
+def test_write_dataframe_to_db_v4_build_request_resolves_chunksize_and_async_insert(
+    monkeypatch, chunksize, async_insert, expected_chunksize
+) -> None:
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", "dialect")
+    monkeypatch.setitem(
+        concurrency.DIALECT_CONCURRENCY,
+        "sqlite",
+        concurrency.DialectConcurrency(write_workers=1, read_queries=1, write_chunk_rows=700),
+    )
+    engine = create_engine("sqlite://")
+    node = _node(connection=engine, chunksize=chunksize, async_insert=async_insert)
+
+    request = node._build_request(engine)
+
+    assert request.chunksize == expected_chunksize
+    assert request.async_insert is async_insert
+
+
+@pytest.mark.parametrize(("workers_count", "expected"), [(0, 5), (2, None)])
+def test_write_dataframe_to_db_v4_build_request_resolves_bulk_write_workers(
+    monkeypatch, workers_count, expected
+) -> None:
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", "dialect")
+    monkeypatch.setattr(config.OTHER, "DB_WRITE_WORKERS_OVERRIDES", {})
+    monkeypatch.setitem(
+        concurrency.DIALECT_CONCURRENCY,
+        "sqlite",
+        concurrency.DialectConcurrency(write_workers=1, read_queries=1, bulk_write_workers=5),
+    )
+    engine = create_engine("sqlite://")
+    node = _node(
+        connection=engine,
+        project_settings=ProjectSettings(
+            store_enabled=False, ttl_time=600, workers_count=workers_count
+        ),
+    )
+
+    assert node._build_request(engine).bulk_write_workers == expected
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_write_dataframe_to_db_v4_build_request_passes_pg_copy_switch(monkeypatch, enabled) -> None:
+    monkeypatch.setattr(config.OTHER, "DB_PG_COPY", enabled)
+    engine = create_engine("sqlite://")
+
+    assert _node(connection=engine)._build_request(engine).pg_copy is enabled
 
 
 def _make_sqlite_connection_record() -> SqlConnectionRecord:

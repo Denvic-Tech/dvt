@@ -29,6 +29,11 @@ from src.nodes.write._shared.catalog_descriptions import (
     map_descriptions_to_targets,
 )
 from src.nodes.write._shared.column_comments_sync import sync_table_column_comments
+from src.nodes.write._shared.write_workers import (
+    resolve_bulk_write_workers,
+    resolve_write_chunksize,
+    resolve_write_workers,
+)
 
 import config
 
@@ -115,10 +120,28 @@ class WriteDataFrameToDBV4(BaseNode):
         ),
     )
     chunksize: int | None = InputField(
-        default=1000, min_value=1, max_value=1_000_000,
+        default=None, min_value=1, max_value=1_000_000,
+        description=(
+            "Rows per INSERT (PostgreSQL COPY: per CSV buffer); empty = database default "
+            "(ClickHouse 100000, others 1000)."
+        ),
         agent_description=(
-            "Keep the default unless row width, source volume and driver limits justify tuning. "
-            "A chunk size does not make the whole write one atomic transaction."
+            "Leave empty for the database default (ClickHouse 100000 rows per INSERT, other "
+            "databases 1000) unless row width, source volume and driver limits justify tuning; "
+            "memory per chunk grows with it. A chunk size does not make the whole write one "
+            "atomic transaction. PostgreSQL over psycopg 3 writes each partition with one COPY "
+            "in one transaction; there it sets rows per CSV buffer."
+        ),
+    )
+    async_insert: bool = InputField(
+        default=False,
+        description="ClickHouse only: use server-side async inserts (ignored by other databases).",
+        agent_description=(
+            "ClickHouse only; other databases ignore it. Enable only for many small, frequent "
+            "writes: append inserts then go through the server async_insert buffer and each "
+            "INSERT waits for its flush (wait_for_async_insert=1), which is much slower for large "
+            "writes. truncate and upsert never use it. With it off, data is visible when the node "
+            "finishes."
         ),
     )
     upsert_config: UpsertConfig | None = InputField(
@@ -178,13 +201,6 @@ class WriteDataFrameToDBV4(BaseNode):
         meta_cache_key = create_sa_engine_fingerprint(engine)
         await self.metadata_store.remove(meta_cache_key)
 
-    def _get_write_workers(self) -> int:
-        requested_workers = (
-            getattr(self.project_settings, "workers_count", None)
-            or config.OTHER.BULK_INSERT_NUM_WORKERS
-        )
-        return max(1, min(requested_workers, config.OTHER.SQL_BULK_INSERT_MAX_WORKERS))
-
     @staticmethod
     def _coerce_model(value, model_cls):
         if value is None or isinstance(value, model_cls):
@@ -193,7 +209,7 @@ class WriteDataFrameToDBV4(BaseNode):
             return model_cls.model_validate(value)
         return model_cls(value)
 
-    def _build_request(self) -> WriteRequest:
+    def _build_request(self, engine: Engine) -> WriteRequest:
         try:
             return WriteRequest(
                 mode=self._coerce_model(self.write_mode, WriteMode),
@@ -202,8 +218,11 @@ class WriteDataFrameToDBV4(BaseNode):
                     schema_name=self.schema_name,
                     database_name=self.database_name,
                 ),
-                chunksize=self.chunksize,
-                write_workers=self._get_write_workers(),
+                chunksize=resolve_write_chunksize(self.chunksize, engine),
+                write_workers=resolve_write_workers(self.project_settings, engine),
+                bulk_write_workers=resolve_bulk_write_workers(self.project_settings, engine),
+                async_insert=self.async_insert,
+                pg_copy=config.OTHER.DB_PG_COPY,
                 upsert=self._coerce_model(self.upsert_config, UpsertConfig),
                 on_extra_df_columns=self._coerce_model(self.on_extra_df_columns, ExtraColumnsMode),
                 on_missing_df_columns=self._coerce_model(
@@ -218,7 +237,7 @@ class WriteDataFrameToDBV4(BaseNode):
     def _run_blocking_write_sync(self) -> tuple[WriteResult, Engine, bool]:
         engine, owned_by_node = self._get_execution_engine()
         try:
-            request = self._build_request()
+            request = self._build_request(engine)
             result = write_dataframe(self.df, engine, request)
             logger.info(
                 f"write_v4 completed: mode={result.mode} target={result.target_name} "

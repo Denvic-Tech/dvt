@@ -68,6 +68,14 @@ class WriteRequest(BaseModel):
     target: WriteTarget
     chunksize: int | None = Field(default=1000, ge=1)
     write_workers: int = Field(default=1, ge=1)
+    # Workers of a write through the dialect's bulk path (PostgreSQL COPY); the executor uses it
+    # only when the target takes that path and it exceeds ``write_workers``. None: keep them.
+    bulk_write_workers: int | None = Field(default=None, ge=1)
+    # ClickHouse append only: server-side async_insert with wait_for_async_insert=1.
+    async_insert: bool = False
+    # PostgreSQL with psycopg 3 only: write partitions through COPY FROM STDIN; False keeps
+    # executemany INSERTs (the node passes config.OTHER.DB_PG_COPY).
+    pg_copy: bool = True
     upsert: UpsertConfig | None = None
     on_extra_df_columns: ExtraColumnsMode = ExtraColumnsMode.ERROR
     on_missing_df_columns: MissingColumnsMode = MissingColumnsMode.IGNORE_IF_DEFAULT

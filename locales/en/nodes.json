@@ -2049,7 +2049,7 @@
                 "chunksize": {
                     "display_name": "chunksize",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Rows per INSERT; empty = database default (ClickHouse 100000, others 1000)."
                 },
                 "upsert_config": {
                     "display_name": "upsert_config",
@@ -2136,7 +2136,12 @@
                 "chunksize": {
                     "display_name": "chunksize",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Rows per INSERT (PostgreSQL COPY: per CSV buffer); empty = database default (ClickHouse 100000, others 1000)."
+                },
+                "async_insert": {
+                    "display_name": "async_insert",
+                    "display_type": "BOOLEAN",
+                    "description": "ClickHouse only: use server-side async inserts (ignored by other databases)."
                 },
                 "upsert_config": {
                     "display_name": "upsert_config",
@@ -3258,6 +3263,11 @@
                     "display_name": "max_rows_per_partition",
                     "display_type": "INT",
                     "description": null
+                },
+                "max_concurrent_queries": {
+                    "display_name": "max_concurrent_queries",
+                    "display_type": "INT",
+                    "description": "Partition queries of this reader running at once; omit for the default."
                 }
             },
             "output_definitions": {
@@ -3511,7 +3521,12 @@
                 "max_rows_per_partition": {
                     "display_name": "max_rows_per_partition",
                     "display_type": "INT",
-                    "description": "Row ceiling per segment; exceeding it fails the read."
+                    "description": "Row ceiling per segment; oversized custom groups are split by key hash, other overflows fail."
+                },
+                "max_concurrent_queries": {
+                    "display_name": "max_concurrent_queries",
+                    "display_type": "INT",
+                    "description": "Partition queries of this reader running at once; omit for the default."
                 }
             },
             "output_definitions": {

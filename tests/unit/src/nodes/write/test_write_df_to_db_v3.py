@@ -1,20 +1,27 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import dask.dataframe as dd
 import pandas as pd
 import pytest
 from sqlalchemy import create_engine, text
 
+from core.db import concurrency
 from core.db.write_v3 import ExtraColumnsMode, MissingColumnsMode, UpsertConfig
 from src.node_dsl import IO
 from src.node_dsl.variables import VariableOutput
 from src.nodes.write.write_df_to_db_v3 import WriteDataFrameToDBV3
 from src.schemas.internal import ProjectSettings
 
+import config
+
 
 class _FakeEngine:
     def __init__(self) -> None:
         self.dispose_calls = 0
+        # The node resolves the default chunksize from the engine dialect.
+        self.dialect = SimpleNamespace(name="sqlite")
 
     def dispose(self) -> None:
         self.dispose_calls += 1
@@ -172,10 +179,37 @@ def test_write_dataframe_to_db_v3_build_request_includes_column_mismatch_modes()
         project_settings=ProjectSettings(store_enabled=False, ttl_time=600, workers_count=2),
     )
 
-    request = node._build_request()
+    request = node._build_request(engine)
 
     assert request.on_extra_df_columns == ExtraColumnsMode.IGNORE
     assert request.on_missing_df_columns == MissingColumnsMode.IGNORE
+
+
+@pytest.mark.parametrize(("policy", "expected"), [("dialect", 3), ("legacy", 7)])
+def test_write_dataframe_to_db_v3_build_request_resolves_workers_from_engine_dialect(
+    monkeypatch, policy, expected
+) -> None:
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", policy)
+    monkeypatch.setattr(config.OTHER, "DB_WRITE_WORKERS_OVERRIDES", {})
+    monkeypatch.setattr(config.OTHER, "BULK_INSERT_NUM_WORKERS", 7)
+    monkeypatch.setitem(
+        concurrency.DIALECT_CONCURRENCY,
+        "sqlite",
+        concurrency.DialectConcurrency(write_workers=3, read_queries=1),
+    )
+    engine = create_engine("sqlite://")
+    node = WriteDataFrameToDBV3(
+        user_id="user",
+        project_id="project",
+        task_id="task",
+        node_id="node-write-v3-workers",
+        connection=engine,
+        df=dd.from_pandas(pd.DataFrame({"payload": ["a"]}), npartitions=1),
+        table_name="events",
+        project_settings=ProjectSettings(store_enabled=False, ttl_time=600, workers_count=0),
+    )
+
+    assert node._build_request(engine).write_workers == expected
 
 
 @pytest.mark.asyncio
