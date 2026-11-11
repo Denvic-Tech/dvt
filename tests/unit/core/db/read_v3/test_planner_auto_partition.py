@@ -98,6 +98,7 @@ def _single_range_segment(*_args, **_kwargs):
         (1, 20),
         20,
         20,
+        "single_query",
     )
 
 

@@ -3,6 +3,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import text
 
+from core.db import concurrency
 from core.types import (
     Column,
     DataFrameMetadata,
@@ -15,6 +16,8 @@ from core.types import (
 from src.node_dsl import ExecutionDateTimePrecision, ExecutionSettings, get_definition
 from src.node_dsl.variables import make_unresolved_value
 from src.nodes.extract.read_table_from_db_v3 import ReadTableFromDBV3, node as read_table_module
+
+import config
 
 
 def test_read_table_from_db_v3_separates_ui_and_agent_guidance() -> None:
@@ -44,7 +47,7 @@ def test_read_table_from_db_v3_forwards_partitioning_params_to_planner(monkeypat
             return "plan"
 
     monkeypatch.setattr(read_table_module, "resolve_planner", lambda mode="table": _Planner())
-    monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine: "executor")
+    monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine, **_kwargs: "executor")
     monkeypatch.setattr(read_table_module, "frame_from_executor", lambda executor, plan: "output")
     monkeypatch.setattr(read_table_module, "load_db_table_metadata", lambda *args, **kwargs: DBTable(
         name="events", columns=[], type=DBTableType.BASE_TABLE,
@@ -85,7 +88,7 @@ def test_read_table_from_db_v3_passes_none_npartitions_to_planner(monkeypatch):
             return "plan"
 
     monkeypatch.setattr(read_table_module, "resolve_planner", lambda mode="table": _Planner())
-    monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine: "executor")
+    monkeypatch.setattr(read_table_module, "resolve_executor", lambda engine, **_kwargs: "executor")
     monkeypatch.setattr(read_table_module, "frame_from_executor", lambda executor, plan: "output")
     monkeypatch.setattr(read_table_module, "load_db_table_metadata", lambda *args, **kwargs: DBTable(
         name="events", columns=[], type=DBTableType.BASE_TABLE,
@@ -106,6 +109,48 @@ def test_read_table_from_db_v3_passes_none_npartitions_to_planner(monkeypatch):
     node.process()
 
     assert captured["npartitions"] is None
+
+
+@pytest.mark.parametrize(("node_value", "expected"), [(5, 5), (None, 3)])
+def test_read_table_from_db_v3_passes_query_limit_to_executor(monkeypatch, node_value, expected):
+    captured: dict[str, object] = {}
+
+    class _Planner:
+        def build_plan(self, **kwargs):
+            return "plan"
+
+    def _resolve_executor(engine, **kwargs):
+        captured.update(kwargs)
+        return "executor"
+
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", "dialect")
+    monkeypatch.setattr(config.OTHER, "DB_READ_CONCURRENCY_OVERRIDES", {})
+    monkeypatch.setitem(
+        concurrency.DIALECT_CONCURRENCY,
+        "sqlite",
+        concurrency.DialectConcurrency(write_workers=1, read_queries=3),
+    )
+    monkeypatch.setattr(read_table_module, "resolve_planner", lambda mode="table": _Planner())
+    monkeypatch.setattr(read_table_module, "resolve_executor", _resolve_executor)
+    monkeypatch.setattr(read_table_module, "frame_from_executor", lambda executor, plan: "output")
+    monkeypatch.setattr(read_table_module, "load_db_table_metadata", lambda *args, **kwargs: DBTable(
+        name="events", columns=[], type=DBTableType.BASE_TABLE,
+    ))
+
+    node = ReadTableFromDBV3(
+        user_id="user",
+        project_id="project",
+        task_id="task",
+        node_id="node",
+        connection=sa.create_engine("sqlite:///:memory:"),
+        table_name="events",
+        partition_col="id",
+        max_concurrent_queries=node_value,
+    )
+
+    node.process()
+
+    assert captured["max_concurrent_queries"] == expected
 
 
 def test_read_table_from_db_v3_process_preserves_non_string_meta_types(tmp_path):

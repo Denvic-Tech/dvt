@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import threading
+from contextlib import nullcontext
 from typing import Optional
 
 import pandas as pd
@@ -9,7 +11,7 @@ from sqlalchemy.engine import Engine
 from core.db.read_v3.datetime_precision import pandas_datetime_dtype
 from core.db.read_v3.dialects import resolve_dialect
 from core.db.read_v3.dialects.base import SQLDialect
-from core.db.read_v3.errors import ReadV3ExecutionError
+from core.db.read_v3.errors import ReadV3ConfigError, ReadV3ExecutionError
 from core.db.read_v3.executors.base import Executor
 from core.db.read_v3.models import PartitionStrategy, ReadSegment, ReadV3Plan, ValueKind
 from core.db.read_v3.sql_runner import ReadV3SqlRunner, resolve_sql_runner
@@ -32,10 +34,27 @@ class SQLReadExecutor(Executor):
             )
         )
 
-    def __init__(self, engine: Engine, *, dialect: SQLDialect | None = None):
+    def __init__(
+        self,
+        engine: Engine,
+        *,
+        dialect: SQLDialect | None = None,
+        max_concurrent_queries: int | None = None,
+    ):
         self.engine = engine
         self.dialect = dialect or resolve_dialect(engine)
         self.sql_runner: ReadV3SqlRunner = resolve_sql_runner(engine)
+        if max_concurrent_queries is not None and max_concurrent_queries < 1:
+            raise ReadV3ConfigError(
+                f"max_concurrent_queries must be positive; got {max_concurrent_queries!r}"
+            )
+        # Caps partition queries of this read independently of the consumer's thread pool;
+        # blocked threads sleep on the semaphore. None keeps reads unlimited.
+        self._query_slots = (
+            threading.BoundedSemaphore(max_concurrent_queries)
+            if max_concurrent_queries is not None
+            else None
+        )
 
     def _wrap_sql(self, plan: ReadV3Plan, sql: str) -> str:
         if plan.cte_prefix_sql:
@@ -56,15 +75,27 @@ class SQLReadExecutor(Executor):
             ),
         )
 
-    def _read_sql_bounded(self, sql: str, max_rows: int) -> pd.DataFrame:
+    def _fetch_segment_df(self, sql: str, plan: ReadV3Plan) -> pd.DataFrame:  # noqa: ARG002
+        """Run one row-capped segment query; dialect executors may override the fetch path."""
+        return self.sql_runner.query_df(sql)
+
+    def _read_sql_bounded(
+        self,
+        sql: str,
+        max_rows: int,
+        *,
+        segment_label: str,
+        plan: ReadV3Plan,
+    ) -> pd.DataFrame:
         if max_rows <= 0:
             raise ReadV3ExecutionError("max_rows_per_partition must be positive")
 
         capped_sql = self.dialect.cap_rows_sql(sql, max_rows + 1)
-        df = self.sql_runner.query_df(capped_sql)
+        df = self._fetch_segment_df(capped_sql, plan)
         if len(df) > max_rows:
             raise ReadV3ExecutionError(
-                f"Segment exceeded max_rows_per_partition={max_rows}; rows_read={len(df)}"
+                f"Segment {segment_label!r} exceeded max_rows_per_partition={max_rows} "
+                f"(rows_read={len(df)})"
             )
         return df
 
@@ -424,7 +455,15 @@ class SQLReadExecutor(Executor):
 
     def load_partition(self, plan: ReadV3Plan, segment: ReadSegment) -> pd.DataFrame:
         sql = self._segment_sql(plan, segment)
-        df = self._read_sql_bounded(sql, max_rows=plan.max_rows_per_partition)
+        # A slot covers the runner call (driver fetch and its DataFrame build); type casts and
+        # index checks below run outside it.
+        with self._query_slots or nullcontext():
+            df = self._read_sql_bounded(
+                sql,
+                max_rows=plan.max_rows_per_partition,
+                segment_label=segment.label,
+                plan=plan,
+            )
 
         if df.empty:
             empty_df = self._typed_empty_output(plan)

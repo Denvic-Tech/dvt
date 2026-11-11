@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -7,11 +8,12 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import text
 
+from core.db.read_v3.dask import frame_from_executor
 from core.db.read_v3.datetime_precision import ReadV3DateTimePrecision
 from core.db.read_v3.embedded_query import normalize_mssql_query_for_embedding
 from core.db.read_v3.dialects.mssql import MssqlDialect
 from core.db.read_v3.dialects.oracle import OracleDialect
-from core.db.read_v3.errors import ReadV3ExecutionError
+from core.db.read_v3.errors import ReadV3ConfigError, ReadV3ExecutionError
 from core.db.read_v3.executors.sql import SQLReadExecutor
 from core.db.read_v3.models import (
     PartitionStrategy,
@@ -90,7 +92,10 @@ def test_executor_raises_when_segment_exceeds_max_rows(tmp_path) -> None:
     )
     executor = resolve_executor(engine)
 
-    with pytest.raises(ReadV3ExecutionError, match="Segment exceeded max_rows_per_partition"):
+    with pytest.raises(
+        ReadV3ExecutionError,
+        match=r"Segment 'range_0' exceeded max_rows_per_partition=5 \(rows_read=6\)",
+    ):
         executor.load_partition(plan, plan.segments[0])
 
 
@@ -951,3 +956,86 @@ def test_dtype_for_index_skips_string_dtype_for_raw_mssql_partition_helper() -> 
     )
 
     assert SQLReadExecutor._dtype_for_index(plan) is None
+
+
+def _probe_concurrent_queries(monkeypatch, executor, *, parties: int) -> dict[str, int]:
+    """Count partition queries inside the runner; the barrier needs `parties` of them at once."""
+    lock = threading.Lock()
+    barrier = threading.Barrier(parties, timeout=10)
+    state = {"active": 0, "peak": 0}
+    real_query_df = executor.sql_runner.query_df
+
+    def _probe(sql: str) -> pd.DataFrame:
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        try:
+            barrier.wait()
+            return real_query_df(sql)
+        finally:
+            with lock:
+                state["active"] -= 1
+
+    monkeypatch.setattr(executor.sql_runner, "query_df", _probe)
+    return state
+
+
+def _eight_segment_plan(tmp_path) -> tuple[sa.Engine, ReadV3Plan]:
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'concurrency.sqlite'}")
+    _seed(engine, rows=32)
+    plan = resolve_planner(mode="table").build_plan(
+        engine=engine,
+        table_name="read_v3_exec_test",
+        columns=["id", "category"],
+        partition_col="id",
+        npartitions=8,
+        max_rows_per_partition=100,
+        **STRICT_PARTITIONING_KWARGS,
+    )
+    assert len(plan.segments) == 8
+    return engine, plan
+
+
+@pytest.mark.parametrize("limit", [1, 2, 4])
+def test_load_partition_limits_concurrent_queries_regardless_of_thread_pool(
+    monkeypatch, tmp_path, limit
+) -> None:
+    engine, plan = _eight_segment_plan(tmp_path)
+    executor = resolve_executor(engine, max_concurrent_queries=limit)
+    meta = executor.build_meta(plan)
+    state = _probe_concurrent_queries(monkeypatch, executor, parties=limit)
+
+    df = frame_from_executor(executor, plan, meta=meta).compute(
+        scheduler="threads", num_workers=8
+    )
+
+    assert len(df) == 32
+    assert state["peak"] == limit
+
+
+def test_load_partition_without_limit_uses_the_whole_thread_pool(monkeypatch, tmp_path) -> None:
+    engine, plan = _eight_segment_plan(tmp_path)
+    executor = resolve_executor(engine)
+    meta = executor.build_meta(plan)
+    state = _probe_concurrent_queries(monkeypatch, executor, parties=8)
+
+    df = frame_from_executor(executor, plan, meta=meta).compute(
+        scheduler="threads", num_workers=8
+    )
+
+    assert len(df) == 32
+    assert state["peak"] == 8
+
+
+def test_query_limit_is_a_no_op_for_the_sync_scheduler(tmp_path) -> None:
+    engine, plan = _eight_segment_plan(tmp_path)
+    executor = resolve_executor(engine, max_concurrent_queries=1)
+
+    df = frame_from_executor(executor, plan).compute(scheduler="sync")
+
+    assert sorted(df["id"].tolist()) == list(range(1, 33))
+
+
+def test_executor_rejects_non_positive_query_limit() -> None:
+    with pytest.raises(ReadV3ConfigError, match="max_concurrent_queries"):
+        SQLReadExecutor(sa.create_engine("sqlite://"), max_concurrent_queries=0)

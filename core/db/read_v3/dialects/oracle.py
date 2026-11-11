@@ -1,6 +1,6 @@
 import re
 from datetime import date, datetime
-from typing import Any
+from typing import Any, override
 
 from core.db.read_v3.dialects.base import SQLDialect
 
@@ -73,3 +73,41 @@ class OracleDialect(SQLDialect):
     def string_prefix_expr(self, col_expr: str, length: int, lower: bool) -> str:
         expr = f"SUBSTR({col_expr}, 1, {length})"
         return f"LOWER({expr})" if lower else expr
+
+    @override
+    def range_boundaries_query(
+        self,
+        relation_sql: str,
+        key_sql: str,
+        *,
+        page_size: int,
+        non_null_rows: int,
+    ) -> str:
+        return self.row_number_boundaries_query(relation_sql, key_sql, page_size)
+
+    @override
+    def key_sample_relation(
+        self,
+        *,
+        table_sql: str | None,
+        select_list_sql: str,
+        relation_sql: str,
+        sample_rows: int,
+        total_rows: int,
+        native_sampling: bool = False,
+    ) -> tuple[str, str]:
+        if table_sql is None:
+            return super().key_sample_relation(
+                table_sql=table_sql,
+                select_list_sql=select_list_sql,
+                relation_sql=relation_sql,
+                sample_rows=sample_rows,
+                total_rows=total_rows,
+            )
+        # Row sample; SEED keeps the same rows for every statistics query. Oracle needs < 100.
+        percent = min(99.999999, max(0.000001, 100.0 * sample_rows / max(total_rows, 1)))
+        return (
+            f"FROM (SELECT {select_list_sql} FROM {table_sql} SAMPLE ({percent:.6f}) SEED (17)) "
+            "dvt_key_sample",
+            "sample_clause",
+        )
