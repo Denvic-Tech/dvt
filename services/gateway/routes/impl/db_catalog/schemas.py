@@ -78,6 +78,17 @@ class CatalogTablePreviewResponseSchema(BaseModel):
     columns: list[CatalogTablePreviewColumnSchema]
     rows: list[list[CatalogPreviewValue]]
     truncated: bool = False
+    row_count: int | None = Field(
+        default=None,
+        description=(
+            "Total number of rows in the table. Null when the source cannot report it "
+            "without scanning the table (views, missing statistics, unsupported dialect)."
+        ),
+    )
+    row_count_exact: bool = Field(
+        default=False,
+        description="False when row_count is a DBMS statistics estimate, not an exact number.",
+    )
 
 
 class CatalogRefreshResponseSchema(BaseModel):

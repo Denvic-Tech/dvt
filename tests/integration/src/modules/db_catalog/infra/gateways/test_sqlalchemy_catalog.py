@@ -85,6 +85,69 @@ def test_postgresql_table_preview_reads_live_rows(postgres_container):
         assert [column.name for column in result.columns] == ["id", "value"]
         assert set(result.rows) == {(1, "one"), (2, "two")}
         assert result.truncated is False
+        assert (result.row_count, result.row_count_exact) == (2, True)
+
+        with engine.begin() as db_connection:
+            db_connection.execute(
+                table.insert(),
+                [{"id": index, "value": str(index)} for index in range(3, 121)],
+            )
+        request = CatalogTablePreviewRequest(table_name=table.name, schema_name="public")
+        never_analyzed = asyncio.run(_source().fetch_preview(connection, request))
+        with engine.begin() as db_connection:
+            db_connection.exec_driver_sql(f"ANALYZE {table.name}")
+        analyzed = asyncio.run(_source().fetch_preview(connection, request))
+
+        assert never_analyzed.truncated is True
+        assert never_analyzed.row_count is None or never_analyzed.row_count_exact is False
+        assert (analyzed.row_count, analyzed.row_count_exact) == (120, False)
     finally:
         metadata.drop_all(engine, checkfirst=True)
         engine.dispose()
+
+
+@pytest.mark.docker_required
+@pytest.mark.parametrize(
+    ("engine_fixture", "dialect", "ddl_suffix", "analyze", "exact"),
+    [
+        ("clickhouse_http_test_engine", "clickhouse", "ENGINE = MergeTree ORDER BY id", None, True),
+        # MySQL 8 caches information_schema statistics until ANALYZE or the expiry interval.
+        ("mysql_test_engine", "mysql", "", "ANALYZE TABLE catalog_row_count", False),
+        ("mssql_test_engine", "mssql", "", None, False),
+    ],
+)
+def test_large_table_row_count_is_read_from_system_catalog(
+    request, engine_fixture, dialect, ddl_suffix, analyze, exact
+):
+    engine = request.getfixturevalue(engine_fixture)
+    integer = "Int32" if dialect == "clickhouse" else "INT"
+    values = ", ".join(f"({index})" for index in range(120))
+    with engine.begin() as db_connection:
+        db_connection.exec_driver_sql("DROP TABLE IF EXISTS catalog_row_count")
+        db_connection.exec_driver_sql(
+            f"CREATE TABLE catalog_row_count (id {integer} NOT NULL) {ddl_suffix}"
+        )
+        db_connection.exec_driver_sql(f"INSERT INTO catalog_row_count (id) VALUES {values}")
+        if analyze:
+            db_connection.exec_driver_sql(analyze)
+    try:
+        connection = AuthorizedCatalogConnection(
+            id="conn",
+            revision="revision",
+            dialect=dialect,
+            configured_database=engine.url.database,
+            connection_url=engine.url.render_as_string(hide_password=False),
+        )
+
+        result = asyncio.run(
+            _source().fetch_preview(
+                connection,
+                CatalogTablePreviewRequest(table_name="catalog_row_count"),
+            )
+        )
+
+        assert len(result.rows) == 50
+        assert (result.row_count, result.row_count_exact) == (120, exact)
+    finally:
+        with engine.begin() as db_connection:
+            db_connection.exec_driver_sql("DROP TABLE IF EXISTS catalog_row_count")

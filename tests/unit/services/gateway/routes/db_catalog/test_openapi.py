@@ -23,7 +23,7 @@ def test_db_catalog_openapi_exposes_paged_summary_and_targeted_detail_contracts(
     assert "next_cursor" in components["CatalogTablePageSchema"]["properties"]
     assert "total" not in components["CatalogTablePageSchema"]["properties"]
     preview = components["CatalogTablePreviewResponseSchema"]["properties"]
-    assert set(preview) == {"columns", "rows", "truncated"}
+    assert set(preview) == {"columns", "rows", "truncated", "row_count", "row_count_exact"}
 
     preview_operation = paths["/db-connections/{connection_id}/catalog/table/preview"]["get"]
     preview_parameters = {parameter["name"] for parameter in preview_operation["parameters"]}
