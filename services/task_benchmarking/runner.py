@@ -11,9 +11,11 @@ import psutil
 
 from src.pipeline import PipelineProcessor
 
+from . import metrics
 from .cli import BenchmarkOptions
 from .config import cli_global_input_overrides, merge_global_overrides, resolve_preset
 from .matrix import load_matrix_cases
+from .nodes import register_benchmark_nodes
 from .recorder import BenchmarkRecorder
 from .report import build_report, build_report_payload
 from .utils import (
@@ -42,6 +44,8 @@ async def run_pipeline(
     recorder: BenchmarkRecorder,
     include_metadata: bool,
 ) -> tuple[bool, str, dict[str, Any]]:
+    register_benchmark_nodes()
+    metrics.reset()
     processor = PipelineProcessor(
         task=task,
         on_task_started=recorder.on_task_started,

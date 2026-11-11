@@ -33,6 +33,10 @@ class RunPaths:
 
 PipelineFormat = Literal["auto", "internal", "ui_graph"]
 
+# env.txt is a run artifact: values of variables whose name contains a marker are masked.
+SECRET_ENV_NAME_MARKERS = ("PASSWORD", "SECRET", "TOKEN", "KEY", "FERNET")
+REDACTED_ENV_VALUE = "***"
+
 
 def bytes_to_mib(value: int | None) -> str:
     if value is None:
@@ -302,5 +306,12 @@ def build_env_snapshot() -> str:
         f"platform={platform.platform()}",
     ]
     for key in sorted(os.environ):
-        lines.append(f"{key}={os.environ[key]}")
+        lines.append(f"{key}={redact_env_value(key, os.environ[key])}")
     return "\n".join(lines) + "\n"
+
+
+def redact_env_value(name: str, value: str) -> str:
+    upper_name = name.upper()
+    if any(marker in upper_name for marker in SECRET_ENV_NAME_MARKERS):
+        return REDACTED_ENV_VALUE
+    return value

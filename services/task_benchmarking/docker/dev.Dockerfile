@@ -10,7 +10,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-py3.13,sharing=locked 
 
 FROM dvt_dev_builder_image AS base-builder
 
-FROM dvt_base_image AS memory-benchmark
+# Same runtime base as task-worker: unixODBC + msodbcsql18 are required by pyodbc (MSSQL).
+FROM dvt_base_odbc_image AS memory-benchmark
 
 RUN if command -v apt-get >/dev/null 2>&1; then \
         apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*; \
