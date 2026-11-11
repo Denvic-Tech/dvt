@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import threading
 from contextlib import nullcontext
+from decimal import Decimal
 from typing import Optional
 
 import pandas as pd
@@ -291,13 +292,31 @@ class SQLReadExecutor(Executor):
         return cls._dtype_for_kind(kind, type_repr=type_repr, plan=plan, column=column)
 
     @classmethod
+    def _uses_exact_decimal_index(cls, plan: ReadV3Plan) -> bool:
+        """Range index of a fractional Decimal key keeps the key values as the driver returns them.
+
+        Range divisions are key values read from the source: ``Decimal`` for decimal/numeric
+        columns. The float64 output cast rounds them (``Decimal('190.6666')`` becomes
+        ``190.66659999999999``), so a float index would leave rows below their own segment
+        start. Index and divisions both stay exact ``Decimal`` instead; the output column is
+        still cast to float64.
+        """
+        return (
+            plan.strategy == PartitionStrategy.RANGE
+            and plan.partition_key_kind == ValueKind.NUMERIC
+            and not cls._is_integer_type_repr(plan.partition_key_type_repr)
+            and any(isinstance(value, Decimal) for value in plan.divisions)
+        )
+
+    @classmethod
     def _dtype_for_index(cls, plan: ReadV3Plan) -> Optional[str]:
         if plan.index_column_name == plan.hash_bucket_alias:
             return "int64"
 
+        if cls._uses_exact_decimal_index(plan) or cls._uses_raw_mssql_partition_index(plan):
+            return None
+
         if plan.index_column_name == plan.partition_key_alias:
-            if cls._uses_raw_mssql_partition_index(plan):
-                return None
             return cls._dtype_for_kind(
                 plan.partition_key_kind,
                 type_repr=plan.partition_key_type_repr,
@@ -474,6 +493,11 @@ class SQLReadExecutor(Executor):
                 empty_df.index = pd.Index([], name=plan.index_column_name)
             return empty_df
 
+        exact_index = None
+        if self._uses_exact_decimal_index(plan):
+            # Taken before the output casts turn a Decimal key column into float64.
+            exact_index = df[self._pick_index_column(plan, df)]
+
         df = self._apply_output_type_hints(
             df,
             plan,
@@ -482,7 +506,7 @@ class SQLReadExecutor(Executor):
         )
 
         index_col = self._pick_index_column(plan, df)
-        df.index = df[index_col]
+        df.index = df[index_col] if exact_index is None else exact_index
 
         if not df.index.is_monotonic_increasing:
             raise ReadV3ExecutionError(

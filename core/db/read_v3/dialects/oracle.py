@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime
 from typing import Any, override
 
-from core.db.read_v3.dialects.base import SQLDialect
+from core.db.read_v3.dialects.base import SQLDialect, to_python_scalar
 
 # Unquoted Oracle identifiers must start with a letter.
 _SIMPLE_IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_$#]*$")
@@ -51,6 +51,7 @@ class OracleDialect(SQLDialect):
         return f"SELECT * FROM ({normalized_sql}) dvt_cap {self.limit_offset(row_cap, 0)}"
 
     def render_literal(self, value: Any) -> str:
+        value = to_python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):

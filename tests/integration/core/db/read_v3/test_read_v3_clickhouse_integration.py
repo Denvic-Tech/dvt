@@ -480,23 +480,7 @@ def test_single_query_range_boundaries_match_offset_queries(
         assert [type(value) for value in single] == [type(value) for value in offset]
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        "k_int",
-        "k_str",
-        "k_dt",
-        pytest.param(
-            "k_dec",
-            marks=pytest.mark.xfail(
-                raises=ReadV3ExecutionError,
-                strict=True,
-                reason="Known defect, independent of the boundary query: the segment index of a "
-                "Decimal range key is float64 and fails the Decimal division bound check.",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("key", ["k_int", "k_str", "k_dt", "k_dec"])
 def test_single_query_range_plan_reads_every_row(
     clickhouse_http_test_engine: sa.Engine,
     clickhouse_client: Client,
@@ -525,6 +509,30 @@ def test_single_query_range_plan_reads_every_row(
         result = frame_from_executor(executor, plan).compute(scheduler="threads", num_workers=4)
         assert len(result) == expected_rows
         assert result["id"].nunique() == expected_rows
+
+
+def test_int64_key_beyond_float64_precision_reads_every_row(
+    clickhouse_http_test_engine: sa.Engine,
+    clickhouse_client: Client,
+    table_name: str,
+) -> None:
+    # Every key 2**53 + 3 + 4n rounds up in float64: a float lower bound skips the minimum.
+    keys = [2**53 + 3 + 4 * n for n in range(1000)]
+    clickhouse_client.command(
+        f"CREATE TABLE `{table_name}` (id Int64, big Int64) ENGINE = MergeTree ORDER BY id"
+    )
+    clickhouse_client.command(
+        f"INSERT INTO `{table_name}` SELECT number, {keys[0]} + 4 * number FROM numbers(1000)"
+    )
+    plan = _table_plan(clickhouse_http_test_engine, table_name, partition_col="big", npartitions=4)
+
+    result = frame_from_executor(resolve_executor(clickhouse_http_test_engine), plan).compute(
+        scheduler="sync"
+    )
+
+    assert plan.segments[0].predicate_sql == f"`big` >= {keys[0]} AND `big` < {keys[250]}"
+    assert plan.segments[-1].predicate_sql == f"`big` >= {keys[750]} AND `big` <= {keys[-1]}"
+    assert sorted(result["big"].tolist()) == keys
 
 
 def test_table_width_estimate_matches_uncompressed_size(

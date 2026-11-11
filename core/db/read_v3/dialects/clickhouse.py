@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Any, override
 
-from core.db.read_v3.dialects.base import SQLDialect
+from core.db.read_v3.dialects.base import SQLDialect, to_python_scalar
 
 
 class ClickHouseDialect(SQLDialect):
@@ -23,6 +23,7 @@ class ClickHouseDialect(SQLDialect):
         return f"LIMIT {limit} OFFSET {offset}"
 
     def render_literal(self, value: Any) -> str:
+        value = to_python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):

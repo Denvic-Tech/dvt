@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 import random
 import re
+from decimal import Decimal
 
+import numpy as np
+import pandas as pd
 import pytest
 import sqlalchemy as sa
 
@@ -278,3 +281,106 @@ def test_single_query_keeps_scalar_types_of_offset_queries(engine, key):
     assert status == "single_query"
     assert single_values == offset_values
     assert [type(value) for value in single_values] == [type(value) for value in offset_values]
+
+
+# 2**53 + 3 is the smallest Int64 key that float64 rounds up (to 2**53 + 4).
+BIG_BOUNDS = [2**53 + 3 + rank for rank in (0, 250, 500, 750, 999)]
+
+
+def _int64_key_frames(sql: str, count_dtype: str) -> pd.DataFrame:
+    """Result frames of an Int64 key next to UInt64 (clickhouse_connect) or Int64 counts."""
+    if "min_v" in sql:
+        return pd.DataFrame(
+            {
+                "min_v": np.array([BIG_BOUNDS[0]], dtype="int64"),
+                "max_v": np.array([BIG_BOUNDS[-1]], dtype="int64"),
+                "total_rows": np.array([1000], dtype=count_dtype),
+                "non_null_rows": np.array([1000], dtype=count_dtype),
+            }
+        )
+    return pd.DataFrame({"boundary_value": np.array(BIG_BOUNDS[:-1], dtype="int64")})
+
+
+@pytest.mark.parametrize(
+    ("dialect", "count_dtype"),
+    [(ClickHouseDialect(), "uint64"), (PostgresDialect(), "int64")],
+    ids=["clickhouse", "postgresql"],
+)
+def test_int64_key_renders_integer_literals_on_both_ends(monkeypatch, dialect, count_dtype):
+    monkeypatch.setattr(
+        boundaries_module, "query_df", lambda _engine, sql: _int64_key_frames(sql, count_dtype)
+    )
+
+    segments, divisions, *_ = build_range_segments(
+        engine=None,
+        dialect=dialect,
+        cte_prefix_sql=None,
+        relation_sql="FROM t",
+        key_sql="k",
+        npartitions=4,
+    )
+
+    # Exact integers: no quoted numbers, no float min/max rounded past the first or last row.
+    assert [segment.predicate_sql for segment in segments] == [
+        f"k >= {BIG_BOUNDS[0]} AND k < {BIG_BOUNDS[1]}",
+        f"k >= {BIG_BOUNDS[1]} AND k < {BIG_BOUNDS[2]}",
+        f"k >= {BIG_BOUNDS[2]} AND k < {BIG_BOUNDS[3]}",
+        f"k >= {BIG_BOUNDS[3]} AND k <= {BIG_BOUNDS[4]}",
+    ]
+    assert divisions == tuple(BIG_BOUNDS)
+
+
+def _numeric_key_frames(sql: str) -> pd.DataFrame:
+    """A numeric key through psycopg: Decimal values in object columns."""
+    if "min_v" in sql:
+        return pd.DataFrame(
+            {
+                "min_v": [Decimal("10")],
+                "max_v": [Decimal("40")],
+                "total_rows": [4],
+                "non_null_rows": [4],
+            }
+        )
+    return pd.DataFrame(
+        {"boundary_value": [Decimal(value) for value in ("10", "20.00", "30", "40")]}
+    )
+
+
+@pytest.mark.parametrize(
+    ("integer_key", "expected_predicates", "expected_divisions"),
+    [
+        # numeric(18, 0): integral bounds render and divide as integers.
+        (
+            True,
+            ["k >= 10 AND k < 20", "k >= 20 AND k < 30", "k >= 30 AND k <= 40"],
+            (10, 20, 30, 40),
+        ),
+        # A fractional numeric key keeps its exact Decimal bounds.
+        (
+            False,
+            ["k >= '10' AND k < '20.00'", "k >= '20.00' AND k < '30'", "k >= '30' AND k <= '40'"],
+            (Decimal("10"), Decimal("20"), Decimal("30"), Decimal("40")),
+        ),
+    ],
+    ids=["integer_key", "fractional_key"],
+)
+def test_integer_key_renders_integral_decimal_bounds_as_integers(
+    monkeypatch, integer_key, expected_predicates, expected_divisions
+):
+    monkeypatch.setattr(
+        boundaries_module, "query_df", lambda _engine, sql: _numeric_key_frames(sql)
+    )
+
+    segments, divisions, *_ = build_range_segments(
+        engine=None,
+        dialect=PostgresDialect(),
+        cte_prefix_sql=None,
+        relation_sql="FROM t",
+        key_sql="k",
+        npartitions=4,
+        integer_key=integer_key,
+    )
+
+    assert [segment.predicate_sql for segment in segments] == expected_predicates
+    assert divisions == expected_divisions
+    assert [type(value) for value in divisions] == [type(value) for value in expected_divisions]

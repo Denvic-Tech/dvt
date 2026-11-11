@@ -220,7 +220,10 @@ MCP-инструмент `suggest_read_partitioning`.
   - формирует SQL по сегменту;
   - читает с ограничением `max_rows_per_partition + 1` через хук `_fetch_segment_df`
     (по умолчанию `sql_runner.query_df`);
-  - валидирует границы индекса;
+  - валидирует границы индекса; индекс range-плана по дробному ключу Decimal/numeric (divisions —
+    `Decimal`) берётся из значений ключа до приведения колонок к float64, поэтому индекс и
+    divisions сравниваются точно (float64 от `Decimal('190.6666')` меньше самой границы);
+    meta-индекс такого плана — `object`;
   - удаляет служебные helper-колонки (`__dvt_*`) из финального output;
   - строит `meta` с ожидаемыми dtypes.
 - ClickHouse: [`executors/ch.py`](executors/ch.py) переопределяет `_fetch_segment_df`.

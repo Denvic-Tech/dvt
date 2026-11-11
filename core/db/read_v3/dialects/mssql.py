@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime, time
 from typing import override
 
-from core.db.read_v3.dialects.base import SQLDialect
+from core.db.read_v3.dialects.base import SQLDialect, to_python_scalar
 from core.db.read_v3.models import ValueKind
 
 _MSSQL_BINARY_TYPES = frozenset({"binary", "varbinary", "image", "rowversion", "timestamp"})
@@ -81,6 +81,7 @@ class MssqlDialect(SQLDialect):
         return super().detect_value_kind(type_repr)
 
     def render_literal(self, value):
+        value = to_python_scalar(value)
         if isinstance(value, datetime):
             literal = value.isoformat(timespec="microseconds")
             target_type = "DATETIMEOFFSET(6)" if value.utcoffset() is not None else "DATETIME2(6)"

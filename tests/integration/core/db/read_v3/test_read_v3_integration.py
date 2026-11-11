@@ -434,23 +434,7 @@ def test_postgres_single_query_range_boundaries_match_offset_queries(
 
 
 @pytest.mark.docker_required
-@pytest.mark.parametrize(
-    "key",
-    [
-        "k_int",
-        "k_str",
-        "k_dt",
-        pytest.param(
-            "k_dec",
-            marks=pytest.mark.xfail(
-                raises=ReadV3ExecutionError,
-                strict=True,
-                reason="Known defect, independent of the boundary query: the segment index of a "
-                "Decimal range key is float64 and fails the Decimal division bound check.",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("key", ["k_int", "k_str", "k_dt", "k_dec"])
 def test_postgres_single_query_range_plan_reads_every_row(
     postgres_boundary_table, key: str
 ) -> None:

@@ -12,6 +12,7 @@ from core.db.read_v3.datetime_precision import (
 )
 from core.db.read_v3.dialects import resolve_dialect
 from core.db.read_v3.errors import ReadV3ConfigError, ReadV3PlanningError
+from core.db.read_v3.executors.sql import SQLReadExecutor
 from core.db.read_v3.grouping.spec import GroupingSpec, GroupingSpecError
 from core.db.read_v3.models import (
     SUPPORTED_OUTPUT_VALUE_KINDS,
@@ -411,6 +412,8 @@ class TableReadPlanner:
                     relation_sql=relation_sql,
                     key_sql=key_sql,
                     npartitions=target_npartitions,
+                    integer_key=key_kind == ValueKind.NUMERIC
+                    and SQLReadExecutor._is_integer_type_repr(key_type_repr),
                 )
                 strategy = PartitionStrategy.RANGE
                 hash_sql = None

@@ -4,7 +4,23 @@ from abc import ABC, abstractmethod
 from datetime import date, datetime
 from typing import Any, Sequence, Optional
 
+import numpy as np
+import pandas as pd
+
 from core.db.read_v3.models import ValueKind
+
+
+def to_python_scalar(value: Any) -> Any:
+    """A numpy scalar as its Python counterpart, so that both render as the same SQL literal.
+
+    ``np.int64`` is not an ``int`` and ``np.bool_`` not a ``bool``: unconverted, they render as
+    quoted strings. ``np.datetime64`` becomes a ``pd.Timestamp`` (a ``datetime``), NaT NULL.
+    """
+    if isinstance(value, np.datetime64):
+        return None if np.isnat(value) else pd.Timestamp(value)
+    if isinstance(value, (np.integer, np.floating, np.bool_)):
+        return value.item()
+    return value
 
 
 class SQLDialect(ABC):
@@ -53,6 +69,7 @@ class SQLDialect(ABC):
         return self.quote_ident(table)
 
     def render_literal(self, value: Any) -> str:
+        value = to_python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):
