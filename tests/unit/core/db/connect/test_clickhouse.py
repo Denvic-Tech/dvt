@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import config
 import pytest
+from sqlalchemy.engine import make_url
 
 from core.db.connect import clickhouse
 
@@ -44,6 +45,80 @@ def _isolated_pool_registry(monkeypatch):
         managers={},
     )
     clickhouse._registry.reset_lock = threading.Lock()
+
+
+def _client_kwargs(url: str) -> dict:
+    return clickhouse.build_clickhouse_client_kwargs(SimpleNamespace(url=make_url(url)))
+
+
+@pytest.mark.parametrize(
+    ("url", "interface", "port"),
+    [
+        ("clickhouse+http://h/db", "http", 8123),
+        ("clickhouse+http://h/db?protocol=https&secure=true", "https", 8443),
+        ("clickhouse+http://h:9000/db?protocol=http", "http", 9000),
+        ("clickhouse+http://h:18123/db?protocol=http", "http", 18123),
+        ("clickhouse+http://h:9440/db?protocol=https&secure=true", "https", 9440),
+        ("clickhouse://h:8124/db", "http", 8124),
+        ("clickhouse+native://h/db", "http", 8123),
+        ("clickhouse+native://h/db?secure=True", "https", 8443),
+        # An explicit protocol wins over secure.
+        ("clickhouse+native://h/db?secure=true&protocol=http", "http", 8443),
+    ],
+)
+def test_client_kwargs_use_http_interface_without_port_mapping(url, interface, port, caplog):
+    with caplog.at_level("WARNING", logger=clickhouse.__name__):
+        kwargs = _client_kwargs(url)
+
+    assert (kwargs["interface"], kwargs["port"]) == (interface, port)
+    assert caplog.records == []
+
+
+@pytest.mark.parametrize(
+    ("url", "interface", "native_port", "http_port"),
+    [
+        ("clickhouse+native://u:p@ch.internal:9000/db", "http", 9000, 8123),
+        ("clickhouse+native://u:p@ch.internal:9440/db?secure=true", "https", 9440, 8443),
+        ("clickhouse://u:p@ch.internal:9000/db", "http", 9000, 8123),
+        ("clickhouse://u:p@ch.internal:9440/db?secure=1", "https", 9440, 8443),
+    ],
+)
+def test_default_native_port_maps_to_default_http_port_with_warning(
+    url, interface, native_port, http_port, caplog
+):
+    with caplog.at_level("WARNING", logger=clickhouse.__name__):
+        kwargs = _client_kwargs(url)
+
+    assert kwargs["interface"] == interface
+    assert kwargs["port"] == http_port
+    assert kwargs["host"] == "ch.internal"
+    assert len(caplog.records) == 1
+    message = caplog.records[0].getMessage()
+    assert "ch.internal" in message
+    assert str(native_port) in message
+    assert str(http_port) in message
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "clickhouse+native://u:secret@ch.internal:9001/db",
+        "clickhouse+native://u:secret@ch.internal:19000/db?secure=true",
+        # 9000 is not the default port of a secure native connection.
+        "clickhouse+native://u:secret@ch.internal:9000/db?secure=true",
+    ],
+)
+def test_native_driver_on_custom_port_raises_clear_error(url):
+    with pytest.raises(clickhouse.ClickHouseHttpInterfaceError) as exc_info:
+        _client_kwargs(url)
+
+    message = str(exc_info.value)
+    assert "ch.internal" in message
+    assert "native driver" in message
+    assert "HTTP interface" in message
+    assert "driver to http" in message
+    assert "secret" not in message
+    assert isinstance(exc_info.value, ValueError)
 
 
 @pytest.fixture
