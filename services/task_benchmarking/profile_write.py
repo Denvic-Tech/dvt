@@ -28,7 +28,12 @@ Phases, all in one process (artifacts in ``--out``):
 
 PostgreSQL over psycopg 3 takes the ``COPY ... FROM STDIN`` path of ``PostgresWriteExecutor``
 unless ``DB_PG_COPY=false`` (the node passes ``config.OTHER.DB_PG_COPY`` the same way); its
-replay sends the captured COPY statement and CSV buffers with one commit per partition.
+replay sends the captured COPY statement and CSV buffers with one commit per partition. Likewise
+SQL Server over pyodbc takes ``MssqlWriteExecutor`` (``fast_executemany`` with declared
+parameters) unless ``DB_MSSQL_FAST_EXECUTEMANY=false`` and MySQL over PyMySQL takes
+``MysqlWriteExecutor`` (raw ``executemany``, one transaction per partition) unless
+``DB_MYSQL_BULK_INSERT=false``; their replay repeats the captured cursor calls (declarations,
+``max_stmt_length``, row tuples) with one commit per partition.
 
 Windows note: ``thread_time``/``process_time`` advance in 15.6 ms ticks, so CPU columns of
 short stages are sampled estimates; whole-run CPU is exact enough.
@@ -558,6 +563,8 @@ def _build_context(options: ProfileOptions) -> _Context:
         # to cProfile, the COPY executor would otherwise run the PostgreSQL bulk default.
         bulk_write_workers=None,
         pg_copy=config.OTHER.DB_PG_COPY,
+        mssql_fast_executemany=config.OTHER.DB_MSSQL_FAST_EXECUTEMANY,
+        mysql_bulk_insert=config.OTHER.DB_MYSQL_BULK_INSERT,
         on_extra_df_columns=ExtraColumnsMode.IGNORE,
         on_missing_df_columns=MissingColumnsMode.IGNORE_IF_DEFAULT,
     )
@@ -570,13 +577,17 @@ def _engine(ctx: _Context) -> Any:
     return resolve_sql_engine(ctx.connection)
 
 
-def _uses_pg_copy(ctx: _Context, engine: Any) -> bool:
-    """Whether the write goes through ``PostgresWriteExecutor`` (COPY) for this engine."""
-    from core.db.write_v4.executors.pg import PostgresWriteExecutor
+def _executor_cls(request: Any, engine: Any) -> type:
+    """Executor class ``write_dataframe`` resolves for this engine and request switches."""
     from core.db.write_v4.resolver import resolve_executor
 
-    executor = resolve_executor(engine, pg_copy=ctx.request.pg_copy)
-    return isinstance(executor, PostgresWriteExecutor)
+    executor = resolve_executor(
+        engine,
+        pg_copy=request.pg_copy,
+        mssql_fast_executemany=request.mssql_fast_executemany,
+        mysql_bulk_insert=request.mysql_bulk_insert,
+    )
+    return type(executor)
 
 
 def _recreate_table(ctx: _Context) -> None:
@@ -651,12 +662,14 @@ def _is_insert(statement: str) -> bool:
     return statement.lstrip()[:6].upper() == "INSERT"
 
 
-def _sql_installer(capture: list[tuple]) -> Installer:
+def _sql_installer(capture: list[tuple], request: Any) -> Installer:
     def install(patcher: Patcher, clock: StageClock, engine: Any) -> None:
         import pandas as pd
         from sqlalchemy.engine import base
 
         from core.db.write_v4.executors import sql as sql_executor
+        from core.db.write_v4.executors.mssql import MssqlWriteExecutor
+        from core.db.write_v4.executors.mysql import MysqlWriteExecutor
 
         dialect_cls = type(engine.dialect)
 
@@ -694,8 +707,75 @@ def _sql_installer(capture: list[tuple]) -> Installer:
         patcher.wrap(dialect_cls, "do_rollback", _timed(clock, "DBAPI rollback"))
         if engine.dialect.driver == "psycopg":
             _install_pg_copy(patcher, clock, capture)
+        executor_cls = _executor_cls(request, engine)
+        if executor_cls is MssqlWriteExecutor:
+            _install_mssql_fast(patcher, clock, capture)
+        elif executor_cls is MysqlWriteExecutor:
+            _install_mysql_bulk(patcher, clock, capture)
 
     return install
+
+
+def _capture_batch(
+    clock: StageClock, capture: list[tuple], name: str, attrs: Callable[[Any, tuple], dict]
+) -> Callable[[Callable], Callable]:
+    """Times ``_execute_batch(cursor, statement, [declaration,] rows)`` and captures the call for
+    replay as ``("bulk_executemany", statement, (cursor attributes, rows))``."""
+
+    def make(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(cursor, statement, *args):
+            if clock.active:
+                capture.append(("bulk_executemany", statement, (attrs(cursor, args), args[-1])))
+            return clock.call(name, func, cursor, statement, *args)
+
+        return wrapper
+
+    return make
+
+
+def _install_mssql_fast(patcher: Patcher, clock: StageClock, capture: list[tuple]) -> None:
+    """Timers of the SQL Server fast_executemany path; captures declarations and row tuples."""
+    from core.db.write_v4.executors import mssql as mssql_executor
+
+    def attrs(cursor: Any, args: tuple) -> dict:
+        return {"fast_executemany": cursor.fast_executemany, "input_sizes": list(args[0])}
+
+    patcher.wrap(
+        mssql_executor, "align_partition_to_table", _timed(clock, "align_partition_to_table")
+    )
+    patcher.wrap(
+        mssql_executor,
+        "build_mssql_params",
+        _timed(clock, "build_mssql_params (per-column conversion)"),
+    )
+    patcher.wrap(
+        mssql_executor.MssqlWriteExecutor,
+        "_execute_batch",
+        _capture_batch(clock, capture, "pyodbc setinputsizes + fast executemany", attrs),
+    )
+
+
+def _install_mysql_bulk(patcher: Patcher, clock: StageClock, capture: list[tuple]) -> None:
+    """Timers of the MySQL bulk path; captures ``max_stmt_length`` and row tuples."""
+    from core.db.write_v4.executors import mysql as mysql_executor
+
+    def attrs(cursor: Any, _args: tuple) -> dict:
+        return {"max_stmt_length": cursor.max_stmt_length}
+
+    patcher.wrap(
+        mysql_executor, "align_partition_to_table", _timed(clock, "align_partition_to_table")
+    )
+    patcher.wrap(
+        mysql_executor,
+        "build_mysql_columns",
+        _timed(clock, "build_mysql_columns (per-column values)"),
+    )
+    patcher.wrap(
+        mysql_executor.MysqlWriteExecutor,
+        "_execute_batch",
+        _capture_batch(clock, capture, "pymysql Cursor.executemany (raw)", attrs),
+    )
 
 
 def _install_pg_copy(patcher: Patcher, clock: StageClock, capture: list[tuple]) -> None:
@@ -799,9 +879,11 @@ def _clickhouse_installer(capture: list[dict]) -> Installer:
 def _dbapi_shape(capture: Sequence[tuple], column_count: int) -> list[dict]:
     """How the DVT path called the DBAPI: statements, rows per call, value types."""
     shapes: dict[tuple[str, str], dict] = {}
-    for kind, statement, parameters in capture:
+    for kind, statement, captured in capture:
         if kind in ("commit", "copy", "copy_data"):
             continue
+        # Bulk paths capture (cursor attributes, row tuples).
+        parameters = captured[1] if kind == "bulk_executemany" else captured
         if parameters and isinstance(parameters[0], (dict, list, tuple)):
             rows = len(parameters)
             first = parameters[0]
@@ -846,8 +928,9 @@ def _copy_shape(capture: Sequence[tuple]) -> dict:
 def _align_substeps(ctx: _Context, engine: Any) -> list[dict]:
     """Replica of normalize.py:190-258 statements, timed one by one (no profiler).
 
-    ClickHouse and the PostgreSQL COPY path call ``align_partition_to_table(cast_to_object=False)``,
-    so their replica skips the ``astype(object)`` / ``where`` steps.
+    ClickHouse and the bulk paths (PostgreSQL COPY, SQL Server fast_executemany, MySQL bulk
+    insert) call ``align_partition_to_table(cast_to_object=False)``, so their replica skips the
+    ``astype(object)`` / ``where`` steps.
     """
     import pandas as pd
     import sqlalchemy as sa
@@ -861,7 +944,11 @@ def _align_substeps(ctx: _Context, engine: Any) -> list[dict]:
         if not column.nullable and normalize._is_numeric_column(column)
     ]
     samples: dict[str, list[tuple[float, float]]] = defaultdict(list)
-    keeps_dtypes = ctx.options.db == "clickhouse" or _uses_pg_copy(ctx, engine)
+    from core.db.write_v4.executors.sql import SQLWriteExecutor
+
+    keeps_dtypes = (
+        ctx.options.db == "clickhouse" or _executor_cls(ctx.request, engine) is not SQLWriteExecutor
+    )
 
     def step(name: str, func: Callable[[], Any]) -> Any:
         wall0, cpu0 = time.perf_counter(), time.thread_time()
@@ -1211,6 +1298,99 @@ def pg_copy_partition_stages(dialect_cls: type) -> list[Stage]:
     ]
 
 
+def mssql_fast_partition_stages(dialect_cls: type) -> list[Stage]:
+    from sqlalchemy.engine import base
+
+    from core.db.write_v4.dask import _PartitionWriteCallable
+    from core.db.write_v4.executors import mssql
+
+    executor = mssql.MssqlWriteExecutor
+    insert = "MssqlWriteExecutor._insert_partition"
+    by_insert = (code_pattern(executor._insert_partition),)
+    fast = "MssqlWriteExecutor._fast_insert (row tuples + calls)"
+    by_fast = (code_pattern(executor._fast_insert),)
+    begin = "engine.begin() context (checkout, COMMIT, checkin)"
+    by_begin = (code_pattern(base.Engine.begin),)
+    batch = "MssqlWriteExecutor._execute_batch (setinputsizes + executemany)"
+    return [
+        Stage(PARTITION_ROOT, (code_pattern(_PartitionWriteCallable.__call__),)),
+        Stage(insert, by_insert, parent=PARTITION_ROOT),
+        *_align_stages(insert, by_insert),
+        Stage(
+            "catalog lookup (MssqlWriteExecutor._target)",
+            (code_pattern(executor._target),),
+            (code_pattern(executor._usable_target),),
+            insert,
+        ),
+        Stage(
+            "build_mssql_params (per-column conversion)",
+            (code_pattern(mssql.build_mssql_params),),
+            by_insert,
+            insert,
+        ),
+        Stage(fast, by_fast, by_insert, insert),
+        Stage(begin, by_begin, parent=fast),
+        Stage(
+            "Engine.connect (pool checkout)", (code_pattern(base.Engine.connect),), by_begin, begin
+        ),
+        Stage("COMMIT (dialect.do_commit)", (code_pattern(dialect_cls.do_commit),), parent=begin),
+        Stage(
+            "Connection.close (pool checkin)", (code_pattern(base.Connection.close),), parent=begin
+        ),
+        Stage(batch, (code_pattern(executor._execute_batch),), by_fast, fast),
+        Stage(
+            "pyodbc Cursor.executemany (native: parameter arrays + TDS + wait)",
+            (builtin_pattern("<method 'executemany' of 'pyodbc.Cursor' objects>"),),
+            parent=batch,
+        ),
+    ]
+
+
+def mysql_bulk_partition_stages(dialect_cls: type) -> list[Stage]:
+    from sqlalchemy.engine import base
+
+    from core.db.write_v4.dask import _PartitionWriteCallable
+    from core.db.write_v4.executors import mysql
+
+    executor = mysql.MysqlWriteExecutor
+    insert = "MysqlWriteExecutor._insert_partition"
+    by_insert = (code_pattern(executor._insert_partition),)
+    build = "build_mysql_columns (per-column values)"
+    bulk = "MysqlWriteExecutor._bulk_insert (row tuples + calls)"
+    by_bulk = (code_pattern(executor._bulk_insert),)
+    begin = "engine.begin() context (checkout, COMMIT, checkin)"
+    by_begin = (code_pattern(base.Engine.begin),)
+    batch = "MysqlWriteExecutor._execute_batch (cursor.executemany)"
+    return [
+        Stage(PARTITION_ROOT, (code_pattern(_PartitionWriteCallable.__call__),)),
+        Stage(insert, by_insert, parent=PARTITION_ROOT),
+        *_align_stages(insert, by_insert),
+        Stage(
+            "catalog lookup (MysqlWriteExecutor._target)",
+            (code_pattern(executor._target),),
+            (code_pattern(executor._usable_target),),
+            insert,
+        ),
+        Stage(build, (code_pattern(mysql.build_mysql_columns),), by_insert, insert),
+        Stage(
+            "timestamp_text (datetime64 -> str(Timestamp))",
+            (code_pattern(mysql.timestamp_text),),
+            parent=build,
+        ),
+        Stage(bulk, by_bulk, by_insert, insert),
+        Stage(begin, by_begin, parent=bulk),
+        Stage(
+            "Engine.connect (pool checkout)", (code_pattern(base.Engine.connect),), by_begin, begin
+        ),
+        Stage("COMMIT (dialect.do_commit)", (code_pattern(dialect_cls.do_commit),), parent=begin),
+        Stage(
+            "Connection.close (pool checkin)", (code_pattern(base.Connection.close),), parent=begin
+        ),
+        Stage(batch, (code_pattern(executor._execute_batch),), by_bulk, bulk),
+        *_driver_stages("mysql", batch),
+    ]
+
+
 def clickhouse_partition_stages() -> list[Stage]:
     import pandas as pd
     from clickhouse_connect.driver import (
@@ -1422,8 +1602,9 @@ def _builtin_split(stats: StatsDict) -> dict[str, float]:
 
 def _profiled_run(ctx: _Context, out: Path) -> dict:
     from core.db.write_v4.executors.ch import ClickHouseWriteExecutor
+    from core.db.write_v4.executors.mssql import MssqlWriteExecutor
+    from core.db.write_v4.executors.mysql import MysqlWriteExecutor
     from core.db.write_v4.executors.pg import PostgresWriteExecutor
-    from core.db.write_v4.executors.sql import SQLWriteExecutor
 
     profiler = cProfile.Profile()
     run, _clock, probe = _write_once(ctx, "cprofile", profiler=profiler)
@@ -1451,14 +1632,16 @@ def _profiled_run(ctx: _Context, out: Path) -> dict:
         engine = _engine(ctx)
         try:
             dialect_cls = type(engine.dialect)
-            pg_copy = _uses_pg_copy(ctx, engine)
+            executor_cls = _executor_cls(ctx.request, engine)
         finally:
             engine.dispose()
-        if pg_copy:
-            executor_cls = PostgresWriteExecutor
+        if executor_cls is PostgresWriteExecutor:
             partition_stages = pg_copy_partition_stages(dialect_cls)
+        elif executor_cls is MssqlWriteExecutor:
+            partition_stages = mssql_fast_partition_stages(dialect_cls)
+        elif executor_cls is MysqlWriteExecutor:
+            partition_stages = mysql_bulk_partition_stages(dialect_cls)
         else:
-            executor_cls = SQLWriteExecutor
             partition_stages = sql_partition_stages(ctx.options.db, dialect_cls)
     builtins = {key: entry for key, entry in partition.items() if key[0] == "~"}
     return {
@@ -1520,6 +1703,15 @@ def _replay_dbapi(ops: Sequence[tuple]) -> Callable[[Any], tuple[int, int]]:
                     calls += 1
                 elif kind == "executemany":
                     cursor.executemany(statement, parameters)
+                    calls += 1
+                elif kind == "bulk_executemany":
+                    attributes, rows = parameters
+                    for name, value in attributes.items():
+                        if name == "input_sizes":
+                            cursor.setinputsizes(value)
+                        else:
+                            setattr(cursor, name, value)
+                    cursor.executemany(statement, rows)
                     calls += 1
                 elif kind == "execute":
                     cursor.execute(statement, parameters)
@@ -1630,7 +1822,8 @@ def _driver_only(ctx: _Context, capture: list) -> list[dict]:
             ctx, "DBAPI replay of the DVT calls (same SQL + params)", _replay_dbapi(capture)
         )
     ]
-    if ctx.options.db == "mssql":
+    # This variant re-sends the multi-VALUES parameters of the SQLAlchemy INSERT path.
+    if ctx.options.db == "mssql" and any(op[0] in ("execute", "executemany") for op in capture):
         column_count = len(synthetic.column_names(ctx.options.schema))
         results.append(
             _timed_replay(
@@ -1709,7 +1902,9 @@ def run_profile(options: ProfileOptions) -> dict:
 
     capture: list = []
     installer = (
-        _clickhouse_installer(capture) if options.db == "clickhouse" else _sql_installer(capture)
+        _clickhouse_installer(capture)
+        if options.db == "clickhouse"
+        else _sql_installer(capture, ctx.request)
     )
     run, clock, _probe = _write_once(ctx, "instrumented", install=installer)
     report["instrumented"] = {

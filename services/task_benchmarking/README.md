@@ -8,7 +8,7 @@ Input scenarios are stored in `services/task_benchmarking/pipelines/`:
 
 - `examples/sample_pipeline.json`: DB-free smoke run, 200 000 synthetic rows counted by
   `BenchmarkMaterialize`.
-- `benchmarks/write/<postgres|clickhouse|mssql>/append_1m.json`, `append_5m.json`: synthetic
+- `benchmarks/write/<postgres|clickhouse|mssql|mysql>/append_1m.json`, `append_5m.json`: synthetic
   `wide_mixed` rows (1M in 16 partitions, 5M in 64 partitions) appended by `WriteDataFrameToDBV4`
   (`chunksize=1000`, `sync_column_descriptions=false`) into `bench_write_wide`, which
   `BenchmarkEnsureTable` recreates before every run. The ClickHouse scenarios set
