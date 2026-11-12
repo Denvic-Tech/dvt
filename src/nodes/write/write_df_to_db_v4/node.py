@@ -122,7 +122,8 @@ class WriteDataFrameToDBV4(BaseNode):
     chunksize: int | None = InputField(
         default=None, min_value=1, max_value=1_000_000,
         description=(
-            "Rows per INSERT (PostgreSQL COPY: per CSV buffer); empty = database default "
+            "Rows per INSERT (PostgreSQL COPY: per CSV buffer; SQL Server and MySQL bulk "
+            "insert: per executemany call, at least 10000); empty = database default "
             "(ClickHouse 100000, others 1000)."
         ),
         agent_description=(
@@ -130,7 +131,9 @@ class WriteDataFrameToDBV4(BaseNode):
             "databases 1000) unless row width, source volume and driver limits justify tuning; "
             "memory per chunk grows with it. A chunk size does not make the whole write one "
             "atomic transaction. PostgreSQL over psycopg 3 writes each partition with one COPY "
-            "in one transaction; there it sets rows per CSV buffer."
+            "in one transaction; there it sets rows per CSV buffer. The bulk insert of SQL Server "
+            "over pyodbc and MySQL over PyMySQL also writes each partition in one transaction; "
+            "there it sets rows per executemany call and is raised to at least 10000."
         ),
     )
     async_insert: bool = InputField(
@@ -223,6 +226,8 @@ class WriteDataFrameToDBV4(BaseNode):
                 bulk_write_workers=resolve_bulk_write_workers(self.project_settings, engine),
                 async_insert=self.async_insert,
                 pg_copy=config.OTHER.DB_PG_COPY,
+                mssql_fast_executemany=config.OTHER.DB_MSSQL_FAST_EXECUTEMANY,
+                mysql_bulk_insert=config.OTHER.DB_MYSQL_BULK_INSERT,
                 upsert=self._coerce_model(self.upsert_config, UpsertConfig),
                 on_extra_df_columns=self._coerce_model(self.on_extra_df_columns, ExtraColumnsMode),
                 on_missing_df_columns=self._coerce_model(

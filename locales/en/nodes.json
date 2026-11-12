@@ -2136,7 +2136,7 @@
                 "chunksize": {
                     "display_name": "chunksize",
                     "display_type": "INT",
-                    "description": "Rows per INSERT (PostgreSQL COPY: per CSV buffer); empty = database default (ClickHouse 100000, others 1000)."
+                    "description": "Rows per INSERT (PostgreSQL COPY: per CSV buffer; SQL Server and MySQL bulk insert: per executemany call, at least 10000); empty = database default (ClickHouse 100000, others 1000)."
                 },
                 "async_insert": {
                     "display_name": "async_insert",

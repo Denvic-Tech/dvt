@@ -76,6 +76,12 @@ class WriteRequest(BaseModel):
     # PostgreSQL with psycopg 3 only: write partitions through COPY FROM STDIN; False keeps
     # executemany INSERTs (the node passes config.OTHER.DB_PG_COPY).
     pg_copy: bool = True
+    # SQL Server over pyodbc only: write partitions through fast_executemany with declared
+    # parameters; False keeps SQLAlchemy INSERTs (config.OTHER.DB_MSSQL_FAST_EXECUTEMANY).
+    mssql_fast_executemany: bool = True
+    # MySQL/MariaDB over PyMySQL only: write partitions through cursor.executemany in one
+    # transaction; False keeps SQLAlchemy INSERTs (config.OTHER.DB_MYSQL_BULK_INSERT).
+    mysql_bulk_insert: bool = True
     upsert: UpsertConfig | None = None
     on_extra_df_columns: ExtraColumnsMode = ExtraColumnsMode.ERROR
     on_missing_df_columns: MissingColumnsMode = MissingColumnsMode.IGNORE_IF_DEFAULT

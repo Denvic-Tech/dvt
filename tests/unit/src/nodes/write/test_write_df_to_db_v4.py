@@ -226,6 +226,20 @@ def test_write_dataframe_to_db_v4_build_request_passes_pg_copy_switch(monkeypatc
     assert _node(connection=engine)._build_request(engine).pg_copy is enabled
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_write_dataframe_to_db_v4_build_request_passes_mssql_and_mysql_switches(
+    monkeypatch, enabled
+) -> None:
+    monkeypatch.setattr(config.OTHER, "DB_MSSQL_FAST_EXECUTEMANY", enabled)
+    monkeypatch.setattr(config.OTHER, "DB_MYSQL_BULK_INSERT", not enabled)
+    engine = create_engine("sqlite://")
+
+    request = _node(connection=engine)._build_request(engine)
+
+    assert request.mssql_fast_executemany is enabled
+    assert request.mysql_bulk_insert is (not enabled)
+
+
 def _make_sqlite_connection_record() -> SqlConnectionRecord:
     return SqlConnectionRecord(
         ConnectionRecord(

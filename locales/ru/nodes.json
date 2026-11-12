@@ -2135,7 +2135,7 @@
                 "chunksize": {
                     "display_name": "chunksize",
                     "display_type": "INT",
-                    "description": "Строк в одном INSERT (PostgreSQL COPY: в одном CSV-буфере); пусто = значение по умолчанию для БД (ClickHouse 100000, остальные 1000)."
+                    "description": "Строк в одном INSERT (PostgreSQL COPY: в одном CSV-буфере; массовая вставка SQL Server и MySQL: в одном вызове executemany, не меньше 10000); пусто = значение по умолчанию для БД (ClickHouse 100000, остальные 1000)."
                 },
                 "async_insert": {
                     "display_name": "async_insert",

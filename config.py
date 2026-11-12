@@ -428,6 +428,18 @@ class OTHER:
     # WriteDataFrameToDBV4 into PostgreSQL over psycopg 3: write partitions through
     # COPY FROM STDIN (one transaction per partition); false keeps executemany INSERTs.
     DB_PG_COPY = os.getenv("DB_PG_COPY", "true").lower() in _TRUE_STATEMENT_TOKENS
+    # WriteDataFrameToDBV4 into SQL Server over pyodbc: write partitions through pyodbc
+    # fast_executemany with declared parameter types (one transaction per partition); false
+    # keeps SQLAlchemy INSERTs.
+    DB_MSSQL_FAST_EXECUTEMANY = (
+        os.getenv("DB_MSSQL_FAST_EXECUTEMANY", "true").lower() in _TRUE_STATEMENT_TOKENS
+    )
+    # WriteDataFrameToDBV4 into MySQL/MariaDB over PyMySQL: write partitions through
+    # cursor.executemany (multi-row INSERTs, one transaction per partition); false keeps
+    # SQLAlchemy INSERTs.
+    DB_MYSQL_BULK_INSERT = (
+        os.getenv("DB_MYSQL_BULK_INSERT", "true").lower() in _TRUE_STATEMENT_TOKENS
+    )
     SQL_ENGINE_MAX_CONNECTIONS = int(os.getenv("SQL_ENGINE_MAX_CONNECTIONS", 32))
     SQL_ENGINE_POOL_TIMEOUT_SEC = int(os.getenv("SQL_ENGINE_POOL_TIMEOUT_SEC", 30))
     REDIS_IDLE_CONNECTION_TTL_SEC = int(os.getenv("REDIS_IDLE_CONNECTION_TTL_SEC", 180))
