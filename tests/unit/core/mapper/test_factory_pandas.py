@@ -97,3 +97,23 @@ def test_build_mapper_from_df_creates_mapper_and_to_dict(test_db_engine):
 
     assert hasattr(mapped_cls, "__table__")
     assert instance.to_dict() == {"id": 10, "name": "Eve"}
+
+
+def test_build_table_from_df_uses_double_for_floats_on_mysql():
+    from sqlalchemy.dialects import mysql
+    from sqlalchemy.schema import CreateTable
+
+    dialect = mysql.dialect()
+    df = pd.DataFrame({"amount": [1234567.8912, None], "qty": [1.5, 2.5]})
+
+    table = build_table_from_df(
+        df=df,
+        table_name="sales",
+        dialect=dialect,
+        metadata=sa.MetaData(),
+    )
+    ddl = " ".join(str(CreateTable(table).compile(dialect=dialect)).split())
+
+    # MySQL FLOAT is single precision; float64 columns need DOUBLE.
+    assert "`amount` DOUBLE" in ddl
+    assert "`qty` DOUBLE" in ddl

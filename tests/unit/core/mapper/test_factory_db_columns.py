@@ -1,6 +1,8 @@
 import sqlalchemy as sa
 import pytest
-from sqlalchemy.dialects import oracle, postgresql
+from sqlalchemy.dialects import mysql, oracle, postgresql
+from sqlalchemy.dialects.mysql.mariadb import MariaDBDialect
+from sqlalchemy.schema import CreateTable
 
 from core.mapper.factory._db_columns import build_table_from_db_columns
 from core.types import DBColumn, DataType
@@ -106,3 +108,29 @@ def test_build_table_from_db_columns_raises_on_nullable_pk_when_primary_key_cols
             metadata=metadata,
             primary_key_cols="id",
         )
+
+
+@pytest.mark.parametrize("dialect", [mysql.dialect(), MariaDBDialect()])
+def test_build_table_from_db_columns_compiles_strings_and_floats_for_mysql(dialect):
+    columns = [
+        DBColumn(name="code", dtype=DataType.STRING, nullable=False),
+        DBColumn(name="title", dtype=DataType.STRING, nullable=True),
+        DBColumn(name="amount", dtype=DataType.FLOAT, nullable=True),
+        DBColumn(name="qty", dtype=DataType.FLOAT, nullable=False),
+    ]
+
+    table = build_table_from_db_columns(
+        table_name="goods",
+        columns=columns,
+        dialect=dialect,
+        metadata=sa.MetaData(),
+        primary_key_cols="code",
+    )
+    ddl = " ".join(str(CreateTable(table).compile(dialect=dialect)).split())
+
+    # VARCHAR without a length does not compile for MySQL; TEXT cannot be a key without a prefix.
+    assert "`code` VARCHAR(255) NOT NULL" in ddl
+    assert "`title` TEXT" in ddl
+    # MySQL FLOAT is single precision; DataType.FLOAT is float64.
+    assert "`amount` DOUBLE" in ddl
+    assert "`qty` DOUBLE NOT NULL" in ddl
