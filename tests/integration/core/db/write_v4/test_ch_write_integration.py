@@ -79,8 +79,8 @@ def test_wide_mixed_round_trips_per_column(
         ignore_index=True,
     )
 
-    # chunksize below the partition size: several INSERTs per partition.
-    assert _write(clickhouse_http_test_engine, pdf, table_name, chunksize=3_000) == ROWS
+    # rows_per_batch below the partition size: several INSERTs per partition.
+    assert _write(clickhouse_http_test_engine, pdf, table_name, rows_per_batch=3_000) == ROWS
 
     names = synthetic.column_names("wide_mixed")
     select = ", ".join(

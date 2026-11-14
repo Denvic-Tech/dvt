@@ -1,4 +1,5 @@
-"""Write workers (dask threads of the sink) and INSERT chunk rows of WriteDataFrameToDBV3/V4."""
+"""Write workers (dask threads of the sink) of WriteDataFrameToDBV3/V4, INSERT chunk rows of V3 and
+rows per batch of V4."""
 
 from __future__ import annotations
 
@@ -88,3 +89,20 @@ def resolve_write_chunksize(node_chunksize: int | None, engine: Engine) -> int:
             chunksize, source = LEGACY_WRITE_CHUNK_ROWS, "legacy"
     logger.info(f"DB write chunksize={chunksize} source={source}")
     return chunksize
+
+
+def resolve_rows_per_batch(node_rows_per_batch: int | None) -> int | None:
+    """Resolve rows per batch of WriteDataFrameToDBV4: explicit node value, else automatic.
+
+    A node ``rows_per_batch`` that is not ``None`` always wins. Otherwise the ``dialect`` policy
+    returns ``None``: every write_v4 executor sizes its batches itself (by bytes on the bulk
+    paths). The ``legacy`` policy turns that off and uses ``LEGACY_WRITE_CHUNK_ROWS`` on every path.
+    """
+    if node_rows_per_batch is not None:
+        rows, source = node_rows_per_batch, "node"
+    elif config.OTHER.DB_CONCURRENCY_POLICY == "dialect":
+        rows, source = None, "auto"
+    else:
+        rows, source = LEGACY_WRITE_CHUNK_ROWS, "legacy"
+    logger.info(f"DB write rows_per_batch={rows if rows is not None else 'auto'} source={source}")
+    return rows

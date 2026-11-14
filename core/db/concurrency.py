@@ -20,15 +20,47 @@ escalations. The MySQL bulk path (PyMySQL ``executemany`` in one transaction per
 57 706/93 217/96 487/97 616 (SQLAlchemy INSERT at 4: 44 766); literal rendering in PyMySQL holds
 the GIL, so 8 threads only add memory.
 
-``write_chunk_rows`` is the INSERT batch of one write when the node sets no ``chunksize``.
-ClickHouse gets large synchronous blocks: at 1000 rows per INSERT the per-request server wait
-dominated. Other dialects keep 1000. The MSSQL bulk path raises any smaller ``chunksize`` to its
-own floor of 10 000 rows per ``executemany`` call (5M rows/s at 1000/5000/10 000/20 000 rows per
-call: 341 139/416 453/430 183/413 348), so write_v3 and the INSERT path keep 1000. The MySQL
-bulk path does the same with 10 000: next to the server it is flat (5M rows/s at
-1000/5000/20 000: 93 007/96 544/93 283), but every statement is a round trip, so over a slower
-network (Windows host to Docker Desktop, 1M) 1000 rows per call gave 58 647 rows/s and the
-floor 82 257-85 267.
+``write_chunk_rows`` is the INSERT batch of one write_v3 write when the node sets no
+``chunksize``. ClickHouse gets large synchronous blocks: at 1000 rows per INSERT the per-request
+server wait dominated. Other dialects keep 1000.
+
+write_v4 does not use it: WriteDataFrameToDBV4 ignores the node ``chunksize`` and, without
+``rows_per_batch``, sizes the batches of every partition by bytes over its estimated row width
+(``core/db/write_v4/batching.py``; under the ``legacy`` policy 1000 rows). Each executor keeps its
+target next to its code. Linux container, write seconds / peak RSS MiB at rows per batch; row
+widths by the estimate: numeric 16 B, wide_mixed 198 B, wide_text 8.2 KB (4 strings of 2048
+chars, two of them object columns):
+
+- ClickHouse INSERT (8 threads), 16 MB and at most 1 000 000 rows: numeric 20M, 100k/250k/500k/
+  1M/2.5M rows 0.81/0.70/0.64/0.72/0.71 s, RSS 1002/1038/1098/1201/1507; wide_mixed 5M in 8
+  partitions, 25k/50k/100k/200k/625k 2.06/1.83/1.56/1.48/2.19 s, RSS 2305/2359/2465/2723/4319;
+  wide_text 160k, 500/1000/2000/4000/8000/20 000 4.73/2.84/2.65/2.72/2.37/6.48 s, RSS
+  1775/1910/2038/2669/3526/6171. 16 MB gives wide rows about 2000 rows per INSERT and
+  wide_mixed about 85 000 (the former 100 000-row default); larger targets mostly add memory.
+- PostgreSQL COPY CSV buffer (4 threads), 4 MB of Arrow data: wide_mixed 5M in 64 partitions,
+  1000/10 000/78 125 rows 20.7/16.7/22.9 s (runs vary more than that: 13.8 s at 1000 in another
+  run), RSS 540/582/761; wide_text 500/2000/20 000 rows (4/16/164 MB) 18.1/14.8/18.1 s, RSS
+  2027/2246/3333.
+- SQL Server ``executemany`` call (8 threads), 8 MB of parameter buffers or estimated values,
+  whichever is larger, and at most 10 000 rows: wide_mixed (840 B/row of buffers) 5000/10 000/
+  20 000/40 000/78 125 rows 20.8/15.4/17.1/17.3/17.7 s, RSS 1047/1078/1152/1301/1562; numeric
+  (64 B/row) 10k/50k/125k/625k 9.75/10.43/9.60/10.96 s, RSS 862/906/984/1432, hence the row cap;
+  wide_text (nvarchar(max) is streamed: 96 B/row of buffers) 1000/5000/20 000 rows 31.9/53.9/
+  53.7 s, RSS 2377/2891/4811, hence the values.
+  Earlier, 5M wide_mixed rows/s at 1000/5000/10 000/20 000 rows per call: 341 139/416 453/
+  430 183/413 348; the former floor of 10 000 is gone, so the ``legacy`` 1000 rows apply as is.
+- MySQL ``executemany`` call (4 threads), 16 MB of estimated values and at most 10 000 rows:
+  PyMySQL streams a call as statements of at most 4 MB, so next to the server rows per call
+  barely matter (wide_mixed 1000/10 000/78 125 rows 53.8/51.7/51.2 s, RSS 761/767/835; numeric
+  10k/100k/625k 14.0/14.4/14.0 s, RSS 587/691/838, hence the row cap); a call ends with a partial
+  statement, and over a slower network (Windows host to Docker Desktop, 1M wide_mixed) 1000 rows
+  per call gave 58 647 rows/s, 10 000 rows 82 257-85 267. wide_text is bound by the server's
+  disk (about 50 KB written per row, the long columns go to their own pages): alternating runs at
+  10 000 rows per call took 394/221/1337 s and at the automatic ~2000 rows 568/747/880 s, both
+  at ~120 rows/s once the disk slowed, RSS 1359-1371 MiB either way.
+- SQLAlchemy INSERT (other dialects and fallbacks) keeps 1000 rows: per-row Python work dominates,
+  larger batches only cost memory (PostgreSQL executemany at 1000/20 000/100 000 rows 14.6k-14.9k
+  rows/s, RSS 814/1079/1667 MiB; SQL Server 8.6k rows/s at 1000, 7.1k at 20 000).
 """
 
 from __future__ import annotations
@@ -43,7 +75,7 @@ class DialectConcurrency:
     write_workers: int
     # Partition queries of one read node running at the same time.
     read_queries: int
-    # Rows per INSERT of one write when the node sets no ``chunksize``.
+    # Rows per INSERT of one write_v3 write when the node sets no ``chunksize``.
     write_chunk_rows: int = 1_000
     # Dask threads of one write through the dialect's bulk path (PostgreSQL COPY); ``None``: none.
     bulk_write_workers: int | None = None

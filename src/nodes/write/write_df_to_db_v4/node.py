@@ -31,7 +31,7 @@ from src.nodes.write._shared.catalog_descriptions import (
 from src.nodes.write._shared.column_comments_sync import sync_table_column_comments
 from src.nodes.write._shared.write_workers import (
     resolve_bulk_write_workers,
-    resolve_write_chunksize,
+    resolve_rows_per_batch,
     resolve_write_workers,
 )
 
@@ -119,25 +119,36 @@ class WriteDataFrameToDBV4(BaseNode):
             "not a promise that the database can insert a valid row."
         ),
     )
+    # Kept declared for saved pipelines and the node form, which reads its bounds; never used.
     chunksize: int | None = InputField(
-        default=None, min_value=1, max_value=1_000_000,
+        default=None, min_value=1, max_value=1_000_000, is_hidden=True,
         description=(
-            "Rows per INSERT (PostgreSQL COPY: per CSV buffer; SQL Server and MySQL bulk "
-            "insert: per executemany call, at least 10000); empty = database default "
-            "(ClickHouse 100000, others 1000)."
+            "Deprecated and ignored: the batch size is chosen automatically; use rows_per_batch "
+            "to fix it."
         ),
         agent_description=(
-            "Leave empty for the database default (ClickHouse 100000 rows per INSERT, other "
-            "databases 1000) unless row width, source volume and driver limits justify tuning; "
-            "memory per chunk grows with it. A chunk size does not make the whole write one "
-            "atomic transaction. PostgreSQL over psycopg 3 writes each partition with one COPY "
-            "in one transaction; there it sets rows per CSV buffer. The bulk insert of SQL Server "
-            "over pyodbc and MySQL over PyMySQL also writes each partition in one transaction; "
-            "there it sets rows per executemany call and is raised to at least 10000."
+            "Deprecated and ignored at runtime; saved pipelines may still carry a value (often "
+            "1000) that has no effect. Do not set it. Use rows_per_batch to fix the batch size."
+        ),
+    )
+    rows_per_batch: int | None = InputField(
+        default=None, min_value=1, max_value=1_000_000,
+        description=(
+            "Rows per batch (ClickHouse INSERT, PostgreSQL COPY CSV buffer, SQL Server and MySQL "
+            "executemany call, other INSERTs); empty = automatic size by row width (1000 rows for "
+            "other INSERTs)."
+        ),
+        agent_description=(
+            "Leave empty: the writer sizes each batch from the estimated row width of every "
+            "partition (bulk paths of ClickHouse, PostgreSQL, SQL Server and MySQL; 1000 rows on "
+            "plain INSERTs). Set it only to pin a measured batch size; it is used exactly on every "
+            "path, except that SQL Server lowers it so one call buffers at most 64 MB. Larger "
+            "batches need more memory, and a batch size never makes the write one atomic "
+            "transaction."
         ),
     )
     async_insert: bool = InputField(
-        default=False,
+        default=False, is_hidden=True,
         description="ClickHouse only: use server-side async inserts (ignored by other databases).",
         agent_description=(
             "ClickHouse only; other databases ignore it. Enable only for many small, frequent "
@@ -221,7 +232,7 @@ class WriteDataFrameToDBV4(BaseNode):
                     schema_name=self.schema_name,
                     database_name=self.database_name,
                 ),
-                chunksize=resolve_write_chunksize(self.chunksize, engine),
+                rows_per_batch=resolve_rows_per_batch(self.rows_per_batch),
                 write_workers=resolve_write_workers(self.project_settings, engine),
                 bulk_write_workers=resolve_bulk_write_workers(self.project_settings, engine),
                 async_insert=self.async_insert,

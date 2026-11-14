@@ -1,7 +1,7 @@
 """MySQL/MariaDB (PyMySQL) write_v4 executor: one transaction per partition, raw ``executemany``.
 
 ``SQLWriteExecutor`` converts every chunk with ``astype(object)`` + ``to_dict("records")``, runs it
-through SQLAlchemy bind processing and commits each chunk of ``request.chunksize`` rows. This
+through SQLAlchemy bind processing and commits each chunk of rows (1000 by default). This
 executor overrides only ``_insert_partition``: the partition is converted column by column into
 Python values, inserted with PyMySQL ``cursor.executemany`` (``mysql_batch_rows`` rows per call;
 PyMySQL folds them into multi-row ``INSERT`` statements of at most ``statement_bytes``) and
@@ -37,6 +37,7 @@ import pymysql
 import sqlalchemy as sa
 from pandas.core.dtypes.cast import maybe_box_native
 
+from core.db.write_v4.batching import estimate_row_bytes, rows_for_bytes
 from core.db.write_v4.errors import WriteV4ExecutionError
 from core.db.write_v4.executors.sql import SQLWriteExecutor
 from core.db.write_v4.models import WriteRequest
@@ -59,10 +60,13 @@ MYSQL_TYPE_FAMILIES: dict[str, str] = {
 # Upper bound of one multi-row INSERT built by PyMySQL ``executemany`` (its ``max_stmt_length``);
 # a server ``max_allowed_packet`` below it lowers the bound. See ``mysql_statement_bytes``.
 MYSQL_STATEMENT_BYTES = 4 * 1024 * 1024
-# Rows per ``executemany`` call when ``request.chunksize`` is smaller: every statement costs one
-# round trip, and the partition is one transaction whatever the call size (see
-# ``mysql_batch_rows``; measurements in ``core/db/concurrency.py``).
-MYSQL_MIN_BATCH_ROWS = 10_000
+# Estimated row bytes (``estimate_row_bytes``) of one ``executemany`` call without
+# ``WriteRequest.rows_per_batch``: several full statements per call, since every statement costs
+# one round trip and a call ends with a partial one (see ``mysql_batch_rows``; measurements in
+# ``core/db/concurrency.py``). At most MYSQL_MAX_BATCH_ROWS rows: more rows per call only cost
+# memory (the row tuples of a call, about 80 bytes per row on top of the values).
+MYSQL_BATCH_BYTES = 16 * 1024 * 1024
+MYSQL_MAX_BATCH_ROWS = 10_000
 # Bytes kept below ``max_allowed_packet`` for the packet header and the statement's tail.
 _PACKET_MARGIN = 1024
 _CATALOG_SQL = sa.text(
@@ -120,10 +124,14 @@ def mysql_statement_bytes(max_allowed_packet: int) -> int:
     return max(1024, min(MYSQL_STATEMENT_BYTES, int(max_allowed_packet) - _PACKET_MARGIN))
 
 
-def mysql_batch_rows(chunksize: int | None, total_rows: int) -> int:
-    """Rows per ``executemany`` call: ``chunksize`` raised to ``MYSQL_MIN_BATCH_ROWS``, the whole
-    partition without a chunksize. Statements stay within ``statement_bytes`` either way."""
-    return max(1, min(max(chunksize or total_rows, MYSQL_MIN_BATCH_ROWS), total_rows))
+def mysql_batch_rows(rows_per_batch: int | None, total_rows: int, row_bytes: int) -> int:
+    """Rows per ``executemany`` call: ``rows_per_batch``, or about ``MYSQL_BATCH_BYTES`` at
+    ``row_bytes`` per row and at most ``MYSQL_MAX_BATCH_ROWS``; at most the partition. Statements
+    stay within ``statement_bytes`` either way."""
+    rows = rows_per_batch or rows_for_bytes(
+        MYSQL_BATCH_BYTES, row_bytes, max_rows=min(total_rows, MYSQL_MAX_BATCH_ROWS)
+    )
+    return max(1, min(rows, total_rows))
 
 
 class MysqlWriteExecutor(SQLWriteExecutor):
@@ -224,7 +232,9 @@ class MysqlWriteExecutor(SQLWriteExecutor):
         request: WriteRequest,
     ) -> int:
         total_rows = alignment.row_count
-        batch_rows = mysql_batch_rows(request.chunksize, total_rows)
+        batch_rows = mysql_batch_rows(
+            request.rows_per_batch, total_rows, estimate_row_bytes(alignment.normalized)
+        )
         statement = self._insert_statement(table, alignment.insert_column_names)
         with self.engine.begin() as conn:
             cursor = conn.connection.driver_connection.cursor()

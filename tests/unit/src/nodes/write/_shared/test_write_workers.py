@@ -10,6 +10,7 @@ from core.db import concurrency
 from src.nodes.write._shared.write_workers import (
     LEGACY_WRITE_CHUNK_ROWS,
     resolve_bulk_write_workers,
+    resolve_rows_per_batch,
     resolve_write_chunksize,
     resolve_write_workers,
 )
@@ -170,3 +171,20 @@ def test_legacy_policy_and_unknown_dialect_use_legacy_chunk_rows(monkeypatch) ->
     assert resolve_write_chunksize(None, _engine("snowflake")) == LEGACY_WRITE_CHUNK_ROWS
     monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", "legacy")
     assert resolve_write_chunksize(None, _engine("clickhouse")) == LEGACY_WRITE_CHUNK_ROWS
+
+
+@pytest.mark.parametrize("policy", ["dialect", "legacy"])
+def test_node_rows_per_batch_wins_under_both_policies(monkeypatch, policy) -> None:
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", policy)
+
+    assert resolve_rows_per_batch(250) == 250
+
+
+def test_rows_per_batch_is_automatic_under_dialect_and_legacy_rows_under_legacy(
+    monkeypatch,
+) -> None:
+    _patch_chunk_rows(monkeypatch, clickhouse=50_000)
+
+    assert resolve_rows_per_batch(None) is None
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", "legacy")
+    assert resolve_rows_per_batch(None) == LEGACY_WRITE_CHUNK_ROWS

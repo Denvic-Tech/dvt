@@ -21,8 +21,9 @@ from core.db.write_v4.dialects import MssqlWriteDialect
 from core.db.write_v4.errors import WriteV4ExecutionError
 from core.db.write_v4.executors import mssql as mssql_module
 from core.db.write_v4.executors.mssql import (
+    MSSQL_AUTO_BATCH_BYTES,
     MSSQL_BATCH_BYTES,
-    MSSQL_MIN_BATCH_ROWS,
+    MSSQL_MAX_BATCH_ROWS,
     MssqlColumn,
     MssqlTarget,
     MssqlWriteExecutor,
@@ -329,10 +330,16 @@ def test_combinations_without_parity_keep_the_inherited_path(values, dtype, type
         _param(values, _column(type_name), dtype)
 
 
-def test_batch_rows_floor_cap_and_whole_partition() -> None:
-    assert mssql_batch_rows(1_000, 62_500, 100) == MSSQL_MIN_BATCH_ROWS
+def test_batch_rows_honour_rows_per_batch_or_the_byte_target_under_the_byte_cap() -> None:
+    assert mssql_batch_rows(1_000, 62_500, 100) == 1_000
+    assert mssql_batch_rows(1, 62_500, 100) == 1
     assert mssql_batch_rows(1_000, 500, 100) == 500
-    assert mssql_batch_rows(None, 62_500, 100) == 62_500
+    assert mssql_batch_rows(None, 10**7, 1_000) == MSSQL_AUTO_BATCH_BYTES // 1_000
+    assert mssql_batch_rows(None, 10**7, 100) == MSSQL_MAX_BATCH_ROWS
+    assert mssql_batch_rows(None, 500, 100) == 500
+    # Strings sent as max have small buffers: the estimated value bytes size the call.
+    assert mssql_batch_rows(None, 10**7, 100, 8_000) == MSSQL_AUTO_BATCH_BYTES // 8_000
+    assert mssql_batch_rows(None, 10**7, 1_000, 50) == MSSQL_AUTO_BATCH_BYTES // 1_000
     assert mssql_batch_rows(10**6, 10**6, 10_000) == MSSQL_BATCH_BYTES // 10_000
     assert mssql_batch_rows(1, 1, 10**12) == 1
 
@@ -457,9 +464,11 @@ def _executor(engine, target: MssqlTarget | None = _EVENTS) -> MssqlWriteExecuto
     return executor
 
 
-def _request(chunksize: int = 2) -> WriteRequest:
+def _request(rows_per_batch: int | None = None) -> WriteRequest:
     return WriteRequest(
-        mode=WriteMode.APPEND, target=WriteTarget(table_name="events"), chunksize=chunksize
+        mode=WriteMode.APPEND,
+        target=WriteTarget(table_name="events"),
+        rows_per_batch=rows_per_batch,
     )
 
 
@@ -467,11 +476,10 @@ def _frame(rows: int = 5) -> pd.DataFrame:
     return pd.DataFrame({"id": range(rows), "name": [f"n{i}" for i in range(rows)]})
 
 
-def test_one_transaction_per_partition_with_several_executemany_calls(monkeypatch) -> None:
-    monkeypatch.setattr(mssql_module, "MSSQL_MIN_BATCH_ROWS", 1)
+def test_one_transaction_per_partition_with_several_executemany_calls() -> None:
     engine = _FakeEngine()
 
-    written = _executor(engine)._insert_partition(_table(), _frame(5), _request(chunksize=2))
+    written = _executor(engine)._insert_partition(_table(), _frame(5), _request(rows_per_batch=2))
 
     assert written == 5
     assert (engine.log["commits"], engine.log["rollbacks"], engine.log["closed"]) == (1, 0, 1)
@@ -486,11 +494,16 @@ def test_one_transaction_per_partition_with_several_executemany_calls(monkeypatc
     assert engine.log["sizes"] == [declaration] * 3
 
 
-def test_chunksize_below_the_floor_sends_one_call(monkeypatch) -> None:
+def test_automatic_calls_hold_the_byte_target_of_the_parameter_buffers(monkeypatch) -> None:
     engine = _FakeEngine()
-
-    assert _executor(engine)._insert_partition(_table(), _frame(5), _request(chunksize=2)) == 5
+    assert _executor(engine)._insert_partition(_table(), _frame(5), _request(None)) == 5
     assert len(engine.log["calls"]) == 1
+
+    # 32 bytes for the bigint and 8 + 2 * 21 for the nvarchar(20): 82 bytes per row.
+    monkeypatch.setattr(mssql_module, "MSSQL_AUTO_BATCH_BYTES", 164)
+    engine = _FakeEngine()
+    assert _executor(engine)._insert_partition(_table(), _frame(5), _request(None)) == 5
+    assert [len(rows) for _statement, _fast, rows in engine.log["calls"]] == [2, 2, 1]
 
 
 def test_driver_errors_are_wrapped_not_retried_and_roll_back_the_partition(
@@ -616,7 +629,7 @@ def test_execute_appends_every_partition_through_fast_executemany(monkeypatch) -
 
     result = executor.execute(
         dd.from_pandas(_frame(6), npartitions=3),
-        _request(chunksize=10),
+        _request(rows_per_batch=None),
         SimpleNamespace(mode="append"),
     )
 

@@ -66,7 +66,10 @@ class WriteRequest(BaseModel):
 
     mode: WriteMode
     target: WriteTarget
-    chunksize: int | None = Field(default=1000, ge=1)
+    # Rows per batch: ClickHouse INSERT, PostgreSQL COPY CSV buffer, SQL Server and MySQL
+    # executemany call, SQLAlchemy INSERT. None: each executor sizes its batches automatically
+    # (by bytes per row on the bulk paths, 1000 rows on the SQLAlchemy INSERT path).
+    rows_per_batch: int | None = Field(default=None, ge=1)
     write_workers: int = Field(default=1, ge=1)
     # Workers of a write through the dialect's bulk path (PostgreSQL COPY); the executor uses it
     # only when the target takes that path and it exceeds ``write_workers``. None: keep them.

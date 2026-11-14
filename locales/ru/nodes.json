@@ -2135,7 +2135,12 @@
                 "chunksize": {
                     "display_name": "chunksize",
                     "display_type": "INT",
-                    "description": "Строк в одном INSERT (PostgreSQL COPY: в одном CSV-буфере; массовая вставка SQL Server и MySQL: в одном вызове executemany, не меньше 10000); пусто = значение по умолчанию для БД (ClickHouse 100000, остальные 1000)."
+                    "description": "Устарел и не используется: размер пакета выбирается автоматически; чтобы задать его, используйте rows_per_batch."
+                },
+                "rows_per_batch": {
+                    "display_name": "rows_per_batch",
+                    "display_type": "INT",
+                    "description": "Строк в одном пакете (INSERT в ClickHouse, CSV-буфер PostgreSQL COPY, вызов executemany в SQL Server и MySQL, остальные INSERT); пусто = автоматический размер по ширине строки (1000 строк для остальных INSERT)."
                 },
                 "async_insert": {
                     "display_name": "async_insert",

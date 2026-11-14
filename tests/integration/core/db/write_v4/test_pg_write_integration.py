@@ -209,8 +209,8 @@ def test_copy_and_executemany_store_identical_values_for_every_supported_type(
 
         assert _write(engine, pdf, schema, "via_insert", pg_copy=False) == len(pdf)
         assert copy_calls == []
-        # chunksize 1 still sends each partition as one COPY.
-        assert _write(engine, pdf, schema, "via_copy", chunksize=1) == len(pdf)
+        # rows_per_batch 1 still sends each partition as one COPY.
+        assert _write(engine, pdf, schema, "via_copy", rows_per_batch=1) == len(pdf)
         assert copy_calls == ["via_copy", "via_copy"]
 
         expected = _rows_as_text(engine, schema, "via_insert")
@@ -396,7 +396,7 @@ def test_wide_mixed_50k_rows_match_the_source_and_executemany(
         schema,
         "wide_copy",
         npartitions=4,
-        chunksize=3_000,
+        rows_per_batch=3_000,
         write_workers=1,
         bulk_write_workers=4,
     )

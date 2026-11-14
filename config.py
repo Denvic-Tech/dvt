@@ -413,9 +413,10 @@ class PROJECT_SCHEDULER:
 class OTHER:
     BULK_INSERT_NUM_WORKERS = int(os.getenv(f"BULK_INSERT_NUM_WORKERS", 8))
     SQL_BULK_INSERT_MAX_WORKERS = int(os.getenv("SQL_BULK_INSERT_MAX_WORKERS", 32))
-    # "dialect": write workers, rows per INSERT and per-read query limits default to
-    # core/db/concurrency.py; "legacy": BULK_INSERT_NUM_WORKERS for writes, 1000 rows per INSERT
-    # and no read limit. Explicit project workers_count, node chunksize and node
+    # "dialect": write workers, rows per INSERT of WriteDataFrameToDBV3 and per-read query limits
+    # default to core/db/concurrency.py, WriteDataFrameToDBV4 sizes its batches automatically;
+    # "legacy": BULK_INSERT_NUM_WORKERS for writes, 1000 rows per INSERT/batch and no read limit.
+    # Explicit project workers_count, node chunksize (V3), rows_per_batch (V4) and
     # max_concurrent_queries win under both policies.
     DB_CONCURRENCY_POLICY = os.getenv("DB_CONCURRENCY_POLICY", "dialect").lower()
     if DB_CONCURRENCY_POLICY not in {"dialect", "legacy"}:

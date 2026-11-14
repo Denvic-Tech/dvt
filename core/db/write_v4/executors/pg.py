@@ -2,7 +2,7 @@
 
 ``SQLWriteExecutor`` inserts through psycopg ``executemany``, which spends its time in per-value
 Python code under the GIL (~41k rows/s per core). This executor overrides only ``_insert_partition``: a partition is converted
-column by column to Arrow, encoded by ``pyarrow.csv`` into buffers of ``request.chunksize`` rows
+column by column to Arrow, encoded by ``pyarrow.csv`` into buffers of ``copy_buffer_rows`` rows
 and streamed into a single COPY in one transaction. ``append`` copies into the target,
 ``truncate``/``upsert`` into the staging table of ``SQLWriteExecutor``. A write whose target
 takes COPY runs ``request.bulk_write_workers`` partitions at once when that is more than
@@ -44,6 +44,7 @@ import pyarrow.compute as pc
 import pyarrow.csv as pa_csv
 import sqlalchemy as sa
 
+from core.db.write_v4.batching import rows_for_bytes
 from core.db.write_v4.errors import WriteV4ExecutionError
 from core.db.write_v4.executors.sql import SQLWriteExecutor
 from core.db.write_v4.models import WritePlan, WriteRequest, WriteResult
@@ -75,6 +76,9 @@ _COPY_RELKINDS = frozenset({"r", "p"})
 # security, engines without COPY FROM STDIN) and syntax_error (no option list syntax).
 _COPY_UNSUPPORTED_SQLSTATES = frozenset({"0A000", "42601"})
 _COPY_CONTEXT_RE = re.compile(r"^COPY .*?, line (\d+)(.*)$", re.DOTALL)
+# Arrow bytes of the rows of one CSV buffer without ``WriteRequest.rows_per_batch`` (see
+# ``copy_buffer_rows``; measurements in ``core/db/concurrency.py``).
+COPY_BUFFER_BYTES = 4 * 1024 * 1024
 # 15 significant digits: PostgreSQL ``float8_numeric`` formats the float8 with ``%.15g``.
 _FLOAT8_NUMERIC_DIGITS = 15
 # A normal double whose shortest repr has <= 15 digits prints the same value with ``%.15g``.
@@ -147,15 +151,19 @@ def build_copy_target(rows: list[dict[str, object]]) -> CopyTarget:
     return CopyTarget(kinds, type_names)
 
 
-def copy_buffer_rows(chunksize: int | None, total_rows: int) -> int:
-    """Rows per CSV buffer: ``chunksize``, or the whole partition without one.
+def copy_buffer_rows(rows_per_batch: int | None, arrow_table: pa.Table) -> int:
+    """Rows per CSV buffer: ``rows_per_batch``, or about ``COPY_BUFFER_BYTES`` of the partition's
+    Arrow data (at most the whole partition).
 
-    No floor: 1000-row buffers cost within 2% of 10k-100k-row ones (1M wide_mixed rows in the
-    Linux container, 1 and 4 threads), and the buffer bounds the CSV memory of a partition.
+    The buffer size bounds the CSV memory of a partition and barely affects speed: 1000-row
+    buffers cost within 2% of 10k-100k-row ones (1M wide_mixed rows in the Linux container, 1 and
+    4 threads), while peak memory grows with it (wide rows: 3.3 GB at 164 MB buffers, 2.0 GB at
+    4 MB); a partition is one COPY either way.
     """
-    if not chunksize:
-        return max(1, total_rows)
-    return chunksize
+    if rows_per_batch:
+        return rows_per_batch
+    total_rows = max(1, arrow_table.num_rows)
+    return rows_for_bytes(COPY_BUFFER_BYTES, arrow_table.nbytes // total_rows, max_rows=total_rows)
 
 
 @dataclass(frozen=True)
@@ -290,7 +298,6 @@ class PostgresWriteExecutor(SQLWriteExecutor):
     ) -> int:
         columns = alignment.insert_column_names
         frame = alignment.normalized
-        buffer_rows = copy_buffer_rows(request.chunksize, alignment.row_count)
         statement = self._copy_statement(table, columns)
         with self.engine.begin() as conn:
             driver = conn.connection.driver_connection
@@ -298,6 +305,7 @@ class PostgresWriteExecutor(SQLWriteExecutor):
                 raise _CopyUnsupportedError("client_encoding SQL_ASCII")
             session = CopySession(timezone=driver.info.parameter_status("TimeZone"))
             arrow_table = build_copy_table(frame, columns, target.kinds, session, table.fullname)
+            buffer_rows = copy_buffer_rows(request.rows_per_batch, arrow_table)
             copy_started = False
             try:
                 with driver.cursor() as cursor, cursor.copy(statement) as copy:

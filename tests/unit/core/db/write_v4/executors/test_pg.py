@@ -343,11 +343,16 @@ def test_combinations_without_parity_keep_executemany(values, dtype, kind) -> No
         _csv(frame, {"v": kind})
 
 
-def test_copy_buffer_rows_follow_chunksize_or_the_whole_partition() -> None:
-    assert copy_buffer_rows(1_000, 10) == 1_000
-    assert copy_buffer_rows(1, 10) == 1
-    assert copy_buffer_rows(None, 123) == 123
-    assert copy_buffer_rows(None, 0) == 1
+def test_copy_buffer_rows_follow_rows_per_batch_or_the_byte_target(monkeypatch) -> None:
+    monkeypatch.setattr(pg_module, "COPY_BUFFER_BYTES", 80)
+    ids = pa.table({"id": pa.array(range(100), pa.int64())})
+
+    assert copy_buffer_rows(1_000, ids) == 1_000
+    assert copy_buffer_rows(1, ids) == 1
+    # 8 Arrow bytes per row: 10 rows per 80-byte buffer, at most the whole partition.
+    assert copy_buffer_rows(None, ids) == 10
+    assert copy_buffer_rows(None, ids.slice(0, 4)) == 4
+    assert copy_buffer_rows(None, ids.slice(0, 0)) == 1
 
 
 # --- error wrapping ----------------------------------------------------------------------------
@@ -474,9 +479,11 @@ def _executor(engine) -> PostgresWriteExecutor:
     return executor
 
 
-def _request(chunksize: int = 2) -> WriteRequest:
+def _request(rows_per_batch: int | None = 2) -> WriteRequest:
     return WriteRequest(
-        mode=WriteMode.APPEND, target=WriteTarget(table_name="events"), chunksize=chunksize
+        mode=WriteMode.APPEND,
+        target=WriteTarget(table_name="events"),
+        rows_per_batch=rows_per_batch,
     )
 
 
@@ -487,7 +494,7 @@ def _frame(rows: int = 5) -> pd.DataFrame:
 def test_one_copy_and_one_transaction_per_partition_with_several_buffers(monkeypatch) -> None:
     engine = _FakeEngine()
 
-    written = _executor(engine)._insert_partition(_table(), _frame(5), _request(chunksize=2))
+    written = _executor(engine)._insert_partition(_table(), _frame(5), _request(rows_per_batch=2))
 
     assert written == 5
     assert engine.log["transactions"] == 1
@@ -595,7 +602,7 @@ def test_execute_appends_every_partition_through_copy(monkeypatch) -> None:
     engine = _FakeEngine()
     executor = _executor(engine)
     monkeypatch.setattr(executor, "_reflect_table", lambda name, schema: _table())
-    request = _request(chunksize=10)
+    request = _request(rows_per_batch=None)
     ddf = dd.from_pandas(_frame(6), npartitions=3)
     plan = SimpleNamespace(mode="append")
 

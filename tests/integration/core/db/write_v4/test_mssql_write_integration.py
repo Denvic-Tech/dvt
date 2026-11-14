@@ -310,7 +310,7 @@ def test_fast_executemany_and_inherited_path_store_identical_values_for_every_ty
 
     assert _write(ms_engine, pdf, via_insert, mssql_fast_executemany=False) == len(pdf)
     assert fast_calls == []
-    assert _write(ms_engine, pdf, via_fast, chunksize=1) == len(pdf)
+    assert _write(ms_engine, pdf, via_fast, rows_per_batch=1) == len(pdf)
     assert fast_calls == [via_fast, via_fast]
 
     expected = _rows_as_text(ms_engine, via_insert)
@@ -464,7 +464,8 @@ def test_wide_mixed_50k_rows_match_the_source_and_the_inherited_path(
     )
 
     assert (
-        _write(ms_engine, pdf, wide_fast, npartitions=4, chunksize=1_000, write_workers=4) == rows
+        _write(ms_engine, pdf, wide_fast, npartitions=4, rows_per_batch=1_000, write_workers=4)
+        == rows
     )
     assert len(fast_calls) == 4
     assert (

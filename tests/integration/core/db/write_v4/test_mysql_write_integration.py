@@ -16,7 +16,6 @@ import sqlalchemy as sa
 
 from core.db.write_v4 import UpsertConfig, WriteMode, WriteRequest, WriteTarget, write_dataframe
 from core.db.write_v4.errors import WriteV4ExecutionError
-from core.db.write_v4.executors import mysql as mysql_executor
 from core.db.write_v4.executors.mysql import MysqlWriteExecutor
 from core.db.write_v4.executors.sql import SQLWriteExecutor
 from core.db.write_v4.resolver import resolve_executor
@@ -236,7 +235,7 @@ def test_bulk_and_inherited_path_store_identical_values_for_every_type(
 
     assert _write(my_engine, pdf, via_insert, mysql_bulk_insert=False) == len(pdf)
     assert bulk_calls == []
-    assert _write(my_engine, pdf, via_bulk, chunksize=1) == len(pdf)
+    assert _write(my_engine, pdf, via_bulk, rows_per_batch=1) == len(pdf)
     assert bulk_calls == [via_bulk, via_bulk]
 
     expected = _rows_as_text(my_engine, via_insert)
@@ -314,18 +313,15 @@ def test_unsupported_column_types_write_the_whole_table_through_the_inherited_pa
     ]
 
 
-def test_constraint_violation_rolls_back_only_its_partition(
-    my_engine: sa.Engine, monkeypatch
-) -> None:
+def test_constraint_violation_rolls_back_only_its_partition(my_engine: sa.Engine) -> None:
     # Two rows per executemany call: the failing call follows a successful one.
-    monkeypatch.setattr(mysql_executor, "MYSQL_MIN_BATCH_ROWS", 1)
     keys = _name("keys")
     _create(my_engine, keys, "id int PRIMARY KEY, v int")
     # Partition 1: ids 0..4. Partition 2: ids 5, 6, 5, 8, 9 -> duplicate key at its row 3.
     pdf = pd.DataFrame({"id": [0, 1, 2, 3, 4, 5, 6, 5, 8, 9], "v": range(10)})
 
     with pytest.raises(WriteV4ExecutionError) as error:
-        _write(my_engine, pdf, keys, chunksize=2)
+        _write(my_engine, pdf, keys, rows_per_batch=2)
 
     message = str(error.value)
     assert f"MySQL INSERT into '{keys}' failed: (1062) Duplicate entry '5'" in message
@@ -391,7 +387,8 @@ def test_wide_mixed_50k_rows_match_the_source_and_the_inherited_path(
     pdf = _wide_mixed(rows, 4)
 
     assert (
-        _write(my_engine, pdf, wide_bulk, npartitions=4, chunksize=5_000, write_workers=4) == rows
+        _write(my_engine, pdf, wide_bulk, npartitions=4, rows_per_batch=5_000, write_workers=4)
+        == rows
     )
     assert len(bulk_calls) == 4
     assert (
@@ -439,7 +436,7 @@ def test_statements_stay_below_a_small_max_allowed_packet(
 
         # 20 000 rows of about 250 bytes per executemany: PyMySQL splits them into statements
         # below the 1 MiB packet instead of failing with "packet bigger than max_allowed_packet".
-        assert _write(engine, pdf, wide, npartitions=1, chunksize=20_000) == 20_000
+        assert _write(engine, pdf, wide, npartitions=1, rows_per_batch=20_000) == 20_000
         assert bulk_calls == [wide]
         assert [row[0] for row in _select_wide(engine, wide)] == pdf["id"].tolist()
     finally:

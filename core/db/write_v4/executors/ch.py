@@ -17,6 +17,7 @@ from clickhouse_connect.driver import Client
 from clickhouse_connect.driver.binding import quote_identifier
 
 from core.db.connect import build_clickhouse_client_kwargs, create_clickhouse_client
+from core.db.write_v4.batching import estimate_row_bytes, rows_for_bytes
 from core.db.write_v4.dask import process_partitions_bounded
 from core.db.write_v4.errors import WriteV4ExecutionError
 from core.db.write_v4.executors.base import WriteExecutor
@@ -50,6 +51,24 @@ _ARROW_SCALAR_TYPES: dict[str, pa.DataType] = {
     "date32": pa.date32(),
 }
 _ARROW_ERRORS = (pa.ArrowException, TypeError, ValueError, ArithmeticError)
+# Automatic INSERT size (``WriteRequest.rows_per_batch`` is None): about CLICKHOUSE_BATCH_BYTES of
+# partition data (``estimate_row_bytes``) per INSERT, at most CLICKHOUSE_MAX_BATCH_ROWS rows (just
+# below the server's default ``max_insert_block_size`` of 1 048 449 rows; larger INSERTs gained
+# nothing). Measurements in ``core/db/concurrency.py``.
+CLICKHOUSE_BATCH_BYTES = 16 * 1024 * 1024
+CLICKHOUSE_MAX_BATCH_ROWS = 1_000_000
+# Rows per ``INSERT ... VALUES ()`` of a default-only insert without ``rows_per_batch``.
+_DEFAULT_ONLY_BATCH_ROWS = 100_000
+
+
+def clickhouse_batch_rows(rows_per_batch: int | None, frame: pd.DataFrame) -> int:
+    """Rows per INSERT: ``rows_per_batch``, or about ``CLICKHOUSE_BATCH_BYTES`` of ``frame``'s
+    rows capped by ``CLICKHOUSE_MAX_BATCH_ROWS``."""
+    if rows_per_batch:
+        return rows_per_batch
+    return rows_for_bytes(
+        CLICKHOUSE_BATCH_BYTES, estimate_row_bytes(frame), max_rows=CLICKHOUSE_MAX_BATCH_ROWS
+    )
 
 
 class _ClickHouseClientPool:
@@ -150,7 +169,7 @@ class ClickHouseWriteExecutor(WriteExecutor):
                 if copy_column_names:
                     self._copy_table(staging_table, table, copy_column_names)
                 elif staged_rows:
-                    self._insert_default_only_rows(table, staged_rows, request.chunksize)
+                    self._insert_default_only_rows(table, staged_rows, request.rows_per_batch)
                 return WriteResult(
                     mode=request.mode,
                     target_name=table.fullname,
@@ -198,13 +217,15 @@ class ClickHouseWriteExecutor(WriteExecutor):
             return 0
 
         if alignment.default_only_insert:
-            return self._insert_default_only_rows(table, alignment.row_count, request.chunksize)
+            return self._insert_default_only_rows(
+                table, alignment.row_count, request.rows_per_batch
+            )
 
         column_order = alignment.insert_column_names
         column_meta = self._build_column_meta(table, column_order)
         use_arrow = all(column_meta[name]["arrow_type"] is not None for name in column_order)
         total_rows = alignment.row_count
-        chunk_rows = request.chunksize or total_rows
+        chunk_rows = clickhouse_batch_rows(request.rows_per_batch, alignment.normalized)
         settings = {
             "input_format_null_as_default": 1,
         }
@@ -602,8 +623,10 @@ class ClickHouseWriteExecutor(WriteExecutor):
         # Range checks for integers; float targets accept precision loss like ``float()``.
         return array.cast(target, safe=not pa.types.is_floating(target))
 
-    def _insert_default_only_rows(self, table: sa.Table, row_count: int, chunksize: int | None) -> int:
-        chunk_rows = chunksize or row_count
+    def _insert_default_only_rows(
+        self, table: sa.Table, row_count: int, rows_per_batch: int | None
+    ) -> int:
+        chunk_rows = rows_per_batch or _DEFAULT_ONLY_BATCH_ROWS
         target_full = self.dialect.full_table_name(table.name, table.schema)
         with self.engine.begin() as conn:
             for start in range(0, row_count, chunk_rows):

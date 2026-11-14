@@ -43,6 +43,7 @@ import pyarrow.compute as pc
 import pyodbc
 import sqlalchemy as sa
 
+from core.db.write_v4.batching import estimate_row_bytes, rows_for_bytes
 from core.db.write_v4.errors import WriteV4ExecutionError
 from core.db.write_v4.executors.pg import source_kind
 from core.db.write_v4.executors.sql import SQLWriteExecutor
@@ -64,11 +65,13 @@ MSSQL_TYPE_FAMILIES: dict[str, str] = {
     "time": "time",
     "uniqueidentifier": "uuid",
 }
-# Rows per ``executemany`` call when ``request.chunksize`` is smaller: parameter arrays are
-# allocated per call and a call costs one round trip (see ``mssql_batch_rows``; measurements in
-# ``core/db/concurrency.py``).
-MSSQL_MIN_BATCH_ROWS = 10_000
-# Upper bound of the parameter array of one call; wide rows get fewer rows per call.
+# One ``executemany`` call without ``WriteRequest.rows_per_batch``: parameter buffers or
+# estimated values, whichever is larger, and at most MSSQL_MAX_BATCH_ROWS rows; more rows per call
+# only cost memory (see ``mssql_batch_rows``; measurements in ``core/db/concurrency.py``).
+MSSQL_AUTO_BATCH_BYTES = 8 * 1024 * 1024
+MSSQL_MAX_BATCH_ROWS = 10_000
+# Upper bound of the parameter array of one call, also for an explicit ``rows_per_batch``: wide
+# rows get fewer rows per call.
 MSSQL_BATCH_BYTES = 64 * 1024 * 1024
 # String columns declared at least this long, and (n)varchar(max), are sent as max (size 0,
 # streamed by the driver) like SQLAlchemy declares them, so no call allocates large buffers.
@@ -156,12 +159,21 @@ def _char_length(type_name: str, max_length: object) -> int | None:
     return size // 2 if type_name in ("nchar", "nvarchar") else size
 
 
-def mssql_batch_rows(chunksize: int | None, total_rows: int, row_bytes: int) -> int:
-    """Rows per ``executemany`` call: ``chunksize`` raised to ``MSSQL_MIN_BATCH_ROWS``, at most
-    ``MSSQL_BATCH_BYTES`` of parameter buffers, the whole partition without a chunksize."""
-    rows = max(chunksize or total_rows, MSSQL_MIN_BATCH_ROWS)
-    rows = min(rows, max(1, MSSQL_BATCH_BYTES // max(1, row_bytes)))
-    return max(1, min(rows, total_rows))
+def mssql_batch_rows(
+    rows_per_batch: int | None, total_rows: int, row_bytes: int, data_bytes: int = 0
+) -> int:
+    """Rows per ``executemany`` call with ``row_bytes`` of parameter buffers per row:
+    ``rows_per_batch``, or about ``MSSQL_AUTO_BATCH_BYTES`` at the larger of ``row_bytes`` and
+    ``data_bytes`` (estimated value bytes per row, which also counts strings sent as max) and at
+    most ``MSSQL_MAX_BATCH_ROWS``; at most ``MSSQL_BATCH_BYTES`` of buffers and at most the
+    partition."""
+    cap = rows_for_bytes(MSSQL_BATCH_BYTES, row_bytes, max_rows=total_rows)
+    rows = rows_per_batch or rows_for_bytes(
+        MSSQL_AUTO_BATCH_BYTES,
+        max(row_bytes, data_bytes),
+        max_rows=min(total_rows, MSSQL_MAX_BATCH_ROWS),
+    )
+    return max(1, min(rows, cap))
 
 
 @dataclass
@@ -277,7 +289,8 @@ class MssqlWriteExecutor(SQLWriteExecutor):
     ) -> int:
         total_rows = alignment.row_count
         row_bytes = sum(param.buffer_bytes for param in params)
-        batch_rows = mssql_batch_rows(request.chunksize, total_rows, row_bytes)
+        data_bytes = 0 if request.rows_per_batch else estimate_row_bytes(alignment.normalized)
+        batch_rows = mssql_batch_rows(request.rows_per_batch, total_rows, row_bytes, data_bytes)
         statement = self._insert_statement(table, alignment.insert_column_names)
         input_sizes = [param.input_size for param in params]
         with self.engine.begin() as conn:

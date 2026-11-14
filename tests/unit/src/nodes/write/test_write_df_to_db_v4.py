@@ -24,7 +24,7 @@ import config
 class _FakeEngine:
     def __init__(self) -> None:
         self.dispose_calls = 0
-        # The node resolves the default chunksize from the engine dialect.
+        # The node resolves the default write workers from the engine dialect.
         self.dialect = SimpleNamespace(name="sqlite")
 
     def dispose(self) -> None:
@@ -176,24 +176,50 @@ def test_write_dataframe_to_db_v4_build_request_resolves_workers_from_engine_dia
 
 
 @pytest.mark.parametrize(
-    ("chunksize", "async_insert", "expected_chunksize"), [(None, False, 700), (25, True, 25)]
+    ("policy", "chunksize", "rows_per_batch", "expected"),
+    [
+        # A saved chunksize (the node form writes 1000) is ignored: None is the automatic size.
+        ("dialect", 1_000, None, None),
+        ("dialect", None, None, None),
+        ("dialect", 1_000, 25, 25),
+        # The legacy policy turns the automatic size off.
+        ("legacy", 2_000, None, 1_000),
+        ("legacy", 2_000, 25, 25),
+    ],
 )
-def test_write_dataframe_to_db_v4_build_request_resolves_chunksize_and_async_insert(
-    monkeypatch, chunksize, async_insert, expected_chunksize
+def test_write_dataframe_to_db_v4_build_request_ignores_chunksize_and_resolves_rows_per_batch(
+    monkeypatch, policy, chunksize, rows_per_batch, expected
 ) -> None:
-    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", "dialect")
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", policy)
     monkeypatch.setitem(
         concurrency.DIALECT_CONCURRENCY,
         "sqlite",
         concurrency.DialectConcurrency(write_workers=1, read_queries=1, write_chunk_rows=700),
     )
     engine = create_engine("sqlite://")
-    node = _node(connection=engine, chunksize=chunksize, async_insert=async_insert)
+    node = _node(connection=engine, chunksize=chunksize, rows_per_batch=rows_per_batch)
 
-    request = node._build_request(engine)
+    assert node._build_request(engine).rows_per_batch == expected
 
-    assert request.chunksize == expected_chunksize
+
+@pytest.mark.parametrize("async_insert", [True, False])
+def test_write_dataframe_to_db_v4_build_request_passes_async_insert(
+    monkeypatch, async_insert
+) -> None:
+    engine = create_engine("sqlite://")
+
+    request = _node(connection=engine, async_insert=async_insert)._build_request(engine)
+
     assert request.async_insert is async_insert
+
+
+def test_write_dataframe_to_db_v4_hides_chunksize_and_async_insert_but_not_rows_per_batch() -> None:
+    inputs = get_definition("WriteDataFrameToDBV4", lang="en").input_definitions
+
+    assert inputs["chunksize"].is_hidden and inputs["async_insert"].is_hidden
+    assert not inputs["rows_per_batch"].is_hidden
+    rows_per_batch = inputs["rows_per_batch"]
+    assert (rows_per_batch.min_value, rows_per_batch.max_value) == (1, 1_000_000)
 
 
 @pytest.mark.parametrize(("workers_count", "expected"), [(0, 5), (2, None)])

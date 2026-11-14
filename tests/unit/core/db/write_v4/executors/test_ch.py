@@ -12,6 +12,7 @@ import sqlalchemy as sa
 
 from core.db.write_v4 import WriteMode, WriteRequest, WriteTarget
 from core.db.write_v4.errors import WriteV4ExecutionError
+from core.db.write_v4.executors import ch as ch_module
 from core.db.write_v4.executors.ch import ClickHouseWriteExecutor
 
 _MSK = timezone(timedelta(hours=3))
@@ -63,7 +64,7 @@ def _insert(
     table: sa.Table,
     pdf: pd.DataFrame,
     *,
-    chunksize: int | None = None,
+    rows_per_batch: int | None = None,
     use_async_insert: bool = False,
     **request_kwargs,
 ) -> tuple[int, list[tuple[str, dict]]]:
@@ -71,7 +72,7 @@ def _insert(
     request = WriteRequest(
         mode=WriteMode.APPEND,
         target=WriteTarget(table_name="events"),
-        chunksize=chunksize,
+        rows_per_batch=rows_per_batch,
         **request_kwargs,
     )
     executor = object.__new__(ClickHouseWriteExecutor)
@@ -303,10 +304,12 @@ def test_empty_partition_sends_nothing() -> None:
     assert calls == []
 
 
-def test_chunks_follow_chunksize_and_async_settings_are_opt_in() -> None:
+def test_chunks_follow_rows_per_batch_and_async_settings_are_opt_in() -> None:
     table = _table(("id", "Int64"))
 
-    rows, calls = _insert(table, pd.DataFrame({"id": range(5)}), chunksize=2, use_async_insert=True)
+    rows, calls = _insert(
+        table, pd.DataFrame({"id": range(5)}), rows_per_batch=2, use_async_insert=True
+    )
 
     assert rows == 5
     assert [kwargs["data"].num_rows for _, kwargs in calls] == [2, 2, 1]
@@ -315,3 +318,27 @@ def test_chunks_follow_chunksize_and_async_settings_are_opt_in() -> None:
         "async_insert": 1,
         "wait_for_async_insert": 1,
     }
+
+
+def test_automatic_chunks_hold_the_byte_target_of_the_row_width(monkeypatch) -> None:
+    monkeypatch.setattr(ch_module, "CLICKHOUSE_BATCH_BYTES", 340)
+    table = _table(("id", "Int64"), ("note", "String"))
+    narrow = pd.DataFrame({"id": range(60), "note": ["x"] * 60})
+    wide = pd.DataFrame({"id": range(9), "note": ["x" * 92] * 9})
+
+    _, narrow_calls = _insert(table, narrow)
+    _, wide_calls = _insert(table, wide)
+
+    # Arrow bytes per row: 8 (id) + 8 (string offset) + the text, so 17 narrow and 108 wide.
+    assert [kwargs["data"].num_rows for _, kwargs in narrow_calls] == [20] * 3
+    assert [kwargs["data"].num_rows for _, kwargs in wide_calls] == [3] * 3
+
+
+def test_automatic_chunks_stop_at_the_row_cap(monkeypatch) -> None:
+    monkeypatch.setattr(ch_module, "CLICKHOUSE_MAX_BATCH_ROWS", 4)
+    table = _table(("id", "Int64"))
+
+    rows, calls = _insert(table, pd.DataFrame({"id": range(10)}))
+
+    assert rows == 10
+    assert [kwargs["data"].num_rows for _, kwargs in calls] == [4, 4, 2]

@@ -21,7 +21,8 @@ from core.db.write_v4.dialects import MySQLWriteDialect
 from core.db.write_v4.errors import WriteV4ExecutionError
 from core.db.write_v4.executors import mysql as mysql_module
 from core.db.write_v4.executors.mysql import (
-    MYSQL_MIN_BATCH_ROWS,
+    MYSQL_BATCH_BYTES,
+    MYSQL_MAX_BATCH_ROWS,
     MYSQL_STATEMENT_BYTES,
     MysqlTarget,
     MysqlWriteExecutor,
@@ -316,9 +317,11 @@ def _executor(engine, target: MysqlTarget | None = _EVENTS) -> MysqlWriteExecuto
     return executor
 
 
-def _request(chunksize: int | None = 2) -> WriteRequest:
+def _request(rows_per_batch: int | None = 2) -> WriteRequest:
     return WriteRequest(
-        mode=WriteMode.APPEND, target=WriteTarget(table_name="events"), chunksize=chunksize
+        mode=WriteMode.APPEND,
+        target=WriteTarget(table_name="events"),
+        rows_per_batch=rows_per_batch,
     )
 
 
@@ -326,11 +329,10 @@ def _frame(rows: int = 5) -> pd.DataFrame:
     return pd.DataFrame({"id": range(rows), "name": [f"n{i}" for i in range(rows)]})
 
 
-def test_one_transaction_per_partition_with_chunksize_rows_per_executemany(monkeypatch) -> None:
-    monkeypatch.setattr(mysql_module, "MYSQL_MIN_BATCH_ROWS", 1)
+def test_one_transaction_per_partition_with_rows_per_batch_rows_per_executemany() -> None:
     engine = _FakeEngine()
 
-    written = _executor(engine)._insert_partition(_table(), _frame(5), _request(chunksize=2))
+    written = _executor(engine)._insert_partition(_table(), _frame(5), _request(rows_per_batch=2))
 
     assert written == 5
     assert (engine.log["commits"], engine.log["rollbacks"], engine.log["closed"]) == (1, 0, 1)
@@ -342,20 +344,26 @@ def test_one_transaction_per_partition_with_chunksize_rows_per_executemany(monke
     ]
 
 
-@pytest.mark.parametrize("chunksize", [None, 2])
-def test_without_chunksize_or_below_the_floor_the_partition_is_one_executemany(chunksize) -> None:
+def test_automatic_executemany_calls_hold_the_byte_target(monkeypatch) -> None:
     engine = _FakeEngine()
-
-    assert _executor(engine)._insert_partition(_table(), _frame(5), _request(chunksize)) == 5
+    assert _executor(engine)._insert_partition(_table(), _frame(5), _request(None)) == 5
     assert len(engine.log["calls"]) == 1
 
+    # 8 bytes of id plus an 8-byte string offset and 2 characters of name: 18 bytes per row.
+    monkeypatch.setattr(mysql_module, "MYSQL_BATCH_BYTES", 36)
+    engine = _FakeEngine()
+    assert _executor(engine)._insert_partition(_table(), _frame(5), _request(None)) == 5
+    assert [len(rows) for _statement, _max, rows in engine.log["calls"]] == [2, 2, 1]
 
-def test_batch_rows_raise_chunksize_to_the_floor_within_the_partition() -> None:
-    assert mysql_batch_rows(1_000, 62_500) == MYSQL_MIN_BATCH_ROWS
-    assert mysql_batch_rows(50_000, 62_500) == 50_000
-    assert mysql_batch_rows(1_000, 500) == 500
-    assert mysql_batch_rows(None, 62_500) == 62_500
-    assert mysql_batch_rows(1, 0) == 1
+
+def test_batch_rows_honour_rows_per_batch_or_the_byte_target_within_the_partition() -> None:
+    assert mysql_batch_rows(1_000, 62_500, 200) == 1_000
+    assert mysql_batch_rows(1, 62_500, 200) == 1
+    assert mysql_batch_rows(1_000, 500, 200) == 500
+    assert mysql_batch_rows(None, 10_000_000, 8_000) == MYSQL_BATCH_BYTES // 8_000
+    assert mysql_batch_rows(None, 10_000_000, 100) == MYSQL_MAX_BATCH_ROWS
+    assert mysql_batch_rows(None, 500, 100) == 500
+    assert mysql_batch_rows(1, 0, 100) == 1
 
 
 @pytest.mark.parametrize(
@@ -481,7 +489,7 @@ def test_execute_appends_every_partition_through_the_bulk_path(monkeypatch) -> N
 
     result = executor.execute(
         dd.from_pandas(_frame(6), npartitions=3),
-        _request(chunksize=10),
+        _request(rows_per_batch=None),
         SimpleNamespace(mode="append"),
     )
 
