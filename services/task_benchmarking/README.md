@@ -10,19 +10,22 @@ Input scenarios are stored in `services/task_benchmarking/pipelines/`:
   `BenchmarkMaterialize`.
 - `benchmarks/write/<postgres|clickhouse|mssql|mysql>/append_1m.json`, `append_5m.json`: synthetic
   `wide_mixed` rows (1M in 16 partitions, 5M in 64 partitions) appended by `WriteDataFrameToDBV4`
-  (`chunksize=1000`, `sync_column_descriptions=false`) into `bench_write_wide`, which
-  `BenchmarkEnsureTable` recreates before every run. The ClickHouse scenarios set
-  `chunksize=null` (the node's database default: 100 000 rows per INSERT, 1000 under
-  `DB_CONCURRENCY_POLICY=legacy`) and `async_insert=false`; matrix `node_overrides` such as
-  `write.chunksize` or `write.async_insert` replace them. An override applies only to an input
-  that is present in the pipeline file.
+  (`sync_column_descriptions=false`) into `bench_write_wide`, which `BenchmarkEnsureTable`
+  recreates before every run. `append_wide_text_160k.json` (160 000 `wide_text` rows, about
+  8 KB each, in 8 partitions) and `append_numeric_5m.json` (5M `numeric` rows in 8 partitions)
+  are the wide-row and narrow-row variants. Every write scenario carries `chunksize=1000` as the
+  node form saves it (the node ignores it) and `rows_per_batch=null` (automatic batch size;
+  1000 rows under `DB_CONCURRENCY_POLICY=legacy`); the ClickHouse ones also set
+  `async_insert=false`. Matrix `node_overrides` such as `write.rows_per_batch` or
+  `write.async_insert` replace them. An override applies only to an input that is present in the
+  pipeline file.
 - `benchmarks/read/<postgres|clickhouse|mssql>/full_5m.json`: `ReadTableFromDBV3` of the seeded
   `bench_wide_5m` table (64 range partitions on `id`), rows counted per partition.
 - `benchmarks/read/<db>/preview_full_5m.json`: the same read collected into one pandas DataFrame;
   needs RAM for the whole table.
 - `benchmarks/read/<db>/groupby_5m.json`: the same read followed by `DataFrameGroupByAgg`
   (`sum(amount)` and `count(id)` by `str_low`).
-- `benchmarks/matrix/write_chunksize.yaml` (`write.chunksize` 1000/20000/100000) and
+- `benchmarks/matrix/write_rows_per_batch.yaml` (`write.rows_per_batch` auto/1000/20000/100000) and
   `benchmarks/matrix/read_npartitions.yaml` (`read.npartitions` 16/64/256), both on PostgreSQL.
 
 Node ids are the same for every database: `connection`, `ensure_table`, `data`, `write` in write
@@ -86,10 +89,10 @@ Run artifacts are written to `tmp/task_benchmarking/runs/<run_id>/`.
   scenarios link `write.signal_in` to `ensure_table.signal_out`, so the writer starts after the
   table is ready. Records `table_action` (`created`, `recreated` or `kept`).
 - `BenchmarkSyntheticDataFrame` outputs `output` (`dd.DataFrame`). Inputs: `rows`,
-  `npartitions` (16), `seed` (42), `schema` (`wide_mixed` or `numeric`). The DataFrame is lazy
-  (`dd.from_map` over `synthetic.partition_plan`): a partition is generated only when it is
-  computed. The same `rows`, `npartitions`, `seed` and `schema` produce the same rows as
-  `seed.py`. Records `rows`.
+  `npartitions` (16), `seed` (42), `schema` (`wide_mixed`, `numeric` or `wide_text`). The
+  DataFrame is lazy (`dd.from_map` over `synthetic.partition_plan`): a partition is generated
+  only when it is computed. The same `rows`, `npartitions`, `seed` and `schema` produce the same
+  rows as `seed.py`. Records `rows`.
 - `BenchmarkMaterialize` is an output node that forces computation of `df`. Inputs: `df`,
   `num_workers` (8), `mode`. `count_rows` (default) computes `len` of every partition and sums
   them without building a full frame; `full_pandas` collects one pandas DataFrame and also records
@@ -225,6 +228,10 @@ Schemas (column types per dialect live in `synthetic.SCHEMA_COLUMNS`):
   `str_low` (`group_00`..`group_19`), `str_high` (16 random chars), `str_text` (64 random chars),
   `str_null` (16 chars, 10% NULL), `bool_a`, `ts_a` (millisecond precision, 2020-2025), `date_a`.
 - `numeric`: `id`, `value`.
+- `wide_text` (5 columns, about 8.2 KB/row): `id` int64 PK and `text_a`..`text_d`, 2048 random ASCII
+  chars each (`TEXT`, ClickHouse `String`, SQL Server `NVARCHAR(MAX)`). `text_a`/`text_b` are pandas
+  strings and `text_c`/`text_d` stay object columns of Python strings, as in a frame whose columns
+  were not converted.
 
 ## Docker image run
 

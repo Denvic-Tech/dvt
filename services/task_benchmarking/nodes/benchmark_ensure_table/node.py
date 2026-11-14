@@ -40,7 +40,7 @@ class BenchmarkEnsureTable(SignalOutputBaseNode):
         default=None,
         description="Schema (postgres/mssql) or database (clickhouse/mysql) of the table.",
     )
-    schema: Literal["wide_mixed", "numeric"] = InputField(
+    schema: Literal["wide_mixed", "numeric", "wide_text"] = InputField(
         default="wide_mixed",
         description="Synthetic column set of the table.",
     )

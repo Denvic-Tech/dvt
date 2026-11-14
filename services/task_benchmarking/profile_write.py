@@ -97,7 +97,7 @@ class ProfileOptions:
     out: Path
     table: str = DEFAULT_TABLE
     rows: int = DEFAULT_ROWS
-    chunksize: int = 1000
+    chunksize: int | None = None
     repeat: int = 3
     warmup: int = 1
     seed: int = 42
@@ -111,7 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--db", required=True, choices=DB_CHOICES)
     parser.add_argument("--rows", type=seed._positive_int, default=DEFAULT_ROWS)
-    parser.add_argument("--chunksize", type=seed._positive_int, default=1000)
+    parser.add_argument(
+        "--chunksize",
+        type=seed._positive_int,
+        default=None,
+        help="WriteRequest.rows_per_batch; omitted: automatic, as the node",
+    )
     parser.add_argument("--repeat", type=seed._positive_int, default=3, help="plain timed runs")
     parser.add_argument(
         "--warmup", type=_non_negative_int, default=1, help="untimed runs before --repeat"
@@ -557,7 +562,7 @@ def _build_context(options: ProfileOptions) -> _Context:
     request = WriteRequest(
         mode=WriteMode.APPEND,
         target=WriteTarget(table_name=options.table),
-        chunksize=options.chunksize,
+        rows_per_batch=options.chunksize,
         write_workers=1,
         # No bulk workers: one thread (``compute(scheduler="sync")``) keeps the partition visible
         # to cProfile, the COPY executor would otherwise run the PostgreSQL bulk default.
@@ -652,7 +657,7 @@ def _write_once(
         label, wall, cpu, probe.wall, probe.cpu, probe.calls, result.rows_written, count
     )
     seed._emit(
-        f"[{ctx.options.db} c{ctx.options.chunksize}] {label}: write {wall:.3f} s "
+        f"[{ctx.options.db} c{ctx.options.chunksize or 'auto'}] {label}: write {wall:.3f} s "
         f"(cpu {cpu:.3f}), partition {probe.wall:.3f} s (cpu {probe.cpu:.3f}), count {count}"
     )
     return run, clock, probe
@@ -1671,7 +1676,8 @@ def _timed_replay(ctx: _Context, label: str, body: Callable[[Any], tuple[int, in
     finally:
         engine.dispose()
     _check_count(ctx, label, count)
-    seed._emit(f"[{ctx.options.db} c{ctx.options.chunksize}] driver-only {label}: {wall:.3f} s")
+    chunk = ctx.options.chunksize or "auto"
+    seed._emit(f"[{ctx.options.db} c{chunk}] driver-only {label}: {wall:.3f} s")
     return {
         "variant": label,
         "calls": calls,
@@ -2002,7 +2008,8 @@ def render_summary(report: Mapping[str, Any]) -> str:
     stats = report["plain_stats"]
     partition_median = stats["partition_wall_s"]["median"]
     lines = [
-        f"# write_v4 profile: {options['db']}, {rows} rows, chunksize {options['chunksize']}",
+        f"# write_v4 profile: {options['db']}, {rows} rows, "
+        f"chunksize {options['chunksize'] or 'auto'}",
         "",
         f"- Command: `{' '.join(env['argv'])}`",
         f"- Engine: `{env['engine_url']}`; table `{options['table']}` (recreated per run)",

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-SCHEMA_NAMES = ("wide_mixed", "numeric")
+SCHEMA_NAMES = ("wide_mixed", "numeric", "wide_text")
 DIALECTS = ("postgres", "clickhouse", "mssql", "mysql")
 
 # Explicit pyarrow storage keeps generated partitions and ``partition_meta`` identical even when
@@ -83,6 +83,19 @@ SCHEMA_COLUMNS: dict[str, tuple[ColumnSpec, ...]] = {
         _C("value",    "float64",        False, "DOUBLE PRECISION", "Float64",
                                                 "FLOAT",         "DOUBLE"),
     ),
+    # Few very wide text columns: two Arrow-backed, two Python ``str`` objects.
+    "wide_text": (
+        _C("id",       "int64",          False, "BIGINT",           "Int64",
+                                                "BIGINT",        "BIGINT"),
+        _C("text_a",   STRING_DTYPE,     False, "TEXT",             "String",
+                                                "NVARCHAR(MAX)", "TEXT"),
+        _C("text_b",   STRING_DTYPE,     False, "TEXT",             "String",
+                                                "NVARCHAR(MAX)", "TEXT"),
+        _C("text_c",   "object",         False, "TEXT",             "String",
+                                                "NVARCHAR(MAX)", "TEXT"),
+        _C("text_d",   "object",         False, "TEXT",             "String",
+                                                "NVARCHAR(MAX)", "TEXT"),
+    ),
 }
 # fmt: on
 del _C
@@ -93,6 +106,7 @@ STR_LOW_CARDINALITY = 20
 STR_HIGH_LENGTH = 16
 STR_TEXT_LENGTH = 64
 STR_NULL_LENGTH = 16
+WIDE_TEXT_LENGTH = 2_048
 
 # 2020-01-01T00:00:00 .. 2026-01-01T00:00:00 (exclusive), naive UTC.
 _TS_START_MS = 1_577_836_800_000
@@ -156,6 +170,8 @@ def generate_partition(schema: str, spec: PartitionSpec, seed: int) -> pd.DataFr
     ids = np.arange(spec.id_offset, spec.id_offset + n, dtype=np.int64)
     if schema == "numeric":
         data = {"id": ids, "value": rng.standard_normal(n)}
+    elif schema == "wide_text":
+        data = _wide_text_columns(rng, n, ids)
     else:
         data = _wide_mixed_columns(rng, n, ids)
     return pd.DataFrame(data, copy=False)
@@ -253,6 +269,23 @@ def _wide_mixed_columns(rng: np.random.Generator, n: int, ids: np.ndarray) -> di
         "ts_a": (ts_ms * _NS_PER_MS).astype("datetime64[ns]"),
         "date_a": (days.astype(np.int64) * (_MS_PER_DAY * _NS_PER_MS)).astype("datetime64[ns]"),
     }
+
+
+def _wide_text_columns(rng: np.random.Generator, n: int, ids: np.ndarray) -> dict[str, object]:
+    # Draw order is part of the determinism contract: do not reorder.
+    data: dict[str, object] = {"id": ids}
+    for column in SCHEMA_COLUMNS["wide_text"][1:]:
+        values = _fixed_width_strings(_random_ascii(rng, n, WIDE_TEXT_LENGTH), n)
+        if column.dtype == "object":
+            # An explicit object Series: pandas would infer ``str`` from an object ndarray.
+            values = pd.Series(values.to_numpy(dtype=object), dtype=object)
+        data[column.name] = values
+    return data
+
+
+def has_object_columns(schema: str) -> bool:
+    """Whether ``schema`` has ``object`` columns (dask converts them to strings by default)."""
+    return any(column.dtype == "object" for column in columns(schema))
 
 
 def _random_ascii(rng: np.random.Generator, n: int, length: int) -> np.ndarray:

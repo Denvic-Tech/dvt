@@ -1,5 +1,7 @@
+from contextlib import nullcontext
 from typing import ClassVar, Literal
 
+import dask
 import dask.dataframe as dd
 import pandas as pd
 
@@ -25,7 +27,7 @@ class BenchmarkSyntheticDataFrame(DFOutputBaseNode):
     rows: int = InputField(min_value=0, description="Total number of rows.")
     npartitions: int = InputField(default=16, min_value=1, description="Number of partitions.")
     seed: int = InputField(default=42, description="Random seed; equal seeds give equal data.")
-    schema: Literal["wide_mixed", "numeric"] = InputField(
+    schema: Literal["wide_mixed", "numeric", "wide_text"] = InputField(
         default="wide_mixed",
         description="Synthetic column set.",
     )
@@ -35,12 +37,18 @@ class BenchmarkSyntheticDataFrame(DFOutputBaseNode):
     def process(self) -> None:
         # Each partition is a separate from_map task, so N rows are never held in memory at
         # once. Every partition has its own RangeIndex starting at 0, so divisions stay unknown.
-        self.output = dd.from_map(
-            _generate_partition,
-            synthetic.partition_plan(self.rows, self.npartitions),
-            schema=self.schema,
-            seed=self.seed,
-            meta=synthetic.partition_meta(self.schema),
-            label="benchmark-synthetic",
+        # Object columns stay object: dask would otherwise convert them to Arrow strings.
+        keep_objects = synthetic.has_object_columns(self.schema)
+        strings = (
+            dask.config.set({"dataframe.convert-string": False}) if keep_objects else nullcontext()
         )
+        with strings:
+            self.output = dd.from_map(
+                _generate_partition,
+                synthetic.partition_plan(self.rows, self.npartitions),
+                schema=self.schema,
+                seed=self.seed,
+                meta=synthetic.partition_meta(self.schema),
+                label="benchmark-synthetic",
+            )
         record_metric(self.node_id, "rows", self.rows)

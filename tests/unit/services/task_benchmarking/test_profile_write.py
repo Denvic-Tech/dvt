@@ -31,7 +31,7 @@ def test_parse_args_applies_compose_defaults_and_timestamped_out() -> None:
 
     assert (options.host, options.port, options.database) == ("localhost", 33061, "testdb")
     assert (options.user, options.password) == ("testuser", "testpassword")
-    assert (options.rows, options.chunksize, options.repeat, options.warmup) == (62_500, 1000, 3, 1)
+    assert (options.rows, options.chunksize, options.repeat, options.warmup) == (62_500, None, 3, 1)
     assert options.table == "bench_profile_wide"
     assert options.out == Path("tmp/task_benchmarking/profiles/2026-11-06T01-02-03_mysql")
 

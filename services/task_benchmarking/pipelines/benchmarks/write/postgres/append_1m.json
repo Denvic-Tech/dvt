@@ -96,6 +96,10 @@
         "__dvt_type": "const",
         "value": 1000
       },
+      "rows_per_batch": {
+        "__dvt_type": "const",
+        "value": null
+      },
       "sync_column_descriptions": {
         "__dvt_type": "const",
         "value": false
