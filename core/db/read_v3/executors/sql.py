@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import re
+import threading
+from contextlib import nullcontext
+from decimal import Decimal
 from typing import Optional
 
 import pandas as pd
@@ -9,7 +12,7 @@ from sqlalchemy.engine import Engine
 from core.db.read_v3.datetime_precision import pandas_datetime_dtype
 from core.db.read_v3.dialects import resolve_dialect
 from core.db.read_v3.dialects.base import SQLDialect
-from core.db.read_v3.errors import ReadV3ExecutionError
+from core.db.read_v3.errors import ReadV3ConfigError, ReadV3ExecutionError
 from core.db.read_v3.executors.base import Executor
 from core.db.read_v3.models import PartitionStrategy, ReadSegment, ReadV3Plan, ValueKind
 from core.db.read_v3.sql_runner import ReadV3SqlRunner, resolve_sql_runner
@@ -32,10 +35,27 @@ class SQLReadExecutor(Executor):
             )
         )
 
-    def __init__(self, engine: Engine, *, dialect: SQLDialect | None = None):
+    def __init__(
+        self,
+        engine: Engine,
+        *,
+        dialect: SQLDialect | None = None,
+        max_concurrent_queries: int | None = None,
+    ):
         self.engine = engine
         self.dialect = dialect or resolve_dialect(engine)
         self.sql_runner: ReadV3SqlRunner = resolve_sql_runner(engine)
+        if max_concurrent_queries is not None and max_concurrent_queries < 1:
+            raise ReadV3ConfigError(
+                f"max_concurrent_queries must be positive; got {max_concurrent_queries!r}"
+            )
+        # Caps partition queries of this read independently of the consumer's thread pool;
+        # blocked threads sleep on the semaphore. None keeps reads unlimited.
+        self._query_slots = (
+            threading.BoundedSemaphore(max_concurrent_queries)
+            if max_concurrent_queries is not None
+            else None
+        )
 
     def _wrap_sql(self, plan: ReadV3Plan, sql: str) -> str:
         if plan.cte_prefix_sql:
@@ -56,15 +76,27 @@ class SQLReadExecutor(Executor):
             ),
         )
 
-    def _read_sql_bounded(self, sql: str, max_rows: int) -> pd.DataFrame:
+    def _fetch_segment_df(self, sql: str, plan: ReadV3Plan) -> pd.DataFrame:  # noqa: ARG002
+        """Run one row-capped segment query; dialect executors may override the fetch path."""
+        return self.sql_runner.query_df(sql)
+
+    def _read_sql_bounded(
+        self,
+        sql: str,
+        max_rows: int,
+        *,
+        segment_label: str,
+        plan: ReadV3Plan,
+    ) -> pd.DataFrame:
         if max_rows <= 0:
             raise ReadV3ExecutionError("max_rows_per_partition must be positive")
 
         capped_sql = self.dialect.cap_rows_sql(sql, max_rows + 1)
-        df = self.sql_runner.query_df(capped_sql)
+        df = self._fetch_segment_df(capped_sql, plan)
         if len(df) > max_rows:
             raise ReadV3ExecutionError(
-                f"Segment exceeded max_rows_per_partition={max_rows}; rows_read={len(df)}"
+                f"Segment {segment_label!r} exceeded max_rows_per_partition={max_rows} "
+                f"(rows_read={len(df)})"
             )
         return df
 
@@ -260,13 +292,31 @@ class SQLReadExecutor(Executor):
         return cls._dtype_for_kind(kind, type_repr=type_repr, plan=plan, column=column)
 
     @classmethod
+    def _uses_exact_decimal_index(cls, plan: ReadV3Plan) -> bool:
+        """Range index of a fractional Decimal key keeps the key values as the driver returns them.
+
+        Range divisions are key values read from the source: ``Decimal`` for decimal/numeric
+        columns. The float64 output cast rounds them (``Decimal('190.6666')`` becomes
+        ``190.66659999999999``), so a float index would leave rows below their own segment
+        start. Index and divisions both stay exact ``Decimal`` instead; the output column is
+        still cast to float64.
+        """
+        return (
+            plan.strategy == PartitionStrategy.RANGE
+            and plan.partition_key_kind == ValueKind.NUMERIC
+            and not cls._is_integer_type_repr(plan.partition_key_type_repr)
+            and any(isinstance(value, Decimal) for value in plan.divisions)
+        )
+
+    @classmethod
     def _dtype_for_index(cls, plan: ReadV3Plan) -> Optional[str]:
         if plan.index_column_name == plan.hash_bucket_alias:
             return "int64"
 
+        if cls._uses_exact_decimal_index(plan) or cls._uses_raw_mssql_partition_index(plan):
+            return None
+
         if plan.index_column_name == plan.partition_key_alias:
-            if cls._uses_raw_mssql_partition_index(plan):
-                return None
             return cls._dtype_for_kind(
                 plan.partition_key_kind,
                 type_repr=plan.partition_key_type_repr,
@@ -424,7 +474,15 @@ class SQLReadExecutor(Executor):
 
     def load_partition(self, plan: ReadV3Plan, segment: ReadSegment) -> pd.DataFrame:
         sql = self._segment_sql(plan, segment)
-        df = self._read_sql_bounded(sql, max_rows=plan.max_rows_per_partition)
+        # A slot covers the runner call (driver fetch and its DataFrame build); type casts and
+        # index checks below run outside it.
+        with self._query_slots or nullcontext():
+            df = self._read_sql_bounded(
+                sql,
+                max_rows=plan.max_rows_per_partition,
+                segment_label=segment.label,
+                plan=plan,
+            )
 
         if df.empty:
             empty_df = self._typed_empty_output(plan)
@@ -435,6 +493,11 @@ class SQLReadExecutor(Executor):
                 empty_df.index = pd.Index([], name=plan.index_column_name)
             return empty_df
 
+        exact_index = None
+        if self._uses_exact_decimal_index(plan):
+            # Taken before the output casts turn a Decimal key column into float64.
+            exact_index = df[self._pick_index_column(plan, df)]
+
         df = self._apply_output_type_hints(
             df,
             plan,
@@ -443,7 +506,7 @@ class SQLReadExecutor(Executor):
         )
 
         index_col = self._pick_index_column(plan, df)
-        df.index = df[index_col]
+        df.index = df[index_col] if exact_index is None else exact_index
 
         if not df.index.is_monotonic_increasing:
             raise ReadV3ExecutionError(

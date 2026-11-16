@@ -4,7 +4,23 @@ from abc import ABC, abstractmethod
 from datetime import date, datetime
 from typing import Any, Sequence, Optional
 
+import numpy as np
+import pandas as pd
+
 from core.db.read_v3.models import ValueKind
+
+
+def to_python_scalar(value: Any) -> Any:
+    """A numpy scalar as its Python counterpart, so that both render as the same SQL literal.
+
+    ``np.int64`` is not an ``int`` and ``np.bool_`` not a ``bool``: unconverted, they render as
+    quoted strings. ``np.datetime64`` becomes a ``pd.Timestamp`` (a ``datetime``), NaT NULL.
+    """
+    if isinstance(value, np.datetime64):
+        return None if np.isnat(value) else pd.Timestamp(value)
+    if isinstance(value, (np.integer, np.floating, np.bool_)):
+        return value.item()
+    return value
 
 
 class SQLDialect(ABC):
@@ -53,6 +69,7 @@ class SQLDialect(ABC):
         return self.quote_ident(table)
 
     def render_literal(self, value: Any) -> str:
+        value = to_python_scalar(value)
         if value is None:
             return "NULL"
         if isinstance(value, bool):
@@ -98,6 +115,32 @@ class SQLDialect(ABC):
             f"ORDER BY {key_sql} ASC {self.limit_offset(1, offset)}"
         )
 
+    def range_boundaries_query(
+        self,
+        relation_sql: str,
+        key_sql: str,
+        *,
+        page_size: int,
+        non_null_rows: int,
+    ) -> str:
+        """One statement returning every value ``boundary_query`` returns for a range plan.
+
+        The result has one ``boundary_value`` row per 0-based rank ``0, page_size,
+        2 * page_size, ... < non_null_rows`` of the ascending non-NULL key order, ordered by rank.
+        Raise ``NotImplementedError`` when the dialect has no such statement; the planner then
+        runs ``boundary_query`` once per boundary.
+        """
+        raise NotImplementedError("single-statement range boundaries are not supported")
+
+    def row_number_boundaries_query(self, relation_sql: str, key_sql: str, page_size: int) -> str:
+        """``range_boundaries_query`` through ``ROW_NUMBER()``: one sort of the non-NULL keys."""
+        return (
+            f"SELECT boundary_value FROM (SELECT {key_sql} AS boundary_value, "
+            f"ROW_NUMBER() OVER (ORDER BY {key_sql} ASC) AS dvt_rn {relation_sql} "
+            f"WHERE {key_sql} IS NOT NULL) dvt_ranked "
+            f"WHERE MOD(dvt_rn - 1, {page_size}) = 0 ORDER BY dvt_rn"
+        )
+
     def min_max_query(self, relation_sql: str, key_sql: str) -> str:
         return (
             f"SELECT MIN({key_sql}) AS min_v, MAX({key_sql}) AS max_v, "
@@ -124,3 +167,73 @@ class SQLDialect(ABC):
 
     def quoted_or_plain_ident(self, ident: str) -> str:
         return self.quote_ident(ident)
+
+    # --- partition-key statistics (core/db/read_v3/key_stats.py) ---
+
+    def heaviest_value_query(self, relation_sql: str, key_sql: str) -> str:
+        """Exact most repeated key value, NULL included: ``dvt_heavy_value``, ``dvt_heavy_count``.
+
+        Raise ``NotImplementedError`` when the dialect has no query cheap enough to run on every
+        plan; the planner skew guard is then skipped.
+        """
+        raise NotImplementedError("exact heaviest-value query is not supported by this dialect")
+
+    def column_statistics_query(
+        self,
+        *,
+        table_name: str,
+        schema: str | None,
+        column_names: Sequence[str],
+    ) -> str:
+        """Catalog statistics of table columns, one row per column (see ``key_stats``)."""
+        raise NotImplementedError("catalog column statistics are not supported by this dialect")
+
+    def table_sort_key_query(self, *, table_name: str, database: str | None) -> str:
+        """Physical sort key of a table: ``sorting_key``, ``primary_key``, ``sampling_key`` text."""
+        raise NotImplementedError("table sort key lookup is not supported by this dialect")
+
+    def key_stats_query(self, relation_sql: str, columns: Sequence[tuple[str, str]]) -> str:
+        """One statement profiling every ``(name, key_sql)`` column by value groups."""
+        raise NotImplementedError("single-statement key statistics are not supported")
+
+    def key_aggregates_query(self, relation_sql: str, columns: Sequence[tuple[str, str]]) -> str:
+        """One streaming statement with approximate distinct and exact null/min/max counts."""
+        raise NotImplementedError("streaming key aggregates are not supported")
+
+    def key_profile_query(self, relation_sql: str, key_sql: str) -> str:
+        """Distinct, null, total and min/max of one column, computed over its value groups."""
+        return (
+            "SELECT COUNT(dvt_kv) AS distinct_count, "
+            "SUM(CASE WHEN dvt_kv IS NULL THEN dvt_kc ELSE 0 END) AS null_count, "
+            "SUM(dvt_kc) AS total_rows, MIN(dvt_kv) AS min_value, MAX(dvt_kv) AS max_value "
+            f"FROM (SELECT {key_sql} AS dvt_kv, COUNT(*) AS dvt_kc {relation_sql} "
+            f"GROUP BY {key_sql}) dvt_key_groups"
+        )
+
+    def key_top_value_query(self, relation_sql: str, key_sql: str) -> str:
+        """The most repeated non-null value of one column as ``top_value``/``top_count``."""
+        return (
+            f"SELECT {key_sql} AS top_value, COUNT(*) AS top_count {relation_sql} "
+            f"WHERE {key_sql} IS NOT NULL GROUP BY {key_sql} "
+            f"ORDER BY COUNT(*) DESC {self.limit_offset(1, 0)}"
+        )
+
+    def key_sample_relation(
+        self,
+        *,
+        table_sql: str | None,
+        select_list_sql: str,
+        relation_sql: str,
+        sample_rows: int,
+        total_rows: int,  # noqa: ARG002 - used by sampling overrides
+        native_sampling: bool = False,  # noqa: ARG002 - used by sampling overrides
+    ) -> tuple[str, str]:
+        """Return ``(relation_sql, method)`` of about ``sample_rows`` rows of the relation.
+
+        ``table_sql`` is the quoted table in table mode (None in query mode); ``native_sampling``
+        tells that the table declares a sampling key. The default takes the first rows the
+        database returns, which is cheap but not random.
+        """
+        source_sql = f"FROM {table_sql}" if table_sql is not None else relation_sql
+        capped = self.cap_rows_sql(f"SELECT {select_list_sql} {source_sql}", sample_rows)
+        return f"FROM ({capped}) dvt_key_sample", "first_rows"

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
@@ -17,6 +16,7 @@ from core.db.read_v3.datetime_precision import (
 from core.db.read_v3.dialects import resolve_dialect
 from core.db.read_v3.embedded_query import build_read_v3_query_embedding
 from core.db.read_v3.errors import ReadV3ConfigError, ReadV3PlanningError
+from core.db.read_v3.executors.sql import SQLReadExecutor
 from core.db.read_v3.grouping.spec import GroupingSpec, GroupingSpecError
 from core.db.read_v3.models import (
     SUPPORTED_OUTPUT_VALUE_KINDS,
@@ -31,9 +31,12 @@ from core.db.read_v3.partitioning.grouping import build_grouping_segments
 from core.db.read_v3.planner.boundaries import (
     build_hash_segments,
     build_range_segments,
+    clamp_npartitions,
+    default_max_rows_per_partition,
     infer_npartitions,
     query_row_stats,
 )
+from core.db.read_v3.planner.key_skew import check_partition_key_skew
 from core.db.read_v3.query_metadata import describe_query_columns
 from core.db.read_v3.sql_runner import read_sql_df
 from core.utils.dataframe_index import available_index_name
@@ -263,6 +266,7 @@ class QueryReadPlanner:
         max_rows_per_partition: int | None = None,
         partition_grouping: dict | None = None,
         datetime_precision: ReadV3DateTimePrecision | str | None = None,
+        key_skew_check: bool = True,
     ) -> ReadV3Plan:
         resolved_datetime_precision = normalize_datetime_precision(datetime_precision)
         grouping_spec = _grouping_mode(partition_grouping)
@@ -422,7 +426,13 @@ class QueryReadPlanner:
             grouping=grouping_spec,
             fallback=target_npartitions,
         )
-        target_npartitions = 1 if total_rows <= 0 else min(target_npartitions, total_rows)
+        target_npartitions = clamp_npartitions(target_npartitions, total_rows)
+
+        if max_rows_per_partition is None:
+            max_rows_per_partition = default_max_rows_per_partition(total_rows, target_npartitions)
+
+        if max_rows_per_partition <= 0:
+            raise ReadV3ConfigError("max_rows_per_partition must be positive")
 
         output_column_select_exprs = {
             column: dialect.output_select_expr(
@@ -437,6 +447,9 @@ class QueryReadPlanner:
         hash_bucket_alias = available_index_name("__dvt_partition_bucket", selected_columns)
         index_column_name = resolved_partition_col
         adapter_reason = "custom grouping"
+        # Custom grouping checks its own groups (partitioning/grouping.py).
+        key_skew_status = "not_applicable" if key_skew_check else "disabled"
+        range_boundaries_status = "not_applicable"
 
         if grouping_spec is not None and grouping_spec.mode not in {"range", "hash"}:
             grouping_result = build_grouping_segments(
@@ -452,6 +465,8 @@ class QueryReadPlanner:
                 npartitions=target_npartitions,
                 limit=limit,
                 partition_granularity=None,
+                max_rows_per_partition=max_rows_per_partition,
+                max_partitions=max_partitions,
             )
             segments = grouping_result.segments
             divisions = validate_divisions(
@@ -470,14 +485,27 @@ class QueryReadPlanner:
                 explicit_strategy=explicit_strategy,
             )
             adapter_reason = adapter.reason
+            if key_skew_check:
+                key_skew_status = check_partition_key_skew(
+                    engine=engine,
+                    dialect=dialect,
+                    cte_prefix_sql=cte_prefix_sql,
+                    relation_sql=relation_sql,
+                    key_sql=key_sql,
+                    key_name=resolved_partition_col,
+                    total_rows=total_rows,
+                    max_rows_per_partition=max_rows_per_partition,
+                )
             if adapter.strategy == PartitionStrategy.RANGE:
-                segments, divisions, _, _ = build_range_segments(
+                segments, divisions, _, _, range_boundaries_status = build_range_segments(
                     engine=engine,
                     dialect=dialect,
                     cte_prefix_sql=cte_prefix_sql,
                     relation_sql=relation_sql,
                     key_sql=key_sql,
                     npartitions=target_npartitions,
+                    integer_key=key_kind == ValueKind.NUMERIC
+                    and SQLReadExecutor._is_integer_type_repr(partition_key_type_repr),
                 )
                 strategy = PartitionStrategy.RANGE
                 hash_sql = None
@@ -505,13 +533,6 @@ class QueryReadPlanner:
                 select_exprs.append(f"{key_sql} AS {dialect.quote_ident(partition_key_alias)}")
             index_column_name = hash_bucket_alias
 
-        if max_rows_per_partition is None:
-            baseline = max(1, math.ceil(max(total_rows, 1) / max(target_npartitions, 1)))
-            max_rows_per_partition = max(100_000, baseline * 4)
-
-        if max_rows_per_partition <= 0:
-            raise ReadV3ConfigError("max_rows_per_partition must be positive")
-
         return ReadV3Plan(
             mode=ReadMode.QUERY,
             dialect=dialect.name,
@@ -538,6 +559,8 @@ class QueryReadPlanner:
             partition_key_sql_name=partition_key_sql_name,
             extra_warnings=[
                 f"strategy_reason={adapter_reason}",
+                f"key_skew_check={key_skew_status}",
+                f"range_boundaries={range_boundaries_status}",
                 f"limit={limit!r}",
                 f"sample_value={sample_value!r}",
                 f"min={min_v!r}",

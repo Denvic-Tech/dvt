@@ -10,6 +10,7 @@ from sqlalchemy import Engine, Row, create_engine, inspect as sa_inspect
 from core.db.connect.sqlalchemy_url import with_database
 from core.db.read_v3.dialects import resolve_dialect
 from core.db.read_v3.query_metadata import describe_query_columns
+from core.db.read_v3.sql_runner import execute_literal_sql
 
 from src.constants import UNSET
 from src.node_dsl import IO, BaseNode, InputField, NodeValidationError, OutputField
@@ -567,7 +568,7 @@ class ReadVariablesFromDB(
         context: str,
     ) -> tuple[list[str], Sequence[Row[Any]]]:
         with engine.connect() as conn:
-            result = conn.exec_driver_sql(sql_query)
+            result = execute_literal_sql(conn, sql_query)
             column_names = [str(column_name) for column_name in result.keys()]
             rows = result.fetchmany(2)
 

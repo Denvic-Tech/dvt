@@ -429,16 +429,18 @@ def test_write_v3_clickhouse_build_column_meta_preserves_nullable_type_names() -
 
 
 @pytest.mark.parametrize(
-    ("mode", "expected_table", "expected_async_insert"),
+    ("mode", "async_insert", "expected_table", "expected_async_insert"),
     [
-        (WriteMode.APPEND, "events", True),
-        (WriteMode.TRUNCATE, "events_stg", False),
-        (WriteMode.UPSERT, "events_stg", False),
+        (WriteMode.APPEND, False, "events", False),
+        (WriteMode.APPEND, True, "events", True),
+        (WriteMode.TRUNCATE, True, "events_stg", False),
+        (WriteMode.UPSERT, True, "events_stg", False),
     ],
 )
-def test_write_v3_clickhouse_execute_enables_async_insert_only_for_append(
+def test_write_v3_clickhouse_execute_uses_async_insert_only_when_requested_for_append(
     monkeypatch,
     mode: WriteMode,
+    async_insert: bool,
     expected_table: str,
     expected_async_insert: bool,
 ) -> None:
@@ -478,6 +480,7 @@ def test_write_v3_clickhouse_execute_enables_async_insert_only_for_append(
         "mode": mode,
         "target": WriteTarget(table_name="events"),
         "write_workers": 1,
+        "async_insert": async_insert,
     }
     if mode == WriteMode.UPSERT:
         request_kwargs["upsert"] = UpsertConfig(key_column="id")

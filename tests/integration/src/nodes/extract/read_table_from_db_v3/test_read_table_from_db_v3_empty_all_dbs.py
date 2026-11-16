@@ -53,7 +53,8 @@ def test_read_table_from_db_v3_empty_table_preserves_meta_types_across_all_datab
         metadata_columns = metadata.columns
         id_columns = [column for column in metadata_columns if column.name.lower() == "id"]
         assert len(id_columns) == 1
-        assert id_columns[0].index is True
+        # The partition index is a service index with its own name, not the business column.
+        assert id_columns[0].index is False
         expected_id_type = EXPECTED_WIDE_TYPES_BY_FAMILY[dialect_family(engine)]["id"]
         assert id_columns[0].dtype == expected_id_type
         assert len([column.name.lower() for column in metadata_columns]) == len(

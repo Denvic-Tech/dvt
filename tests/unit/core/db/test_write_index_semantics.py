@@ -47,7 +47,7 @@ WRITERS = [
         make_request=lambda table_name: WriteRequestV4(
             mode=WriteModeV4.APPEND,
             target=WriteTargetV4(table_name=table_name),
-            chunksize=100,
+            rows_per_batch=100,
             write_workers=1,
         ),
         write=write_dataframe_v4,

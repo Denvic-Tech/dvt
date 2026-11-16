@@ -467,6 +467,29 @@ async def query_database_readonly(
     return await _call("query_database_readonly", locals())
 
 
+@mcp.tool(annotations=READ_OPEN)
+async def suggest_read_partitioning(
+    connection_id: str,
+    table_name: str | None = None,
+    sql_code: str | None = None,
+    database_name: str | None = None,
+    schema_name: str | None = None,
+    columns: list[str] | None = None,
+    read_columns: list[str] | None = None,
+    candidate_limit: int | None = None,
+    npartitions: int | None = None,
+    max_rows_per_partition: int | None = None,
+) -> dict[str, Any]:
+    """Profile partition-key candidates of a table or read-only query for database readers.
+
+    Pass exactly one of table_name or sql_code. Returns per-column statistics (distinct count,
+    heaviest value and its count, NULLs, min/max; exact or marked as estimates), the planner's
+    target partition count and row ceiling, ranked partition_col/partition_grouping/npartitions/
+    max_rows_per_partition recommendations, and excluded columns with reasons.
+    """
+    return await _call("suggest_read_partitioning", locals())
+
+
 @mcp.tool(annotations=WRITE_DDL)
 async def create_database(connection_id: str, database_name: str) -> dict[str, Any]:
     """Create a missing database through a scoped SQL connection; existing targets are unchanged."""

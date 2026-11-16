@@ -96,6 +96,27 @@ these fields remains readable; refresh metadata or rerun the node to obtain comm
 Propagation through transform nodes and creating/updating/deleting comments are outside this
 read-only feature.
 
+## Read partitioning advice
+
+`suggest_read_partitioning` profiles partition-key candidates before an agent sets
+`partition_col` / `partition_grouping` of `ReadTableFromDBV3` or `ReadQueryFromDBV3`. Pass
+`connection_id` and exactly one of `table_name` (with optional `database_name` /
+`schema_name`) or `sql_code`; optional `columns` (candidates; default up to `candidate_limit`
+scalar columns, sort-key/index columns first), `read_columns` (the reader's selected columns,
+for the row width), `npartitions` and `max_rows_per_partition` (planned overrides).
+
+The response holds per-column `statistics` (distinct count, `max_repeat` with
+`max_repeat_value`, NULLs, min/max, `source` and `estimated`), the planner `sizing`
+(`target_npartitions`, rows per partition, the `max_rows_per_partition` ceiling),
+ranked `recommendations` with node-ready `partition_col`, `partition_grouping`, `npartitions`
+and `max_rows_per_partition` plus reasons/warnings, and `excluded` columns with reasons.
+Relations up to `READ_V3_KEY_STATS_SAMPLE_ROWS` rows are profiled exactly; larger ones use
+estimates (ClickHouse `uniq` plus a sample, PostgreSQL `pg_stats`, sampling elsewhere).
+Queries follow the `query_database_readonly` policy (one read-only SELECT/WITH, PostgreSQL,
+MySQL, Oracle and ClickHouse only) and the request is limited by
+`READ_V3_KEY_STATS_TIMEOUT_SEC`. The same contract is available as
+`POST /db-connections/{connection_id}/partitioning-advice`.
+
 ## Preparing write targets
 
 Use scoped MCP DDL for one-time preparation before applying/running the graph. Configure the

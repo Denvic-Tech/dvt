@@ -3,9 +3,25 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import pandas as pd
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, CursorResult, Engine
 
 from core.db.connect import build_clickhouse_client_kwargs, create_clickhouse_client
+
+
+def execute_literal_sql(connection: Connection, sql: str) -> CursorResult:
+    """Run SQL text exactly as written, for every SQLAlchemy dialect.
+
+    ``exec_driver_sql`` without parameters still hands the DB-API an empty parameter collection,
+    and drivers with the format/pyformat paramstyle (psycopg, psycopg2, pymysql and both
+    clickhouse-sqlalchemy cursors, http and native) then parse ``%`` as a placeholder:
+    ``LIKE 'A%'`` and ``a % b`` fail, ``'%%'`` turns into ``'%'`` and ``'%s'`` becomes a bind
+    marker. ``no_parameters`` calls ``cursor.execute(sql)`` with no parameter collection, so the
+    text means what it means in psql or the mysql client. qmark and named drivers (sqlite3,
+    pyodbc, oracledb) never treat ``%`` specially. clickhouse-sqlalchemy has no
+    ``do_execute_no_params`` of its own, so per-statement execution options (``settings``,
+    ``stream_results``, external tables) do not reach its cursor on this path.
+    """
+    return connection.exec_driver_sql(sql, execution_options={"no_parameters": True})
 
 
 def _normalize_type_repr(value: object) -> str:
@@ -33,7 +49,7 @@ class ReadV3SqlRunner(ABC):
 class SqlAlchemyReadV3SqlRunner(ReadV3SqlRunner):
     def query_df(self, sql: str) -> pd.DataFrame:
         with self.engine.connect() as conn:
-            result = conn.exec_driver_sql(sql)
+            result = execute_literal_sql(conn, sql)
             if not result.returns_rows:
                 return pd.DataFrame()
             columns = list(result.keys())

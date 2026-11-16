@@ -186,7 +186,10 @@ def align_partition_to_table(
     request: WriteRequest,
     *,
     include_default_only_diagnostic: bool = True,
+    cast_to_object: bool = True,
 ) -> ColumnAlignment:
+    """Align a partition to ``table``; ``cast_to_object=False`` keeps the source dtypes and NaN/NaT
+    (the ClickHouse executor converts typed columns itself instead of ``object`` + ``None``)."""
     working = normalize_index_for_db_write(pdf.copy())
     working = drop_internal_dvt_columns(working)
     source_dataframe_columns = [str(column) for column in working.columns]
@@ -254,7 +257,7 @@ def align_partition_to_table(
         ]
         if invalid_columns:
             _raise_non_nullable_numeric_nulls_error(table, invalid_columns)
-    if insert_column_names:
+    if insert_column_names and cast_to_object:
         normalized = normalized.astype(object).where(pd.notna(normalized), None)
 
     diagnostics: list[WriteDiagnostic] = []

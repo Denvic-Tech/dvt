@@ -1,6 +1,5 @@
-import atexit
+import argparse
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -9,9 +8,7 @@ try:
         PROJECT_DIR,
         build_prod_compose_command,
         build_testing_compose_command,
-        create_isolated_extensions_dir,
         ensure_external_docker_network,
-        parse_test_script_args,
         resolve_test_target,
         run_command,
     )
@@ -20,9 +17,7 @@ except ModuleNotFoundError:
         PROJECT_DIR,
         build_prod_compose_command,
         build_testing_compose_command,
-        create_isolated_extensions_dir,
         ensure_external_docker_network,
-        parse_test_script_args,
         resolve_test_target,
         run_command,
     )
@@ -56,25 +51,25 @@ env.update(
 
 
 if __name__ == "__main__":
-    test_path, pytest_args, extension_name = parse_test_script_args()
+    parser = argparse.ArgumentParser(description="Run dockerized DVT integration tests.")
+    parser.add_argument(
+        "test_path",
+        nargs="?",
+        default=None,
+        help="Optional test file/directory path (or pytest node id with ::) inside "
+        "tests/integration.",
+    )
+    args, pytest_args = parser.parse_known_args()
 
-    if test_path is not None:
-        try:
-            test_selection = [
-                "--core-target",
-                resolve_test_target(
-                    project_dir=PROJECT_DIR,
-                    tests_dir="tests/integration",
-                    test_path=test_path,
-                ),
-            ]
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            sys.exit(2)
-    elif extension_name is not None:
-        test_selection = ["--extension", extension_name]
-    else:
-        test_selection = ["--core-with-extensions"]
+    try:
+        test_target = resolve_test_target(
+            project_dir=PROJECT_DIR,
+            tests_dir="tests/integration",
+            test_path=args.test_path,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(2)
 
     use_candidates = env.get("DVT_INTEGRATION_USE_CANDIDATES", "false").lower() == "true"
     require_candidate_digests = (
@@ -129,13 +124,6 @@ if __name__ == "__main__":
         if app_build_exit_code != 0:
             sys.exit(app_build_exit_code)
 
-    extensions_dir = create_isolated_extensions_dir(
-        project_dir=PROJECT_DIR,
-        tests_type="integration",
-    )
-    atexit.register(shutil.rmtree, extensions_dir, ignore_errors=True)
-    env["EXTENSIONS_VOLUME_PATH"] = str(extensions_dir)
-
     tester_build_exit_code = run_command(
         build_testing_compose_command(
             PROJECT_DIR,
@@ -156,13 +144,9 @@ if __name__ == "__main__":
             "--rm",
             "tester_integration",
             "python",
-            "scripts/docker/run_tests_with_extensions.py",
-            "--tests-type",
-            "integration",
-            "--extensions-dir",
-            "/app/extensions",
-            *test_selection,
-            "--",
+            "-m",
+            "pytest",
+            test_target,
             "-s",
             "-vv",
             *pytest_args,

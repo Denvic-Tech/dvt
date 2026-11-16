@@ -4,7 +4,18 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .. import catalog, context, data, ddl, ddl_columns, graph, projects, schedules, tasks
+from .. import (
+    catalog,
+    context,
+    data,
+    ddl,
+    ddl_columns,
+    graph,
+    partitioning,
+    projects,
+    schedules,
+    tasks,
+)
 from ..errors import AIMCPHTTPError
 
 ToolHandler = Callable[..., Awaitable[dict[str, Any]]]
@@ -108,6 +119,9 @@ TOOLS: dict[str, Tool] = {
     "browse_database": Tool(data.browse_database, ("redis",)),
     "get_database_table": Tool(data.get_database_table, ("redis",)),
     "query_database_readonly": Tool(data.query_database_readonly),
+    "suggest_read_partitioning": Tool(
+        partitioning.suggest_read_partitioning, reject_reserved_arguments=True
+    ),
     "list_storage": Tool(data.list_storage, ("session",)),
     "preview_storage_file": Tool(data.preview_storage_file, ("session",)),
     "create_database": Tool(ddl.create_database, ("redis",)),

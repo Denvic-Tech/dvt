@@ -39,6 +39,8 @@ class WriteRequest(BaseModel):
     target: WriteTarget
     chunksize: int | None = Field(default=1000, ge=1)
     write_workers: int = Field(default=1, ge=1)
+    # ClickHouse append only: server-side async_insert with wait_for_async_insert=1.
+    async_insert: bool = False
     upsert: UpsertConfig | None = None
     on_extra_df_columns: ExtraColumnsMode = ExtraColumnsMode.ERROR
     on_missing_df_columns: MissingColumnsMode = MissingColumnsMode.IGNORE_IF_DEFAULT

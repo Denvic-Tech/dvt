@@ -92,7 +92,18 @@ def test_port_observations_cover_every_dataframe_output_of_any_node():
     ]
     first = observed[0].columns
     assert [(c.name, c.dtype, c.nullable, c.ordinal) for c in first] == [("id", "INT", False, 1), ("name", "STRING", True, 2)]
+    assert [c.comment for c in first] == ["pk", None], "column comments travel with the observation"
     assert observed[0].graph_revision is None, "the use case fills the revision from the project stamp"
+
+    parquet = build_port_observations(
+        _node(WriteDataFrameToDBV4, node_id="lp"),
+        _metadata(
+            Column(name="group", dtype=DataType.STRING, comment="  Товарная группа "),
+            Column(name="blank", dtype=DataType.STRING, comment="   "),
+        ),
+        project_id="p1",
+    )
+    assert [c.comment for c in parquet[0].columns] == ["Товарная группа", None]
 
     assert build_port_observations(_node(node_id="__service_output__x"), metadata, project_id="p1") == ()
     assert build_port_observations(_node(), {"output": "not metadata"}, project_id="p1") == ()

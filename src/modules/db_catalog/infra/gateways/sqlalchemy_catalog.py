@@ -42,6 +42,7 @@ from src.modules.db_catalog.domain.gateways import CatalogSourceGateway, TablePr
 from src.modules.db_catalog.domain.policies import decode_cursor, encode_cursor
 
 from .table_comments import table_comments_statement
+from .table_row_count import table_row_count_statement
 
 TABLE_PREVIEW_ROW_LIMIT = 50
 
@@ -258,6 +259,11 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
             raw_rows = db_connection.execute(statement).fetchmany(TABLE_PREVIEW_ROW_LIMIT + 1)
 
         has_more_rows = len(raw_rows) > TABLE_PREVIEW_ROW_LIMIT
+        if has_more_rows:
+            row_count, row_count_exact = self._fetch_row_count(engine, connection, request)
+        else:
+            # The whole table fit into the preview read, so its size is already known.
+            row_count, row_count_exact = len(raw_rows), True
         preview = CatalogTablePreview(columns=columns, rows=(), truncated=has_more_rows)
         if _preview_payload_size(preview) > self._preview_max_response_bytes:
             raise CatalogPreviewTooLargeError("DB table preview columns exceed the size limit.")
@@ -291,7 +297,45 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
             columns=columns,
             rows=tuple(rows),
             truncated=truncated,
+            row_count=row_count,
+            row_count_exact=row_count_exact,
         )
+
+    def _fetch_row_count(
+        self,
+        engine: sa.Engine,
+        connection: AuthorizedCatalogConnection,
+        request: CatalogTablePreviewRequest,
+    ) -> tuple[int | None, bool]:
+        """Read the table size from DBMS statistics; the table itself is never scanned."""
+        entry = table_row_count_statement(connection.dialect)
+        if entry is None:
+            return None, False
+        statement, exact = entry
+        name, schema = request.table_name, request.schema_name
+        if connection.dialect == "oracle":
+            # The catalog stores case-insensitive identifiers in upper case.
+            name = engine.dialect.denormalize_name(name)
+            schema = engine.dialect.denormalize_name(schema) if schema else schema
+        params = {
+            "name": name,
+            "schema": schema,
+            "database": request.database_name or connection.configured_database,
+        }
+        try:
+            # Separate connection: a failed optional query must not break the preview itself.
+            with engine.connect() as db_connection:
+                self._apply_session_deadline(db_connection, connection.dialect)
+                value = db_connection.execute(statement, params).scalar()
+            row_count = int(value) if value is not None else None
+        except (sa.exc.SQLAlchemyError, OSError, TypeError, ValueError):
+            logger.warning("Unable to read optional table row count for preview.")
+            return None, False
+        # Called only when the table holds more rows than the preview limit, so a smaller
+        # value is stale or missing statistics rather than a usable number.
+        if row_count is None or row_count <= TABLE_PREVIEW_ROW_LIMIT:
+            return None, False
+        return row_count, exact
 
     @staticmethod
     def _build_preview_statement(table: sa.Table) -> sa.Select:

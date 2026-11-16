@@ -197,6 +197,7 @@ def build_data_catalog_use_cases(
             freshness=freshness,
             annotations=annotations,
             datasets=datasets,
+            observations=observations,
         ),
         explain_field=ExplainField(
             projections=projections,
@@ -204,6 +205,7 @@ def build_data_catalog_use_cases(
             renderer=renderer,
             freshness=freshness,
             annotations=annotations,
+            observations=observations,
         ),
         get_field_dependents=GetFieldDependents(
             datasets=datasets, fields=fields, links=links, projections=projections, freshness=freshness
@@ -220,6 +222,7 @@ def build_data_catalog_use_cases(
             datasets=datasets,
             annotations=annotations,
             freshness=freshness,
+            observations=observations,
         ),
         sync_schema=sync_schema,
         refresh_schema=refresh_schema,
@@ -256,6 +259,7 @@ async def resolve_port_descriptions(
         renderer=_NullRenderer(),
         annotations=SQLAlchemyNodeColumnAnnotationRepository(session),
         datasets=SQLAlchemyDatasetRepository(session),
+        observations=SQLAlchemyNodePortObservationRepository(session),
     )
     try:
         result = await use_case.execute(

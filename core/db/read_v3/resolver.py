@@ -9,6 +9,7 @@ from core.db.read_v3.executors.sql import SQLReadExecutor
 from core.db.read_v3.planner.query import QueryReadPlanner
 from core.db.read_v3.planner.table import TableReadPlanner
 
+
 @overload
 def resolve_planner(mode: Literal["table"] = "table") -> TableReadPlanner: ...
 
@@ -23,8 +24,10 @@ def resolve_planner(mode: Literal["table", "query"] = "table") -> TableReadPlann
     raise ReadV3ConfigError(f"Unsupported read_v3 mode={mode!r}; expected 'table' or 'query'")
 
 
-def resolve_executor(engine: Engine):
+def resolve_executor(engine: Engine, *, max_concurrent_queries: int | None = None):
     dialect = resolve_dialect(engine)
     if dialect.name == "clickhouse":
-        return ClickHouseReadExecutor(engine, dialect=dialect)
-    return SQLReadExecutor(engine, dialect=dialect)
+        return ClickHouseReadExecutor(
+            engine, dialect=dialect, max_concurrent_queries=max_concurrent_queries
+        )
+    return SQLReadExecutor(engine, dialect=dialect, max_concurrent_queries=max_concurrent_queries)

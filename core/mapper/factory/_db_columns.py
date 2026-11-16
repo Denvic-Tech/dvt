@@ -21,16 +21,26 @@ from ._shared import CH_TYPES
 
 
 ORACLE_DEFAULT_VARCHAR2_LENGTH = 4000
+# MySQL/MariaDB cannot use TEXT in a key without a prefix length, so key columns get VARCHAR.
+MYSQL_KEY_VARCHAR_LENGTH = 255
 
 
-def _get_sqla_type_from_db_column(column: DBColumn, dialect: Dialect, use_jsonb_pg: bool = True) -> TypeEngine:
+def _get_sqla_type_from_db_column(
+    column: DBColumn,
+    dialect: Dialect,
+    use_jsonb_pg: bool = True,
+    is_key: bool = False,
+) -> TypeEngine:
     """
     Определяет SQLAlchemy-тип на основе метаданных колонки (DBColumn) для заданного dialect.
+
+    `is_key` — колонка входит в первичный ключ (влияет на строковый тип MySQL/MariaDB).
     """
     dtype = column.dtype
     nullable = column.nullable or False
 
     is_ch = dialect.name == "clickhouse"
+    is_mysql = dialect.name in ("mysql", "mariadb")
 
     if dtype == DataType.INT:
         base = BigInteger  # Безопасный выбор по умолчанию, т.к. нет информации о диапазоне
@@ -43,6 +53,9 @@ def _get_sqla_type_from_db_column(column: DBColumn, dialect: Dialect, use_jsonb_
     if dtype == DataType.FLOAT:
         if is_ch:
             return CH_TYPES.Float64 if not nullable else CH_TYPES.Nullable(CH_TYPES.Float64)
+        if is_mysql:
+            # MySQL FLOAT is single precision (about 7 digits); DataType.FLOAT is float64.
+            return mysql_dialect.DOUBLE()
         return td.FloatWithNA() if nullable else Float
 
     if dtype == DataType.BOOLEAN:
@@ -84,6 +97,12 @@ def _get_sqla_type_from_db_column(column: DBColumn, dialect: Dialect, use_jsonb_
 
         if dialect.name == "oracle":
             return oracle_dialect.VARCHAR2(ORACLE_DEFAULT_VARCHAR2_LENGTH)
+
+        if is_mysql:
+            # VARCHAR needs a length on MySQL and DBColumn carries none: TEXT holds any value.
+            if is_key:
+                return mysql_dialect.VARCHAR(MYSQL_KEY_VARCHAR_LENGTH)
+            return mysql_dialect.TEXT()
 
         return td.StringyType()
 
@@ -162,7 +181,9 @@ def build_table_from_db_columns(
     for db_column in columns:
         raw_name = db_column.name
         eng_name = ru2en_map[raw_name]
-        sqla_type: TypeEngine = _get_sqla_type_from_db_column(db_column, dialect)
+        sqla_type: TypeEngine = _get_sqla_type_from_db_column(
+            db_column, dialect, is_key=eng_name in pk_list
+        )
         nullable = db_column.nullable or False
 
         is_single_pk = (eng_name in pk_list and len(pk_list) == 1)

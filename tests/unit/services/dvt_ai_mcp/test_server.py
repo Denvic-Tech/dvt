@@ -53,6 +53,7 @@ EXPECTED_TOOLS = {
     "browse_database",
     "get_database_table",
     "query_database_readonly",
+    "suggest_read_partitioning",
     "create_database",
     "create_schema",
     "create_table",

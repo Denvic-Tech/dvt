@@ -87,6 +87,7 @@ from .fixtures.gateway_live import (  # noqa: E402
     gateway_live_unauthenticated_client,  # noqa: F403
     gateway_setup_credentials,  # noqa: F403
 )
+from .fixtures.percent_sql import percent_table  # noqa: E402, F401
 from .fixtures.project import test_admin_project, test_user_project  # noqa: F403E402
 from .fixtures.queue_topic import (  # noqa: E402
     other_queue_topic,  # noqa: F403

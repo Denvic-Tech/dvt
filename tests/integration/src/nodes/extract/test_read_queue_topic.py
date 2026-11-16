@@ -4,6 +4,7 @@ import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 import pytest
+from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from core.types import Column
@@ -13,13 +14,23 @@ from src.nodes.extract.read_queue_topic import ReadQueueTopic
 from src.pipeline.execution_mode import PipelineExecutionMode
 
 
+def _shared_memory_engine():
+    # One shared connection: the node's process() runs in a worker thread, and a plain
+    # in-memory SQLite engine gives every thread its own empty database.
+    return create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+
 class TestReadQueueTopic:
     """Группа тестов для ноды чтения из Redis Stream (Queue Topic)"""
 
     @pytest.fixture
     def mock_db_session(self):
         """Фикстура для временной базы метаданных в памяти"""
-        engine = create_engine("sqlite:///:memory:")
+        engine = _shared_memory_engine()
         SQLModel.metadata.create_all(engine)
 
         with Session(engine) as session:
@@ -145,7 +156,7 @@ class TestReadQueueTopic:
     @pytest.mark.asyncio
     async def test_topic_not_found(self):
         """Тестирует поведение, если ID топика не существует в БД"""
-        engine = create_engine("sqlite:///:memory:")
+        engine = _shared_memory_engine()
         SQLModel.metadata.create_all(engine)
 
         node = ReadQueueTopic(

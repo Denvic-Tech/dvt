@@ -8,7 +8,7 @@ Execute database-side SQL when a specialized read/transform/write node cannot ex
 
 ## Inputs and configuration
 
-Connect `GetExistDBConnection.connection` → `connection`; supply non-empty `sql_code` in the source dialect. Supported SQL templates can reference available input/project variables; follow the current SQL input schema.
+Connect `GetExistDBConnection.connection` → `connection`; supply non-empty `sql_code` in the source dialect. Supported SQL templates can reference available input/project variables; follow the current SQL input schema. The resulting SQL text reaches the database as written: `%` is not a placeholder, so `LIKE 'A%'`, the modulo operator and `'%%'` (two percent signs) mean what they mean in the database's own client.
 
 ## Outputs
 

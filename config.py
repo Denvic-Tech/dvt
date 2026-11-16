@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
+from core.db.concurrency import DIALECT_CONCURRENCY
 from core.security import derive_legacy_auth_secret
 
 _TRUE_STATEMENT_TOKENS = ("true", "yes", "1", "on")
@@ -12,6 +13,15 @@ def _get_positive_int_env(name: str, default: int) -> int:
     if value <= 0:
         raise ValueError(f"{name} must be a positive integer")
     return value
+
+
+def _get_dialect_positive_int_envs(prefix: str) -> dict[str, int]:
+    """Read ``<prefix><DIALECT>`` overrides for the dialect keys of ``core.db.concurrency``."""
+    return {
+        dialect: _get_positive_int_env(f"{prefix}{dialect.upper()}", 1)
+        for dialect in DIALECT_CONCURRENCY
+        if os.getenv(f"{prefix}{dialect.upper()}")
+    }
 
 
 class COMMON:
@@ -403,6 +413,34 @@ class PROJECT_SCHEDULER:
 class OTHER:
     BULK_INSERT_NUM_WORKERS = int(os.getenv(f"BULK_INSERT_NUM_WORKERS", 8))
     SQL_BULK_INSERT_MAX_WORKERS = int(os.getenv("SQL_BULK_INSERT_MAX_WORKERS", 32))
+    # "dialect": write workers, rows per INSERT of WriteDataFrameToDBV3 and per-read query limits
+    # default to core/db/concurrency.py, WriteDataFrameToDBV4 sizes its batches automatically;
+    # "legacy": BULK_INSERT_NUM_WORKERS for writes, 1000 rows per INSERT/batch and no read limit.
+    # Explicit project workers_count, node chunksize (V3), rows_per_batch (V4) and
+    # max_concurrent_queries win under both policies.
+    DB_CONCURRENCY_POLICY = os.getenv("DB_CONCURRENCY_POLICY", "dialect").lower()
+    if DB_CONCURRENCY_POLICY not in {"dialect", "legacy"}:
+        raise ValueError("DB_CONCURRENCY_POLICY must be either 'dialect' or 'legacy'")
+    # Per-dialect overrides of the "dialect" policy, e.g. DB_WRITE_WORKERS_POSTGRESQL=2,
+    # DB_READ_CONCURRENCY_MSSQL=2. Keys: postgresql, mssql, mysql (also MariaDB), sqlite,
+    # clickhouse, oracle.
+    DB_WRITE_WORKERS_OVERRIDES = _get_dialect_positive_int_envs("DB_WRITE_WORKERS_")
+    DB_READ_CONCURRENCY_OVERRIDES = _get_dialect_positive_int_envs("DB_READ_CONCURRENCY_")
+    # WriteDataFrameToDBV4 into PostgreSQL over psycopg 3: write partitions through
+    # COPY FROM STDIN (one transaction per partition); false keeps executemany INSERTs.
+    DB_PG_COPY = os.getenv("DB_PG_COPY", "true").lower() in _TRUE_STATEMENT_TOKENS
+    # WriteDataFrameToDBV4 into SQL Server over pyodbc: write partitions through pyodbc
+    # fast_executemany with declared parameter types (one transaction per partition); false
+    # keeps SQLAlchemy INSERTs.
+    DB_MSSQL_FAST_EXECUTEMANY = (
+        os.getenv("DB_MSSQL_FAST_EXECUTEMANY", "true").lower() in _TRUE_STATEMENT_TOKENS
+    )
+    # WriteDataFrameToDBV4 into MySQL/MariaDB over PyMySQL: write partitions through
+    # cursor.executemany (multi-row INSERTs, one transaction per partition); false keeps
+    # SQLAlchemy INSERTs.
+    DB_MYSQL_BULK_INSERT = (
+        os.getenv("DB_MYSQL_BULK_INSERT", "true").lower() in _TRUE_STATEMENT_TOKENS
+    )
     SQL_ENGINE_MAX_CONNECTIONS = int(os.getenv("SQL_ENGINE_MAX_CONNECTIONS", 32))
     SQL_ENGINE_POOL_TIMEOUT_SEC = int(os.getenv("SQL_ENGINE_POOL_TIMEOUT_SEC", 30))
     REDIS_IDLE_CONNECTION_TTL_SEC = int(os.getenv("REDIS_IDLE_CONNECTION_TTL_SEC", 180))
@@ -427,6 +465,20 @@ class DASK_PARTITIONING:
     OVERHEAD_COEF = float(os.getenv("OVERHEAD_COEF", "1.8"))
     MIN_ROWS_PER_PART = int(os.getenv("MIN_ROWS_PER_PART", "10000"))
     MAX_PARTITIONS = int(os.getenv("MAX_PARTITIONS", "5000"))
+    # read_v3: before building range/hash segments of a relation above max_rows_per_partition,
+    # look up the most repeated partition-key value (one GROUP BY on ClickHouse, pg_stats on
+    # PostgreSQL tables, skipped elsewhere) and fail planning when it alone exceeds the ceiling.
+    READ_V3_KEY_SKEW_CHECK = (
+        os.getenv("READ_V3_KEY_SKEW_CHECK", "true").lower() in _TRUE_STATEMENT_TOKENS
+    )
+    # Partitioning advice (core/db/read_v3/key_stats.py): a relation with at most this many rows
+    # is profiled exactly; a larger one on a sample of about this many rows (estimates).
+    READ_V3_KEY_STATS_SAMPLE_ROWS = _get_positive_int_env(
+        "READ_V3_KEY_STATS_SAMPLE_ROWS", 1_000_000
+    )
+    # Partitioning advice request budget and per-statement timeout, seconds; keep it below the
+    # MCP client HTTP timeout (58 s) so a slow source returns a clear error to the agent.
+    READ_V3_KEY_STATS_TIMEOUT_SEC = _get_positive_int_env("READ_V3_KEY_STATS_TIMEOUT_SEC", 50)
 
 
 class WS_FORWARD:

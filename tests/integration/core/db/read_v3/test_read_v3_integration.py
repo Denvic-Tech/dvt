@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 import pandas as pd
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import text
 
+from core.db.read_v3._auto_partition import (
+    ROW_OVERHEAD_BYTES,
+    TABLE_BPR_SAFETY_COEF,
+    estimate_table_bytes_per_row,
+)
 from core.db.read_v3.dask import frame_from_executor
+from core.db.read_v3.dialects.postgres import PostgresDialect
 from core.db.read_v3.errors import ReadV3ExecutionError
+from core.db.read_v3.planner.boundaries import query_range_boundaries
 from core.db.read_v3.resolver import resolve_executor, resolve_planner
 
 import config
@@ -352,3 +360,142 @@ def test_read_v3_query_mode_casts_bool_like_values_to_string_without_meta_mismat
     assert values[2] in {"1", "1.0"}
     assert values[3] in {"0", "0.0"}
     assert pd.isna(values[4])
+
+
+PG_BOUNDARY_ROWS = 30_000
+PG_BOUNDARY_KEYS = ["k_int", "k_str", "k_dt", "k_dec", "n_int", "n_str", "n_dt", "n_dec"]
+
+
+class _OffsetOnlyPostgresDialect(PostgresDialect):
+    def range_boundaries_query(self, relation_sql, key_sql, *, page_size, non_null_rows):
+        raise NotImplementedError
+
+
+@pytest.fixture
+def postgres_boundary_table(postgres_test_engine: sa.Engine):
+    engine = postgres_test_engine
+    table_name = f"rv3_bounds_{uuid4().hex[:8]}"
+    # Duplicated keys in a physical order unrelated to the key order; NULLs in the n_* columns.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE {table_name} AS
+                SELECT g::bigint AS id,
+                       ((g * 7919) % 4000 - 2000)::bigint AS k_int,
+                       's' || ((g * 104729) % 2500) AS k_str,
+                       timestamp '2024-01-01' + ((g * 31) % 3000) * interval '1 minute' AS k_dt,
+                       (((g * 613) % 7000)::numeric / 3)::numeric(18, 4) AS k_dec,
+                       CASE WHEN g % 17 = 0 THEN NULL ELSE ((g * 389) % 900)::bigint END AS n_int,
+                       CASE WHEN g % 19 = 0 THEN NULL ELSE 'n' || ((g * 211) % 700) END AS n_str,
+                       CASE WHEN g % 23 = 0 THEN NULL
+                            ELSE timestamp '2020-01-01' + ((g * 17) % 800) * interval '1 hour'
+                       END AS n_dt,
+                       CASE WHEN g % 29 = 0 THEN NULL
+                            ELSE (((g * 97) % 600)::numeric / 7)::numeric(18, 4)
+                       END AS n_dec
+                FROM generate_series(0::bigint, {PG_BOUNDARY_ROWS - 1}) AS g
+                """
+            )
+        )
+        conn.execute(text(f"ALTER TABLE {table_name} ADD PRIMARY KEY (id)"))
+        conn.execute(text(f"ANALYZE {table_name}"))
+    yield engine, table_name
+    with engine.begin() as conn:
+        conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+
+
+@pytest.mark.docker_required
+@pytest.mark.parametrize("key", PG_BOUNDARY_KEYS)
+def test_postgres_single_query_range_boundaries_match_offset_queries(
+    postgres_boundary_table, key: str
+) -> None:
+    engine, table_name = postgres_boundary_table
+    with engine.connect() as conn:
+        non_null_rows = conn.execute(text(f"SELECT count({key}) FROM {table_name}")).scalar()
+    for npartitions in (13, 64):
+        kwargs = {
+            "engine": engine,
+            "cte_prefix_sql": None,
+            "relation_sql": f'FROM "{table_name}"',
+            "key_sql": f'"{key}"',
+            "page_size": -(-non_null_rows // npartitions),
+            "non_null_rows": non_null_rows,
+        }
+        single, single_status = query_range_boundaries(dialect=PostgresDialect(), **kwargs)
+        offset, offset_status = query_range_boundaries(
+            dialect=_OffsetOnlyPostgresDialect(), **kwargs
+        )
+
+        assert (single_status, offset_status) == ("single_query", "offset_loop")
+        assert len(single) == len(range(0, non_null_rows, kwargs["page_size"]))
+        assert single == offset, (key, npartitions)
+        assert [type(value) for value in single] == [type(value) for value in offset]
+
+
+@pytest.mark.docker_required
+@pytest.mark.parametrize("key", ["k_int", "k_str", "k_dt", "k_dec"])
+def test_postgres_single_query_range_plan_reads_every_row(
+    postgres_boundary_table, key: str
+) -> None:
+    engine, table_name = postgres_boundary_table
+    executor = resolve_executor(engine, max_concurrent_queries=4)
+    table_plan = resolve_planner(mode="table").build_plan(
+        engine=engine,
+        table_name=table_name,
+        partition_col=key,
+        partition_grouping={"mode": "range"},
+        npartitions=12,
+        **STRICT_PARTITIONING_KWARGS,
+    )
+    query_plan = resolve_planner(mode="query").build_plan(
+        engine=engine,
+        query=f"SELECT id, {key} FROM {table_name} WHERE mod(id, 3) <> 1",
+        partition_col=key,
+        partition_grouping={"mode": "range"},
+        npartitions=7,
+        **STRICT_PARTITIONING_KWARGS,
+    )
+
+    for plan, expected_rows in (
+        (table_plan, PG_BOUNDARY_ROWS),
+        (query_plan, PG_BOUNDARY_ROWS - len(range(1, PG_BOUNDARY_ROWS, 3))),
+    ):
+        assert "range_boundaries=single_query" in plan.extra_warnings
+        assert plan.segment_count > 1
+        result = frame_from_executor(executor, plan).compute(scheduler="threads", num_workers=4)
+        assert len(result) == expected_rows
+        assert result["id"].nunique() == expected_rows
+
+
+@pytest.mark.docker_required
+def test_postgres_table_width_uses_pg_stats_without_schema(
+    postgres_boundary_table, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, table_name = postgres_boundary_table
+    monkeypatch.setattr(
+        "core.db.read_v3._auto_partition._sample_table_rows",
+        lambda *_args, **_kwargs: pytest.fail("pg_stats widths must be used"),
+    )
+    columns_info = sa.inspect(engine).get_columns(table_name)
+    names = [str(column["name"]) for column in columns_info]
+    with engine.connect() as conn:
+        real = conn.execute(
+            text(
+                "SELECT "
+                + " + ".join(f"coalesce(avg(pg_column_size({name})), 0)" for name in names)
+                + f" FROM {table_name}"
+            )
+        ).scalar()
+
+    estimate = estimate_table_bytes_per_row(
+        engine=engine,
+        dialect=PostgresDialect(),
+        table_name=table_name,
+        schema=None,
+        selected_columns=names,
+        columns_info=columns_info,
+    )
+
+    raw_width = (estimate - ROW_OVERHEAD_BYTES) / TABLE_BPR_SAFETY_COEF
+    assert abs(raw_width - float(real)) <= 0.3 * float(real), (estimate, real)

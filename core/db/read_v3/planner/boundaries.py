@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import logging
 import math
+from decimal import Decimal
 from typing import Any, Optional, Sequence
 
 import pandas as pd
 from sqlalchemy.engine import Engine
 
-from core.db.read_v3.dialects.base import SQLDialect
+from core.db.read_v3.dialects.base import SQLDialect, to_python_scalar
 from core.db.read_v3.errors import ReadV3PlanningError
 from core.db.read_v3.models import PartitionStrategy, ReadSegment, SegmentDivision
 from core.db.read_v3.sql_runner import read_sql_df
+
+logger = logging.getLogger(__name__)
+
+RANGE_BOUNDARIES_SINGLE_QUERY = "single_query"
+RANGE_BOUNDARIES_OFFSET_LOOP = "offset_loop"
+_INT64_MIN = -(2**63)
+_UINT64_MAX = 2**64 - 1
 
 
 def _with_cte(cte_prefix_sql: Optional[str], sql: str) -> str:
@@ -42,12 +51,127 @@ def query_row_stats(
     key_sql: str,
 ) -> tuple[Any, Any, int, int]:
     sql = _with_cte(cte_prefix_sql, dialect.min_max_query(relation_sql, key_sql))
-    row = query_df(engine, sql).iloc[0]
-    min_v = row.get("min_v")
-    max_v = row.get("max_v")
-    total_rows = int(row.get("total_rows") or 0)
-    non_null_rows = int(row.get("non_null_rows") or 0)
+    df = query_df(engine, sql)
+
+    def _first(column: str) -> Any:
+        # Read column by column: a row of an Int64 key next to UInt64 counts (clickhouse_connect)
+        # upcasts to float64, which rounds keys above 2**53.
+        return df[column].iloc[0] if column in df.columns else None
+
+    min_v = _first("min_v")
+    max_v = _first("max_v")
+    total_rows = int(_first("total_rows") or 0)
+    non_null_rows = int(_first("non_null_rows") or 0)
     return min_v, max_v, total_rows, non_null_rows
+
+
+def _single_query_boundaries(
+    *,
+    engine: Engine,
+    dialect: SQLDialect,
+    cte_prefix_sql: str | None,
+    relation_sql: str,
+    key_sql: str,
+    page_size: int,
+    non_null_rows: int,
+) -> list[Any]:
+    sql = _with_cte(
+        cte_prefix_sql,
+        dialect.range_boundaries_query(
+            relation_sql,
+            key_sql,
+            page_size=page_size,
+            non_null_rows=non_null_rows,
+        ),
+    )
+    df = query_df(engine, sql)
+    if df.empty or "boundary_value" not in df.columns:
+        raise ReadV3PlanningError(
+            f"Range boundaries query returned no boundary_value rows. columns={list(df.columns)!r}"
+        )
+    column = df["boundary_value"]
+    # Positional access returns the same scalar types as query_scalar on a one-row result.
+    return [column.iloc[idx] for idx in range(len(column))]
+
+
+def _offset_loop_boundaries(
+    *,
+    engine: Engine,
+    dialect: SQLDialect,
+    cte_prefix_sql: str | None,
+    relation_sql: str,
+    key_sql: str,
+    page_size: int,
+    non_null_rows: int,
+) -> list[Any]:
+    boundaries: list[Any] = []
+    for offset in range(0, non_null_rows, page_size):
+        sql = _with_cte(cte_prefix_sql, dialect.boundary_query(relation_sql, key_sql, offset))
+        boundaries.append(query_scalar(engine, sql, "boundary_value"))
+    return boundaries
+
+
+def query_range_boundaries(
+    *,
+    engine: Engine,
+    dialect: SQLDialect,
+    cte_prefix_sql: str | None,
+    relation_sql: str,
+    key_sql: str,
+    page_size: int,
+    non_null_rows: int,
+) -> tuple[list[Any], str]:
+    """Key values at 0-based ranks ``0, page_size, ...`` of the ascending non-NULL key order.
+
+    One statement (``SQLDialect.range_boundaries_query``) when the dialect has it, otherwise or
+    when that statement fails one ``boundary_query`` per boundary. Returns the values and a
+    short status for the plan warnings.
+    """
+    try:
+        boundaries = _single_query_boundaries(
+            engine=engine,
+            dialect=dialect,
+            cte_prefix_sql=cte_prefix_sql,
+            relation_sql=relation_sql,
+            key_sql=key_sql,
+            page_size=page_size,
+            non_null_rows=non_null_rows,
+        )
+    except NotImplementedError:
+        status = RANGE_BOUNDARIES_OFFSET_LOOP
+    except Exception as exc:  # the per-boundary queries return the same values
+        logger.warning(
+            "read_v3 single-query range boundaries failed for key %s, "
+            "falling back to one query per boundary: %s",
+            key_sql,
+            exc,
+        )
+        status = f"{RANGE_BOUNDARIES_OFFSET_LOOP}(single query failed: {type(exc).__name__})"
+    else:
+        return boundaries, RANGE_BOUNDARIES_SINGLE_QUERY
+    boundaries = _offset_loop_boundaries(
+        engine=engine,
+        dialect=dialect,
+        cte_prefix_sql=cte_prefix_sql,
+        relation_sql=relation_sql,
+        key_sql=key_sql,
+        page_size=page_size,
+        non_null_rows=non_null_rows,
+    )
+    return boundaries, status
+
+
+def _integral_as_int(value: Any) -> Any:
+    """An integral number of an integer key as a Python int: ``5``, not ``'5'`` or ``5.0``.
+
+    Only within the 64-bit range: ClickHouse parses a longer integer literal as Float64, while
+    a quoted Decimal stays exact.
+    """
+    value = to_python_scalar(value)
+    if not isinstance(value, (float, Decimal)) or not math.isfinite(value) or value != int(value):
+        return value
+    integral = int(value)
+    return integral if _INT64_MIN <= integral <= _UINT64_MAX else value
 
 
 def build_range_segments(
@@ -58,7 +182,13 @@ def build_range_segments(
     relation_sql: str,
     key_sql: str,
     npartitions: int,
-) -> tuple[list[ReadSegment], tuple[Any, ...], int, int]:
+    integer_key: bool = False,
+) -> tuple[list[ReadSegment], tuple[Any, ...], int, int, str]:
+    """Range segments, divisions, row counts and how the boundaries were read.
+
+    ``integer_key`` (an integer DB type) renders and divides integral bounds as Python ints,
+    whatever the driver returned: ``Decimal`` for ``numeric(18, 0)``, numpy scalars.
+    """
     min_v, max_v, total_rows, non_null_rows = query_row_stats(
         engine=engine,
         dialect=dialect,
@@ -75,7 +205,7 @@ def build_range_segments(
             strategy=PartitionStrategy.RANGE,
             expected_rows=0,
         )
-        return [empty_segment], (0, 1), total_rows, non_null_rows
+        return [empty_segment], (0, 1), total_rows, non_null_rows, "skipped(empty relation)"
 
     if non_null_rows == 0:
         raise ReadV3PlanningError(
@@ -86,18 +216,23 @@ def build_range_segments(
     if total_rows > 0:
         effective_parts = min(effective_parts, total_rows)
     page_size = max(1, math.ceil(non_null_rows / effective_parts))
-    offsets = list(range(0, non_null_rows, page_size))
 
-    raw_boundaries: list[Any] = []
-    for offset in offsets:
-        sql = _with_cte(cte_prefix_sql, dialect.boundary_query(relation_sql, key_sql, offset))
-        boundary_value = query_scalar(engine, sql, "boundary_value")
-        raw_boundaries.append(boundary_value)
+    raw_boundaries, boundaries_method = query_range_boundaries(
+        engine=engine,
+        dialect=dialect,
+        cte_prefix_sql=cte_prefix_sql,
+        relation_sql=relation_sql,
+        key_sql=key_sql,
+        page_size=page_size,
+        non_null_rows=non_null_rows,
+    )
 
     if min_v is not None:
         raw_boundaries.insert(0, min_v)
     if max_v is not None:
         raw_boundaries.append(max_v)
+    if integer_key:
+        raw_boundaries = [_integral_as_int(value) for value in raw_boundaries]
 
     boundaries: list[Any] = []
     for value in raw_boundaries:
@@ -146,7 +281,7 @@ def build_range_segments(
     for segment in segments:
         divisions.append(segment.division.end)
 
-    return segments, tuple(divisions), total_rows, non_null_rows
+    return segments, tuple(divisions), total_rows, non_null_rows, boundaries_method
 
 
 def build_hash_segments(
@@ -192,3 +327,14 @@ def infer_npartitions(total_rows: int, explicit_npartitions: Optional[int]) -> i
     if total_rows <= 0:
         return 1
     return max(1, min(64, math.ceil(total_rows / 100_000)))
+
+
+def clamp_npartitions(npartitions: int, total_rows: int) -> int:
+    """Target partition count limited to the row count (one partition for an empty relation)."""
+    return 1 if total_rows <= 0 else min(npartitions, total_rows)
+
+
+def default_max_rows_per_partition(total_rows: int, npartitions: int) -> int:
+    """Planner row ceiling per segment when the user sets none: 4x the mean, at least 100 000."""
+    baseline = max(1, math.ceil(max(total_rows, 1) / max(npartitions, 1)))
+    return max(100_000, baseline * 4)

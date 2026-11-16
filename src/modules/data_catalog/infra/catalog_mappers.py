@@ -220,6 +220,7 @@ def port_observation_to_domain(record: NodePortObservationRecord) -> ObservedPor
             dtype=item.get("dtype"),
             nullable=item.get("nullable"),
             ordinal=item.get("ordinal"),
+            comment=item.get("comment"),
         )
         for item in (record.columns or [])
         if isinstance(item, dict) and item.get("name")
@@ -243,7 +244,13 @@ def apply_port_observation(
     record.node_id = observation.node_id
     record.port = observation.port
     record.columns = [
-        {"name": column.name, "dtype": column.dtype, "nullable": column.nullable, "ordinal": column.ordinal}
+        {
+            "name": column.name,
+            "dtype": column.dtype,
+            "nullable": column.nullable,
+            "ordinal": column.ordinal,
+            "comment": column.comment,
+        }
         for column in observation.columns
     ]
     record.graph_revision = observation.graph_revision

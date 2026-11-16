@@ -16,6 +16,7 @@ from src.node_dsl.node_mixins.sql import SQLCodeInputFieldMixin
 from src.node_dsl.runtime.connections import resolve_sql_dialect_name, resolve_sql_engine
 from src.node_dsl.types import NodeMetadata
 from src.node_dsl.variables import is_unresolved_value
+from src.nodes.extract._shared.read_concurrency import resolve_read_concurrency
 
 import config
 
@@ -46,7 +47,8 @@ class ReadQueryFromDBV3(
         description="Required column of the query result used for partitioning.",
         agent_description=(
             "Use an exact scalar column exposed by the query result, without SQL quotes. Profile "
-            "its type, nulls, cardinality and skew; prefer a stable non-null key. Do not assume a "
+            "its type, nulls, cardinality and skew with suggest_read_partitioning (sql_code) and "
+            "do not choose a column it excludes; prefer a stable non-null key. Do not assume a "
             "base-table key remains unique or even present after the query's joins and aggregation."
         ),
     )
@@ -54,8 +56,9 @@ class ReadQueryFromDBV3(
         description="Custom grouping spec for partitioned reads.",
         agent_description=(
             "Assess the query result size, row width and key distribution, not just base-table "
-            "statistics. Omit for automatic range/hash. Use documented formats only; custom groups "
-            "can override the target partition count. Record the decision in the node comment."
+            "statistics; suggest_read_partitioning ranks ready values. Omit for automatic "
+            "range/hash. Use documented formats only; custom groups can override the target "
+            "partition count. Record the decision in the node comment."
         ),
     )
     npartitions: int | None = InputField(
@@ -75,8 +78,27 @@ class ReadQueryFromDBV3(
     max_rows_per_partition: int | None = InputField(
         min_value=1,
         agent_description=(
-            "A segment exceeding this row ceiling fails; it is not split automatically. Check "
-            "key skew before selecting a limit and review available execution diagnostics."
+            "Custom partition_grouping groups above this row ceiling are split into key-hash "
+            "sub-segments of about 80% of it. Planning fails before reading when an oversized "
+            "group cannot be split (null group, single key value, partition limit). Hashing "
+            "cannot spread one key value repeated more often than the ceiling inside a prefix, "
+            "period or range group, and range/hash segments are not split: on ClickHouse planning "
+            "fails when one key value or the null group exceeds the ceiling, other sources fail "
+            "while reading. Check key skew before selecting a limit and review available "
+            "execution diagnostics."
+        ),
+    )
+    max_concurrent_queries: int | None = InputField(
+        default=None,
+        min_value=1,
+        description="Partition queries of this reader running at once; omit for the default.",
+        agent_description=(
+            "Normally omit: the instance applies a per-database-type default that protects the "
+            "source and avoids driver thread contention. Set only after measuring this source: "
+            "more queries can speed up server-bound sources but slow GIL-bound drivers such as "
+            "psycopg or pyodbc and load the source. Each partition runs the query separately, "
+            "so this also bounds concurrent evaluations of the query. It limits this reader only "
+            "and does not change partitioning, rows read or the downstream thread pool."
         ),
     )
 
@@ -107,8 +129,12 @@ class ReadQueryFromDBV3(
             partitioning_overhead_coef=config.DASK_PARTITIONING.OVERHEAD_COEF,
             max_partitions=config.DASK_PARTITIONING.MAX_PARTITIONS,
             datetime_precision=self.execution_settings.datetime_precision,
+            key_skew_check=config.DASK_PARTITIONING.READ_V3_KEY_SKEW_CHECK,
         )
-        executor = resolve_executor(engine)
+        executor = resolve_executor(
+            engine,
+            max_concurrent_queries=resolve_read_concurrency(self.max_concurrent_queries, engine),
+        )
         self.output = frame_from_executor(executor, plan)
 
     async def process_metadata(self) -> None:

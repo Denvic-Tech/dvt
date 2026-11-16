@@ -201,3 +201,5 @@ extensions/*
 hwid/
 
 *.env
+
+experiments/

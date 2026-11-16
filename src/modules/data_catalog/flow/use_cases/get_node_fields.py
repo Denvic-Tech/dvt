@@ -16,6 +16,7 @@ from ...domain import (
     NodeColumnAnnotationRepository,
     NodeFieldsResult,
     NodeFieldView,
+    NodePortObservationRepository,
     PortLineage,
     ProjectionRepository,
 )
@@ -54,6 +55,23 @@ async def load_annotation_lookup(
     return {item.ref.key: item for item in await annotations.list_for_project(project_id)}
 
 
+async def load_observed_comment_lookup(
+    observations: NodePortObservationRepository | None,
+    project_id: str,
+) -> dict[str, str]:
+    """`node:<node_id>:<port>:<column>` → непустой комментарий колонки из последнего прогона."""
+    if observations is None:
+        return {}
+    result: dict[str, str] = {}
+    for observation in await observations.list_for_project(project_id):
+        for column in observation.columns:
+            text = (column.comment or "").strip()
+            if text:
+                key = LineageRef.node_column(observation.node_id, observation.port, column.name).key
+                result[key] = text
+    return result
+
+
 DEFAULT_OUTPUT_PORT = "output"
 
 
@@ -86,6 +104,7 @@ class GetNodeFields:
         freshness: ProjectionFreshnessProvider | None = None,
         annotations: NodeColumnAnnotationRepository | None = None,
         datasets: DatasetRepository | None = None,
+        observations: NodePortObservationRepository | None = None,
     ) -> None:
         self._projections = projections
         self._fields = fields
@@ -93,6 +112,7 @@ class GetNodeFields:
         self._freshness = freshness
         self._annotations = annotations
         self._datasets = datasets
+        self._observations = observations
 
     async def execute(
         self,
@@ -118,7 +138,8 @@ class GetNodeFields:
 
         fields = await load_field_lookup(self._fields, index)
         annotations = await load_annotation_lookup(self._annotations, project_id)
-        resolver = DescriptionResolver(index, fields, annotations)
+        observed_comments = await load_observed_comment_lookup(self._observations, project_id)
+        resolver = DescriptionResolver(index, fields, annotations, observed_comments)
         datasets = await self._load_origin_datasets(selected, fields)
         views = tuple(
             self._view(selected, name, resolver, locale, fields, annotations, datasets)

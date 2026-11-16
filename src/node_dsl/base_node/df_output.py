@@ -396,7 +396,9 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
         if mode == PipelineExecutionMode.METADATA_ONLY:
             await utils.async_run_callable(self.process_metadata, offload_sync=False)
         else:
-            self.process()
+            # Sync process() of a DF node (read planning, DB round trips) must not run on the
+            # worker event loop: its heartbeat sender shares that loop.
+            await utils.async_run_callable(self.process)
 
         if mode == PipelineExecutionMode.METADATA_ONLY:
             await hooks_registry.run_async(

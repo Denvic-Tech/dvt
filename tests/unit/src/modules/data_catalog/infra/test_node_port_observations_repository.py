@@ -69,7 +69,15 @@ async def test_upsert_is_keyed_by_project_node_and_port(async_test_db_session):
         ("y", "output", ("z",), 1),
     ]
     assert stored[0].columns[0].dtype == "INT" and stored[0].observed_at == NOW
+    assert stored[0].columns[0].comment is None
     assert [item.names for item in await repo.list_for_node("p1", "y")] == [("z",)]
+
+    commented = ObservedPortSchema(
+        "p1", "y", "output", (ObservedField("z", "STRING", True, 1, comment="Товарная группа"),), NOW,
+        graph_revision=3, task_id="t2",
+    )
+    await repo.upsert_many([commented])
+    assert [column.comment for column in (await repo.list_for_node("p1", "y"))[0].columns] == ["Товарная группа"]
     rows = (await async_test_db_session.execute(sa.select(sa.func.count()).select_from(NodePortObservationRecord))).scalar_one()
     assert rows == 2, "a repeated observation updates the row instead of adding one"
 

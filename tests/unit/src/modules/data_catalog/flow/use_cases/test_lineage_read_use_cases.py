@@ -10,6 +10,7 @@ from src.modules.data_catalog.domain import (
     DatasetFieldNotFoundError,
     DatasetLink,
     DatasetNotFoundError,
+    DiagnosticReason,
     ExplainDirection,
     FieldStatus,
     LineageColumnNotFoundError,
@@ -19,6 +20,8 @@ from src.modules.data_catalog.domain import (
     LineageRef,
     LinkDirection,
     NodeColumnAnnotation,
+    ObservedField,
+    ObservedPortSchema,
     PortLineage,
     PortStatus,
     ProjectLineage,
@@ -35,6 +38,7 @@ from ..fakes import (
     InMemoryDatasetRepository,
     InMemoryFieldRepository,
     InMemoryLinkRepository,
+    InMemoryPortObservationRepository,
     InMemoryProjectionRepository,
 )
 
@@ -140,6 +144,44 @@ async def test_get_node_fields_applies_annotations_and_reports_orphans_and_origi
     ).execute(project_id="p1", organization_id="org", node_id="e", column="score")
     assert explanation.description.provenance is LineageProvenance.DECLARED
     assert explanation.description.text == "Скоринг клиента"
+
+
+@pytest.mark.asyncio
+async def test_get_node_fields_uses_observed_column_comment_of_a_source_without_static_schema():
+    observed_column = ColumnLineage(
+        "group", LineageOp.UNKNOWN, (), deps_unknown=True, details={"template": "lineage.observed"},
+        origin=LineageRef.node_column("lp", "output", "group"),
+    )
+    projections = InMemoryProjectionRepository()
+    projections.lineage = {
+        "p1": ProjectLineage(
+            ports=(
+                PortLineage(
+                    "lp", "LoadParquet", "output", PortStatus.PARTIALLY_RESOLVED, (observed_column,),
+                    reason=DiagnosticReason.LINEAGE_SCHEMA_OBSERVED,
+                ),
+            )
+        )
+    }
+    observations = InMemoryPortObservationRepository()
+    await observations.upsert_many([
+        ObservedPortSchema(
+            "p1", "lp", "output", (ObservedField("group", "STRING", True, 1, comment="Товарная группа"),), NOW,
+        )
+    ])
+    use_case = GetNodeFields(
+        projections=projections, fields=InMemoryFieldRepository(), renderer=FakeRenderer(), observations=observations
+    )
+
+    view = (await use_case.execute(project_id="p1", organization_id="org", node_id="lp")).fields[0]
+
+    assert (view.description, view.provenance, view.description_source) == (
+        "Товарная группа", LineageProvenance.SOURCE, view.ref,
+    )
+    without = await GetNodeFields(
+        projections=projections, fields=InMemoryFieldRepository(), renderer=FakeRenderer()
+    ).execute(project_id="p1", organization_id="org", node_id="lp")
+    assert without.fields[0].provenance is LineageProvenance.NONE
 
 
 @pytest.mark.asyncio

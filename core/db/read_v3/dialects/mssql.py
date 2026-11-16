@@ -1,7 +1,8 @@
 import re
 from datetime import date, datetime, time
+from typing import override
 
-from core.db.read_v3.dialects.base import SQLDialect
+from core.db.read_v3.dialects.base import SQLDialect, to_python_scalar
 from core.db.read_v3.models import ValueKind
 
 _MSSQL_BINARY_TYPES = frozenset({"binary", "varbinary", "image", "rowversion", "timestamp"})
@@ -80,6 +81,7 @@ class MssqlDialect(SQLDialect):
         return super().detect_value_kind(type_repr)
 
     def render_literal(self, value):
+        value = to_python_scalar(value)
         if isinstance(value, datetime):
             literal = value.isoformat(timespec="microseconds")
             target_type = "DATETIMEOFFSET(6)" if value.utcoffset() is not None else "DATETIME2(6)"
@@ -141,3 +143,47 @@ class MssqlDialect(SQLDialect):
     def string_prefix_expr(self, col_expr: str, length: int, lower: bool) -> str:
         expr = f"SUBSTRING({col_expr}, 1, {length})"
         return f"LOWER({expr})" if lower else expr
+
+    @override
+    def range_boundaries_query(
+        self,
+        relation_sql: str,
+        key_sql: str,
+        *,
+        page_size: int,
+        non_null_rows: int,
+    ) -> str:
+        # SQL Server has no MOD(): same statement as row_number_boundaries_query with %.
+        return (
+            f"SELECT boundary_value FROM (SELECT {key_sql} AS boundary_value, "
+            f"ROW_NUMBER() OVER (ORDER BY {key_sql} ASC) AS dvt_rn {relation_sql} "
+            f"WHERE {key_sql} IS NOT NULL) dvt_ranked "
+            f"WHERE (dvt_rn - 1) % {page_size} = 0 ORDER BY dvt_rn"
+        )
+
+    @override
+    def key_sample_relation(
+        self,
+        *,
+        table_sql: str | None,
+        select_list_sql: str,
+        relation_sql: str,
+        sample_rows: int,
+        total_rows: int,
+        native_sampling: bool = False,
+    ) -> tuple[str, str]:
+        if table_sql is None:
+            return super().key_sample_relation(
+                table_sql=table_sql,
+                select_list_sql=select_list_sql,
+                relation_sql=relation_sql,
+                sample_rows=sample_rows,
+                total_rows=total_rows,
+            )
+        # Page-level sample; REPEATABLE keeps the same pages for every statistics query.
+        percent = min(100.0, max(0.0001, 100.0 * sample_rows / max(total_rows, 1)))
+        return (
+            f"FROM (SELECT {select_list_sql} FROM {table_sql} "
+            f"TABLESAMPLE ({percent:.6f} PERCENT) REPEATABLE (17)) dvt_key_sample",
+            "tablesample_system",
+        )

@@ -6,7 +6,7 @@ import dask.dataframe as dd
 import pandas as pd
 from sqlalchemy import Engine
 
-from core.db.read_v3.sql_runner import read_sql_df
+from core.db.read_v3.sql_runner import execute_literal_sql, read_sql_df
 from core.types import DataFrameMetadata
 
 from src.logger import logger
@@ -101,7 +101,7 @@ class ExecuteSQL(SQLCodeInputFieldMixin, DFOutputBaseNode):
             return read_sql_df(engine, sql_code)
 
         with engine.begin() as conn:
-            result = conn.exec_driver_sql(sql_code)
+            result = execute_literal_sql(conn, sql_code)
             if not result.returns_rows:
                 return pd.DataFrame()
 
@@ -174,7 +174,7 @@ class ExecuteSQL(SQLCodeInputFieldMixin, DFOutputBaseNode):
                 self._populate_output_variables_from_single_row(output_pdf)
             else:
                 with self._get_engine().begin() as conn:
-                    conn.exec_driver_sql(sql_code)
+                    execute_literal_sql(conn, sql_code)
         except Exception as error:
             logger.error(f"Error while executing SQL code: {error}")
             raise

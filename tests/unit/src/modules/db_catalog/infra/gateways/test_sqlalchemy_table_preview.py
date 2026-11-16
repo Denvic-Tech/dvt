@@ -85,6 +85,52 @@ def test_sqlite_table_preview_preserves_column_order_and_limits_rows(tmp_path):
     assert {row[0] for row in result.rows}.issubset(set(range(51)))
     assert {row[2] for row in result.rows} == {"<binary:3 bytes>"}
     assert result.truncated is True
+    # SQLite keeps no row statistics, so a table larger than the preview has no cheap count.
+    assert (result.row_count, result.row_count_exact) == (None, False)
+
+
+def _table_with_rows(path, row_count: int) -> None:
+    engine = sa.create_engine(f"sqlite:///{path}")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE big_table (id INTEGER)")
+        connection.execute(
+            sa.text("INSERT INTO big_table VALUES (:id)"),
+            [{"id": index} for index in range(row_count)],
+        )
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("catalog_query", "catalog_exact", "expected"),
+    [
+        ("SELECT 1200000 AS row_count", False, (1_200_000, False)),
+        ("SELECT 1200000 AS row_count", True, (1_200_000, True)),
+        # Statistics that contradict the rows already read are stale, not a usable count.
+        ("SELECT 0 AS row_count", False, (None, False)),
+        ("SELECT NULL AS row_count", True, (None, False)),
+        # A failing statistics query must not break the preview itself.
+        ("SELECT row_count FROM missing_statistics", True, (None, False)),
+    ],
+)
+def test_large_table_row_count_comes_from_catalog_statistics(
+    tmp_path, monkeypatch, catalog_query, catalog_exact, expected
+):
+    path = tmp_path / "stats.sqlite"
+    _table_with_rows(path, 60)
+    monkeypatch.setattr(
+        "src.modules.db_catalog.infra.gateways.sqlalchemy_catalog.table_row_count_statement",
+        lambda _dialect: (sa.text(catalog_query), catalog_exact),
+    )
+
+    result = asyncio.run(
+        _source().fetch_preview(
+            _connection(path),
+            CatalogTablePreviewRequest(table_name="big_table"),
+        )
+    )
+
+    assert len(result.rows) == 50
+    assert (result.row_count, result.row_count_exact) == expected
 
 
 def test_sqlite_view_preview_and_missing_table(tmp_path):
@@ -106,6 +152,7 @@ def test_sqlite_view_preview_and_missing_table(tmp_path):
 
     assert [column.name for column in result.columns] == ["value"]
     assert result.rows == (("one",),)
+    assert (result.row_count, result.row_count_exact) == (1, True)
     with pytest.raises(CatalogTableNotFoundError):
         asyncio.run(
             source.fetch_preview(
@@ -155,6 +202,8 @@ def test_preview_stops_at_complete_row_when_response_budget_is_reached(tmp_path)
 
     assert result.truncated is True
     assert 0 < len(result.rows) < 10
+    # Rows dropped by the response budget were still read, so the total stays exact.
+    assert (result.row_count, result.row_count_exact) == (10, True)
     assert all(len(row) == 2 for row in result.rows)
     assert _preview_payload_size(result) <= 180
     json.dumps([list(row) for row in result.rows], allow_nan=False)

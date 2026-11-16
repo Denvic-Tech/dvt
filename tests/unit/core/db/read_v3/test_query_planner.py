@@ -7,6 +7,7 @@ import pytest
 
 from core.db.read_v3.dialects.oracle import OracleDialect
 from core.db.read_v3.errors import ReadV3ConfigError
+from core.db.read_v3.grouping.models import PartitionSegment as GroupingPartitionSegment
 from core.db.read_v3.models import PartitionStrategy, ReadSegment, SegmentDivision
 from core.db.read_v3.planner.query import QueryReadPlanner
 
@@ -233,3 +234,58 @@ def test_query_planner_stringifies_mssql_uniqueidentifier_and_binary_outputs(mon
         "guid_col": "CAST([guid_col] AS NVARCHAR(MAX)) AS [guid_col]",
         "bin_col": "CONVERT(VARCHAR(MAX), [bin_col], 2) AS [bin_col]",
     }
+
+
+def test_query_planner_splits_grouping_segment_above_default_ceiling(monkeypatch) -> None:
+    def _fake_read_sql_df(_engine, sql):
+        rendered_sql = str(sql)
+        if "WHERE 1=0" in rendered_sql:
+            return pd.DataFrame(columns=["id", "name"])
+        if "AS sample_value" in rendered_sql:
+            return pd.DataFrame({"sample_value": ["Молоко"]})
+        raise AssertionError(f"Unexpected SQL in planner stub: {rendered_sql}")
+
+    prefix_sql = "substringUTF8(`name`, 1, 2)"
+    monkeypatch.setattr("core.db.read_v3.planner.query.read_sql_df", _fake_read_sql_df)
+    monkeypatch.setattr(
+        "core.db.read_v3.planner.query.describe_query_columns",
+        lambda *_args, **_kwargs: [("id", "Int64"), ("name", "String")],
+    )
+    monkeypatch.setattr(
+        "core.db.read_v3.planner.query.query_row_stats",
+        lambda **_kwargs: ("Аа", "Яя", 1_000_000, 1_000_000),
+    )
+    monkeypatch.setattr(
+        "core.db.read_v3.partitioning.grouping.build_custom_segments",
+        lambda **_kwargs: [
+            GroupingPartitionSegment(
+                label="Мо", include_values=["Мо"], count=500_000, value_expr=prefix_sql
+            ),
+            GroupingPartitionSegment(
+                label="Хл", include_values=["Хл"], count=60_000, value_expr=prefix_sql
+            ),
+        ],
+    )
+
+    plan = QueryReadPlanner().build_plan(
+        engine=_FakeClickHouseEngine(),
+        query="SELECT id, name FROM products",
+        partition_col="name",
+        partition_grouping={"mode": "prefix", "length": 2},
+        npartitions=40,
+        **STRICT_PARTITIONING_KWARGS,
+    )
+
+    # Default ceiling max(100_000, 4 * ceil(1_000_000 / 40)) splits the 500_000-row group into
+    # ceil(500_000 / 80_000) = 7 key-hash buckets.
+    assert plan.max_rows_per_partition == 100_000
+    assert [segment.label for segment in plan.segments] == [
+        *(f"Мо#{bucket}/7" for bucket in range(7)),
+        "Хл",
+    ]
+    assert plan.segments[0].predicate_sql == (
+        f"({prefix_sql} IN ('Мо')) AND "
+        "mod(cityHash64(ifNull(toString(`name`), '__NULL__')), 7) = 0"
+    )
+    assert [segment.expected_rows for segment in plan.segments] == [71_429] * 7 + [60_000]
+    assert plan.divisions == tuple(range(9))
