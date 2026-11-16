@@ -200,6 +200,7 @@ _TRANSITIONS = {
     OperationStage.RESUMING: {OperationStage.SUCCEEDED, OperationStage.RECOVERY_REQUIRED},
     OperationStage.RECOVERY_REQUIRED: {OperationStage.RECOVERING},
     OperationStage.RECOVERING: {
+        OperationStage.CANCELLED,
         OperationStage.MIGRATING,
         OperationStage.APPLYING,
         OperationStage.VERIFYING,
@@ -324,8 +325,16 @@ def transition_allowed(operation: Operation, checkpoint: Checkpoint) -> bool:
     if target is OperationStage.CANCELLED and source in (
         OperationStage.MAINTENANCE,
         OperationStage.BACKUP,
+        OperationStage.RECOVERING,
     ):
-        return checkpoint.outcome is CheckpointOutcome.VERIFIED
+        return checkpoint.outcome is CheckpointOutcome.VERIFIED and (
+            source is not OperationStage.RECOVERING
+            or (
+                kind is OperationKind.MANAGER_RECOVERY
+                and operation.observation.source_digest is not None
+                and checkpoint.observation.observed_digest == operation.observation.source_digest
+            )
+        )
     return True
 
 

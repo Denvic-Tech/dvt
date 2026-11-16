@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+if [[ ${1:-} == --beta ]]; then
+    shift
+    exec /usr/bin/python3 "$(dirname -- "${BASH_SOURCE[0]}")/services/installation_manager/host_bootstrap.py" bootstrap "$@"
+fi
+
 RAW_STORAGE_URL="${RAW_STORAGE_URL:-https://raw.distribution.denvic.tech}"
 CONTAINER_REGISTRY_URL="${CONTAINER_REGISTRY_URL:-cr.distribution.denvic.tech}"
 INSTALLATION_MANAGER_IMAGE="${INSTALLATION_MANAGER_IMAGE:-cr.distribution.denvic.tech/dvt/installation_manager:latest}"

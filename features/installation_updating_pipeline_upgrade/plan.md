@@ -10,7 +10,7 @@
 | --- | --- | --- | --- | --- |
 | [`01_operation_state`](./stages/01_operation_state/task.md) | — | Identity, адресно читаемый журнал и захват одного владельца переживают независимые процессы | `ACCEPTED` | [Отчёт](./stages/01_operation_state/report.md), Windows: 34 прошли; Linux: 18 прошли; Ruff |
 | [`02_verified_staging`](./stages/02_verified_staging/task.md) | 01 — identity, журнал и владение | Подписанный комплект закреплён; preflight и staging не нарушают действующую установку | `ACCEPTED` | [Отчёт](./stages/02_verified_staging/report.md), Windows: 71 прошёл; Linux: 41 прошёл; сборка, две ВМ и MTU |
-| [`03_bootstrap_executor`](./stages/03_bootstrap_executor/task.md) | 01–02 — журнал, staging, манифест | Повторяемый bootstrap и исполнитель переживают пересоздание и перезапуск хоста на кандидатном пути | `PENDING` | — |
+| [`03_bootstrap_executor`](./stages/03_bootstrap_executor/task.md) | 01–02 — журнал, staging, манифест | Повторяемый bootstrap и исполнитель переживают пересоздание и перезапуск хоста на кандидатном пути | `ACCEPTED` | [Отчёт](./stages/03_bootstrap_executor/report.md), Debian reboot, Ubuntu fallback, Chrome, 79 тестов |
 | [`04_maintenance_backup`](./stages/04_maintenance_backup/task.md) | 01–03 — журнал, staging, исполнитель | Новые корневые запуски блокируются на авторитетном пути; точка восстановления доступна и проверена | `PENDING` | — |
 | [`05_migration_apply`](./stages/05_migration_apply/task.md) | 01–04 — проверенный план, исполнитель, guard и копия | Схема меняется один раз, сервисы запускаются после неё, фиксация следует за готовностью и возобновлением | `PENDING` | — |
 | [`06_recovery_legacy`](./stages/06_recovery_legacy/task.md) | 01–05 — полный путь применения | Оператор может безопасно продолжить сбой, восстановить мастер или полную копию; legacy сохраняет данные | `PENDING` | — |
@@ -48,6 +48,13 @@
 - Coding session: `/root/stage02_verified_staging`, effort `high`.
 - Предварительная независимая проверка: на Debian 13 и Ubuntu 24.04 (Compose 5.7.1, Engine 29.10.0) тестовый Compose сохранил работоспособность и прежний `.env` после отказов сертификата, Registry, расчётных дефицитов места/inode и успешного повтора временного сбоя по тому же манифесту. Проверка Docker-сети MTU 1280 на Debian получила 65 536 байт после прерывания первого запроса. Исторический PMTU blackhole и реальное исчерпание диска не моделировались.
 - `ACCEPTED`: проверены закрепление релиза и эффективная конфигурация, сохранение секретов/алиасов, устойчивость частичной записи и принадлежность bootstrap-мастера. Независимо повторены Windows-тесты (71 прошёл, 6 Linux-only пропущены), Linux (41 прошёл) и Ruff. Штатный образ мастера собрался и без сети загрузил `VerifiedStaging`, `curl` присутствует. Полноразмерный продуктовый кандидат и реальные сбои ФС остаются в матрице этапа 10.
+
+- Локальный коммит этапа: `cf5cef6`.
+
+### `03_bootstrap_executor`
+
+- Coding session: `/root/stage03_bootstrap_executor`, effort `high`.
+- `ACCEPTED`: мастер независимо проверил `bash -n`, Ruff, pytest (79 прошли, 6 Linux-only пропущены), реальный reboot Debian (одна операция и два claims, подтверждён boot ID), fallback Ubuntu (исходный digest, сохранённый отказ), живой Chrome (потеря POST с ранее завершённой историей, тот же адрес и новый правильный ID), очистку двух fixture scope. Штатный Dockerfile со сборкой фронтенда успешно собран на обеих ВМ. Проверка установки Docker с нуля на чистом снимке остаётся в матрице этапа 10. Этот этап не переключает приложение и не мигрирует БД.
 
 ## Сквозные проверки
 
