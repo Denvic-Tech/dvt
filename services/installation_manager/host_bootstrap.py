@@ -69,10 +69,15 @@ def check_image(reference, *, pull=False):
     if result.returncode:
         raise ValueError("The approved image is not available locally")
     (image,) = json.loads(result.stdout)
-    if reference not in (image["RepoDigests"] or []) or (image["Os"], image["Architecture"]) != (
-        "linux",
-        "amd64",
-    ):
+    aliases = {reference}
+    if reference.startswith("docker.io/"):
+        short = reference.removeprefix("docker.io/")
+        aliases.update((f"index.docker.io/{short}", short))
+        if short.startswith("library/"):
+            aliases.add(short.removeprefix("library/"))
+    if not aliases.intersection(image["RepoDigests"] or []) or (
+        image["Os"], image["Architecture"]
+    ) != ("linux", "amd64"):
         raise ValueError("Docker did not confirm the approved image digest and platform")
     return image["Id"]
 
@@ -625,7 +630,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
-        choices=["bootstrap", "resume", "maintenance", "maintenance-extend", "maintenance-defer"],
+        choices=[
+            "bootstrap", "resume", "maintenance", "maintenance-extend", "maintenance-defer",
+            "cancel-preparation", "recover-manager", "return-to-source", "restore-start",
+        ],
     )
     parser.add_argument("--operation-id")
     parser.add_argument("--dir", default="/var/lib/dvt")
@@ -662,6 +670,24 @@ def main():
             else:
                 if not args.operation_id or args.operation_id != operation:
                     raise ValueError("Select the active update operation with --operation-id")
+                if args.action == "restore-start":
+                    from uuid import UUID
+
+                    marker = safe_path(
+                        Path(config["data"]) / STATE / "artifacts" / "staging" / str(UUID(operation))
+                        / "restored-data.json"
+                    )
+                    if not marker.is_file():
+                        raise ValueError("The selected operation has no prepared recovery data")
+                    for key in ("temporary", "backup"):
+                        safe_path(config[key]).mkdir(mode=0o700, parents=True, exist_ok=True)
+                    if args.executor and args.executor != config["executor"]:
+                        check_image(args.executor)
+                        config = {**config, "executor": args.executor}
+                        atomic_write(
+                            Path(config["data"]) / CONTROL / "host.json", json.dumps(config).encode()
+                        )
+                    install_unit(Path(config["data"]), config)
                 launch(config, operation, f"candidate-{args.action}")
         else:
             import fcntl

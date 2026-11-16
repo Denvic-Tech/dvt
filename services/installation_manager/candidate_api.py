@@ -13,6 +13,14 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from .application.recovery import (
+    Action,
+    actions,
+    last_failure,
+    read_observation,
+    read_source_failure,
+    restore_actions,
+)
 from .candidate_auth import SESSION_TTL, CandidateAuth
 from .domain.operation_state import (
     Operation,
@@ -48,7 +56,7 @@ class Pairing(BaseModel):
 class Snapshot(BaseModel):
     journal_format: Literal[1] = FORMAT_VERSION
     operation: Operation
-    actions: list[Literal["resume"]]
+    actions: list[Action]
 
 
 def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> FastAPI:
@@ -95,7 +103,16 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
         return {"status": "paired"}
 
     def snapshot(operation: Operation) -> Snapshot:
-        return Snapshot(operation=operation, actions=[] if operation.stage.terminal else ["resume"])
+        failure = (
+            last_failure(store.recent_events(operation.id), stage=operation.stage)
+            if not operation.stage.terminal
+            and operation.request.kind is not OperationKind.MANAGER_RECOVERY
+            else None
+        )
+        available = restore_actions(store, operation)
+        if available is None:
+            available = actions(operation, failure)
+        return Snapshot(operation=operation, actions=available)
 
     def lookup(operation_id: UUID) -> Operation:
         operation = store.get(operation_id)
@@ -103,12 +120,24 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
             raise HTTPException(404, "Unknown operation")
         return operation
 
-    def start(operation: Operation) -> Snapshot:
+    def start(operation: Operation, action: Action = Action.RESUME) -> Snapshot:
         if not operation.stage.terminal:
             try:
-                launch(config, str(operation.id))
+                if action is Action.RESUME:
+                    launch(config, str(operation.id))
+                else:
+                    command = {
+                        Action.CANCEL_PREPARATION: "candidate-cancel-preparation",
+                        Action.EXTEND_MAINTENANCE: "candidate-maintenance-extend",
+                        Action.DEFER_MAINTENANCE: "candidate-maintenance-defer",
+                        Action.RECOVER_MANAGER: "candidate-recover-manager",
+                        Action.RETURN_TO_SOURCE: "candidate-return-to-source",
+                    }[action]
+                    launch(config, str(operation.id), command)
             except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
-                # The intent remains committed and is resumable by ID or at boot.
+                if action is not Action.RESUME:
+                    raise HTTPException(409, "The executor could not accept the action") from None
+                # The operation remains committed and is resumable by ID or at boot.
                 return snapshot(operation)
         return snapshot(store.get(operation.id) or operation)
 
@@ -157,7 +186,35 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
 
     @app.post("/api/operations/{operation_id}/resume", status_code=202, dependencies=operator)
     def resume(operation_id: UUID) -> Snapshot:
-        return start(lookup(operation_id))
+        operation = lookup(operation_id)
+        if operation.stage.terminal:
+            return snapshot(operation)
+        return operate(operation_id, Action.RESUME)
+
+    @app.post(
+        "/api/operations/{operation_id}/actions/{action}", status_code=202, dependencies=operator,
+    )
+    def operate(operation_id: UUID, action: Action) -> Snapshot:
+        operation = lookup(operation_id)
+        if action not in snapshot(operation).actions:
+            raise HTTPException(409, "The action is not available at the current stage")
+        return start(operation, action)
+
+    @app.get("/api/operations/{operation_id}/diagnostics", dependencies=operator)
+    def diagnostics(
+        operation_id: UUID,
+        after: int = Query(default=0, ge=0, lt=2**63),
+        limit: int = Query(default=50, ge=1, le=100),
+    ):
+        operation = lookup(operation_id)
+        return {
+            "format_version": 1,
+            "snapshot": snapshot(operation),
+            "observation": read_observation(store, operation_id),
+            "first_failure": store.first_failure(operation_id),
+            "source_failure": read_source_failure(store, operation_id),
+            "events": store.events(operation_id, after=after, limit=limit),
+        }
 
     @app.get("/api/operations/{operation_id}/events", dependencies=operator)
     def events(

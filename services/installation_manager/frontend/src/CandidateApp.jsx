@@ -8,13 +8,29 @@ const stages = {
   admitted: 'Операция сохранена',
   preparing: 'Проверяется кандидат',
   prepared: 'Кандидат проверен',
-  recovering: 'Исполнитель переключает мастер',
-  resuming: 'Доступ подтверждён',
+  maintenance: 'Окно обслуживания',
+  backup: 'Подготовка копии',
+  migrating: 'Миграция базы данных',
+  applying: 'Применяется комплект',
+  verifying: 'Проверяется готовность',
+  recovering: 'Выполняется восстановление',
+  resuming: 'Подтверждается доступ',
   recovery_required: 'Требуется продолжение операции',
-  succeeded: 'Мастер заменён, доступ проверен',
-  cancelled: 'Доступ к исходному мастеру восстановлен',
-  failed: 'Переключение остановлено до замены мастера',
+  succeeded: 'Операция завершена',
+  cancelled: 'Операция отменена',
+  failed: 'Операция завершилась ошибкой',
 }
+
+const actionLabels = {
+  resume: 'Продолжить операцию',
+  cancel_preparation: 'Отменить подготовку',
+  extend_maintenance: 'Продлить окно',
+  defer_maintenance: 'Отложить обслуживание',
+  recover_manager: 'Восстановить доступ к мастеру',
+  return_to_source: 'Вернуть прежний комплект',
+}
+
+const terminalStages = new Set(['succeeded', 'cancelled', 'failed'])
 
 export default function CandidateApp() {
   const [code, setCode] = useState('')
@@ -90,12 +106,14 @@ export default function CandidateApp() {
     }
   }
 
-  async function submit(resume) {
+  async function submit(action) {
     setMessage('')
     setPending(true)
     try {
-      if (resume) {
-        show(await candidateRequest('/operations/' + snapshot.operation.id + '/resume', {
+      if (action) {
+        const path = '/operations/' + snapshot.operation.id
+        const endpoint = action === 'resume' ? path + '/resume' : path + '/actions/' + action
+        show(await candidateRequest(endpoint, {
           method: 'POST', data: {},
         }))
         return
@@ -120,7 +138,8 @@ export default function CandidateApp() {
   }
 
   const operation = snapshot?.operation
-  const canResume = snapshot?.actions.includes('resume')
+  const availableActions = snapshot?.actions.filter((action) => action in actionLabels) ?? []
+  const canStart = !operation || terminalStages.has(operation.stage)
 
   return (
     <main className="main">
@@ -143,9 +162,17 @@ export default function CandidateApp() {
                 <dt>Статус</dt><dd aria-live="polite">{stages[operation.stage] ?? operation.stage}</dd>
               </dl>
             )}
-            <button disabled={pending || disconnected} onClick={() => submit(canResume)}>
-              {canResume ? 'Продолжить операцию' : 'Запустить проверку замены мастера'}
-            </button>
+            {availableActions.map((action) => (
+              <button key={action} disabled={pending || disconnected} onClick={() => submit(action)}>
+                {actionLabels[action]}
+              </button>
+            ))}
+            {canStart && (
+              <button disabled={pending || disconnected} onClick={() => submit()}>
+                Запустить проверку замены мастера
+              </button>
+            )}
+            {operation && <a href={`/api/operations/${operation.id}/diagnostics`}>Диагностика</a>}
           </>
         )}
         {message && <p role="alert">{message}</p>}

@@ -272,3 +272,45 @@ def test_noninteractive_package_preparation_requires_consent(monkeypatch):
     monkeypatch.setattr(host_bootstrap, "command", unexpected)
     with pytest.raises(ValueError, match="explicit permission"):
         host_bootstrap.install_docker(allowed=False, interactive=False)
+
+
+def test_diagnostics_is_authorized_paginated_and_preserves_failure(candidate):
+    from services.installation_manager.application.recovery import Action, import_source_failure
+    from services.installation_manager.domain.operation_state import ArtifactKind, FailureReason
+    from services.installation_manager.infrastructure.staging_artifacts import (
+        artifact_directory,
+        write_artifact,
+    )
+
+    config, store, dispatched = candidate
+    operation = store.admit(
+        OperationRequest(OperationKind.INSTALL, ReleasePin("fixture", "sha256:" + "a" * 64)),
+        idempotency_key="diagnostics-fixture",
+    )
+    with store.claim(operation.id) as owner:
+        owner.checkpoint(Checkpoint(OperationStage.PREPARING))
+        owner.checkpoint(Checkpoint(OperationStage.PREPARED))
+        owner.checkpoint(Checkpoint(OperationStage.MIGRATING))
+        owner.checkpoint(Checkpoint(
+            OperationStage.MIGRATING, CheckpointOutcome.BLOCKED,
+            FailureReason.INCOMPATIBLE_SCHEMA,
+        ))
+    staging = artifact_directory(store, ArtifactKind.STAGING, operation.id)
+    write_artifact(staging / "support-observation.json", b'{"compose_version":"fixture-token"}')
+    url = f"/api/operations/{operation.id}"
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    assert client.get(url + "/diagnostics").status_code == 401
+    response = client.get(url + "/diagnostics", headers=MACHINE)
+    assert response.status_code == 200
+    assert "fixture-token" not in response.text
+    assert response.json()["observation"] is None
+    assert response.json()["snapshot"]["actions"] == []
+    imported = import_source_failure(response.content, store.get(operation.id))
+    assert imported.operation_id == operation.id
+    assert imported.reason is FailureReason.INCOMPATIBLE_SCHEMA
+    assert [event["checkpoint"]["reason"] for event in response.json()["events"] if
+            event["checkpoint"] and event["checkpoint"]["reason"]] == ["incompatible_schema"]
+    assert client.get(url + "/diagnostics?limit=101", headers=MACHINE).status_code == 422
+    assert client.get(f"/api/operations/{uuid4()}/diagnostics", headers=MACHINE).status_code == 404
+    assert client.post(url + f"/actions/{Action.RESUME}", headers=MACHINE).status_code == 409
+    assert not dispatched

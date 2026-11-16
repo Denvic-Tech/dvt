@@ -11,7 +11,9 @@ from pathlib import Path
 from uuid import UUID
 
 from .application.application_apply import APPLY_STAGES, ApplicationApply
+from .application.legacy_adopt import PLAN as LEGACY_ADOPTION, execute as adopt_legacy
 from .application.maintenance_backup import MAINTENANCE_STAGES, MaintenanceBackup
+from .application.restore_runtime import AUTHORIZATION, RestoreRuntime
 from .candidate_auth import CandidateAuth
 from .domain.operation_state import (
     ArtifactKind,
@@ -165,6 +167,30 @@ def _probe(config: dict, store: OperationStore, operation_id: UUID, claim_id: UU
     raise RuntimeError("The manager did not confirm access to the current journal")
 
 
+def _execute_application(config: dict, store: OperationStore, operation) -> None:
+    operation_id = operation.id
+    directory = store.artifact_path(ArtifactKind.STAGING, operation_id)
+    if (directory / "restored-data.json").exists():
+        if (directory / AUTHORIZATION).exists():
+            RestoreRuntime(store, config, _probe).execute(operation_id)
+        return
+    if operation.stage is OperationStage.BACKUP and (directory / "return-to-source.json").exists():
+        ApplicationApply(store, config, _probe).return_to_source(operation_id)
+        return
+    if (
+        operation.request.kind is OperationKind.UPDATE
+        and operation.stage in MAINTENANCE_STAGES
+        and operation.observation.backup_id is None
+    ):
+        MaintenanceBackup(store, config).execute(operation_id)
+        operation = store.get(operation_id)
+    if operation.stage in APPLY_STAGES and (
+        operation.request.kind is OperationKind.INSTALL
+        or operation.observation.backup_id == operation_id
+    ):
+        ApplicationApply(store, config, _probe).execute(operation_id)
+
+
 def execute(config: dict, store: OperationStore, operation_id: UUID) -> None:
     operation = store.get(operation_id)
     if operation is None:
@@ -172,18 +198,10 @@ def execute(config: dict, store: OperationStore, operation_id: UUID) -> None:
     if operation.stage.terminal:
         return
     if operation.request.kind in {OperationKind.INSTALL, OperationKind.UPDATE}:
-        if (
-            operation.request.kind is OperationKind.UPDATE
-            and operation.stage in MAINTENANCE_STAGES
-            and operation.observation.backup_id is None
-        ):
-            MaintenanceBackup(store, config).execute(operation_id)
-            operation = store.get(operation_id)
-        if operation.stage in APPLY_STAGES and (
-            operation.request.kind is OperationKind.INSTALL
-            or operation.observation.backup_id == operation_id
-        ):
-            ApplicationApply(store, config, _probe).execute(operation_id)
+        _execute_application(config, store, operation)
+        return
+    if (store.artifact_path(ArtifactKind.STAGING, operation_id) / LEGACY_ADOPTION).exists():
+        adopt_legacy(config, store, operation_id, _probe)
         return
     with contextlib.suppress(OwnershipConflict), store.claim(operation_id) as owner:
         operation = store.get(operation_id)

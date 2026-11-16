@@ -83,6 +83,10 @@ def test_apply_waits_for_full_readiness_and_retries_resume_without_migration(tmp
             return "done" if state["receipt"] else None
 
         @staticmethod
+        def migration_locked(_pg):
+            return False
+
+        @staticmethod
         def revision(*_args):
             return "0070" if state["migrated"] else None
 
@@ -128,6 +132,7 @@ def test_apply_waits_for_full_readiness_and_retries_resume_without_migration(tmp
 
     monkeypatch.setattr(apply, "ComposeApplicationHost", Host)
     monkeypatch.setattr(apply.ApplicationApply, "_staged", staged)
+    monkeypatch.setattr(apply.ApplicationApply, "_support", lambda *_: None)
     monkeypatch.setattr(apply.ApplicationApply, "_manager_images", lambda *_: ("old", "new"))
     monkeypatch.setattr(apply.ApplicationApply, "_apply_manager_health", lambda *_: None)
     executor = apply.ApplicationApply(store, config, lambda *_: None)

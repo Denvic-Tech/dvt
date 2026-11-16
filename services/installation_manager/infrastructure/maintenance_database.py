@@ -97,6 +97,30 @@ SELECT 'safe' FROM task_admission_control WHERE singleton = 1 AND NOT frozen
 """
 
 
+def confirm_return_to_source_sql(operation_id: UUID) -> str:
+    operation = UUID(str(operation_id))
+    return f"""
+BEGIN;
+{LOCK}
+CREATE TABLE IF NOT EXISTS dvt_release_control.pre_migration_returns (
+    operation_id uuid PRIMARY KEY
+);
+WITH opened AS (
+    UPDATE task_admission_control SET operation_id = NULL, frozen = false
+    WHERE singleton = 1 AND frozen AND operation_id = '{operation}'
+      AND NOT EXISTS (SELECT 1 FROM tasks WHERE status NOT IN {TERMINAL})
+    RETURNING singleton
+)
+INSERT INTO dvt_release_control.pre_migration_returns
+SELECT '{operation}' FROM opened ON CONFLICT DO NOTHING;
+COMMIT;
+SELECT 'open' FROM task_admission_control
+WHERE singleton = 1 AND operation_id IS NULL AND NOT frozen
+  AND EXISTS (SELECT 1 FROM dvt_release_control.pre_migration_returns
+              WHERE operation_id = '{operation}');
+"""
+
+
 DATABASE_PROFILE = """
 SELECT CASE WHEN
     NOT EXISTS (SELECT 1 FROM pg_tablespace WHERE spcname NOT IN ('pg_default', 'pg_global'))

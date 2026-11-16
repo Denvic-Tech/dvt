@@ -23,6 +23,16 @@ SELECT (pg_control_system()).system_identifier::text || ':' || oid::text
 FROM pg_database WHERE datname = current_database()
 """
 RECEIPTS = "dvt_release_control.migration_receipts"
+# The standalone Gateway migrator takes this bigint advisory key (DVT_MIGR).
+MIGRATION_LOCK_ID = 0x4456545F4D494752
+MIGRATOR_LOCK = f"""
+SELECT EXISTS (
+    SELECT FROM pg_locks
+    WHERE locktype = 'advisory' AND granted AND objsubid = 1
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND classid = {MIGRATION_LOCK_ID >> 32} AND objid = {MIGRATION_LOCK_ID & 0xFFFFFFFF}
+)
+"""
 MANAGED_ROLES = {"gateway", "orchestrator", "project-scheduler", "task-worker", "migrate"}
 CONTEXT_ENV = "DVT_MIGRATION_CONTEXT"
 MIGRATION_SECONDS = 900
@@ -216,6 +226,12 @@ class ComposeApplicationHost:
         phase = self.sql(pg, f"SELECT phase FROM {RECEIPTS} WHERE {self.receipt_where(context)}")
         return phase or None
 
+    def migration_locked(self, pg: str) -> bool:
+        result = self.sql(pg, MIGRATOR_LOCK)
+        if result not in {"t", "f"}:
+            raise ApplyError(FailureReason.DATABASE_UNAVAILABLE, "Cannot observe the migrator lock")
+        return result == "t"
+
     def revision(self, pg: str) -> str | None:
         if not self.sql(pg, "SELECT to_regclass('alembic_version')"):
             return None
@@ -274,17 +290,25 @@ class ComposeApplicationHost:
         raise ApplyError(FailureReason.MIGRATION, "The one-shot migrator did not confirm success")
 
     def app_ready(
-        self, pg: str, context: str, operation_id: UUID, origin: str, worker_count: int
+        self, pg: str, context: str | None, operation_id: UUID | None, origin: str, worker_count: int
     ) -> bool:
         rows = self.containers()
-        if set(rows) != set(self.services) or not self.migration_done(pg, rows, context):
+        if set(rows) != set(self.services):
             return False
+        if context is not None:
+            if not self.migration_done(pg, rows, context):
+                return False
+        else:
+            (migrate,) = rows["migrate"]
+            state = migrate["State"]
+            if state["Status"] != "exited" or state["ExitCode"] != 0:
+                return False
         for role, containers in rows.items():
             expected_count = worker_count if role == "task-worker" else 1
             if len(containers) != expected_count or any(
                 not self.is_target(role, container)
                 or (role != "migrate" and not _healthy(container))
-                or (role in MANAGED_ROLES and _env(container).get(CONTEXT_ENV) != context)
+                or (role in MANAGED_ROLES and (_env(container).get(CONTEXT_ENV) or None) != context)
                 for container in containers
             ):
                 return False
@@ -307,11 +331,10 @@ class ComposeApplicationHost:
 
         return self._public_ready(operation_id, origin)
 
-    def _public_ready(self, operation_id: UUID, origin: str) -> bool:
+    def _public_ready(self, operation_id: UUID | None, origin: str) -> bool:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
-        health = urllib.request.Request(
-            f"{origin}/api/health", headers={"X-DVT-Deployment": str(operation_id)}
-        )
+        headers = {"X-DVT-Deployment": str(operation_id)} if operation_id is not None else {}
+        health = urllib.request.Request(f"{origin}/api/health", headers=headers)
         try:
             with opener.open(health, timeout=4) as response:
                 if response.status != 200 or json.loads(response.read(4096)) != {"status": "ok"}:
@@ -336,7 +359,7 @@ class ComposeApplicationHost:
             return False
 
     def wait_for_application(
-        self, pg: str, context: str, operation_id: UUID, origin: str, count: int
+        self, pg: str, context: str | None, operation_id: UUID | None, origin: str, count: int
     ) -> bool:
         stop = time.monotonic() + READINESS_SECONDS
         consecutive = 0

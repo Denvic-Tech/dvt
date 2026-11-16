@@ -337,6 +337,32 @@ class OperationStore:
             )
             return [_decode_event(row) for row in rows]
 
+    def first_failure(self, operation_id: UUID) -> OperationEvent | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT * FROM events
+                WHERE operation_id = ? AND json_extract(checkpoint, '$.reason') IS NOT NULL
+                ORDER BY cursor LIMIT 1
+                """,
+                (str(operation_id),),
+            ).fetchone()
+            return _decode_event(row) if row else None
+
+    def recent_events(self, operation_id: UUID, *, limit: int = 100) -> list[OperationEvent]:
+        _page_size(limit)
+        with self._connect() as db:
+            if self._find(db, operation_id) is None:
+                raise OperationNotFound("The operation is unknown")
+            rows = db.execute(
+                """
+                SELECT * FROM events WHERE operation_id = ?
+                ORDER BY cursor DESC LIMIT ?
+                """,
+                (str(operation_id), limit),
+            )
+            return [_decode_event(row) for row in reversed(rows.fetchall())]
+
     def admit(self, request: OperationRequest, *, idempotency_key: str) -> Operation:
         """Atomically persist a new intent or return the existing intent on exact replay."""
         if type(request) is not OperationRequest:

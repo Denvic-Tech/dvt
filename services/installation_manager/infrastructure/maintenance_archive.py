@@ -173,9 +173,7 @@ def _verify_archive(path: Path) -> None:
         raise ValueError("The DVT archive is missing configuration or identity")
 
 
-def verify_copy(
-    directory: Path, metadata: dict, host: ComposeMaintenanceHost, pg_container: str
-) -> None:
+def read_copy_manifest(directory: Path) -> tuple[bytes, dict]:
     info = directory.lstat()
     _require_private(info, 0o700)
     if not stat.S_ISDIR(info.st_mode):
@@ -184,22 +182,32 @@ def verify_copy(
     if content is None:
         raise ValueError("The backup manifest is missing")
     manifest = strict_json(content)
-    created_at = manifest.pop("created_at")
-    if datetime.fromisoformat(created_at).tzinfo != UTC:
+    if not isinstance(manifest, dict) or datetime.fromisoformat(manifest["created_at"]).tzinfo != UTC:
         raise ValueError("Invalid recovery point date")
-    fingerprints = manifest.pop("artifacts")
-    if manifest != metadata or fingerprints != {
-        name: _fingerprint(directory / name) for name in FILES
-    }:
-        raise ValueError("The recovery point does not match the committed metadata or digests")
-    with (directory / "database.dump").open("rb") as stream:
-        host.postgres_tool(pg_container, "database.dump", stream, verify=True)
+    return content, manifest
+
+
+def verify_copy_files(directory: Path, manifest: dict) -> None:
+    if manifest["artifacts"] != {name: _fingerprint(directory / name) for name in FILES}:
+        raise ValueError("The recovery point does not match the committed digests")
     with (directory / "globals.sql").open("rb") as stream:
         header = stream.read(512)
         stream.seek(max(0, (directory / "globals.sql").stat().st_size - 512))
         if b"-- PostgreSQL database cluster dump" not in header or COMPLETE_GLOBALS not in stream.read():
             raise ValueError("The PostgreSQL globals dump is incomplete")
     _verify_archive(directory / "data.tar.gz")
+
+
+def verify_copy(
+    directory: Path, metadata: dict, host: ComposeMaintenanceHost, pg_container: str
+) -> None:
+    _, manifest = read_copy_manifest(directory)
+    if {key: value for key, value in manifest.items()
+        if key not in {"created_at", "artifacts"}} != metadata:
+        raise ValueError("The recovery point does not match the committed metadata")
+    verify_copy_files(directory, manifest)
+    with (directory / "database.dump").open("rb") as stream:
+        host.postgres_tool(pg_container, "database.dump", stream, verify=True)
 
 
 def create_copy(

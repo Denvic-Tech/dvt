@@ -11,10 +11,13 @@ from uuid import UUID
 
 import uvicorn
 
+from .application.application_apply import ApplicationApply
 from .application.maintenance_backup import MaintenanceBackup
+from .application.recovery import cancel_preparation
+from .application.restore_runtime import RestoreRuntime
 from .candidate_api import create_app
 from .candidate_auth import CandidateAuth
-from .candidate_executor import execute
+from .candidate_executor import _probe, execute
 from .domain.operation_state import InstanceIdentity
 from .host_bootstrap import CONTROL, atomic_write, load_host
 from .infrastructure.operation_files import _require_regular_file
@@ -98,6 +101,14 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
         sys.stdout.write(CandidateAuth(config).issue_pairing() + "\n")
     elif action == "candidate-executor" and operation_id is not None:
         execute(config, store, UUID(operation_id))
+    elif action == "candidate-cancel-preparation" and operation_id is not None:
+        cancel_preparation(store, UUID(operation_id))
+    elif action == "candidate-recover-manager" and operation_id is not None:
+        ApplicationApply(store, config, _probe).recover_manager(UUID(operation_id))
+    elif action == "candidate-return-to-source" and operation_id is not None:
+        ApplicationApply(store, config, _probe).return_to_source(UUID(operation_id))
+    elif action == "candidate-restore-start" and operation_id is not None:
+        RestoreRuntime(store, config, _probe).execute(UUID(operation_id), authorize=True)
     elif action in {"candidate-maintenance", "candidate-maintenance-extend",
                     "candidate-maintenance-defer"} and operation_id is not None:
         MaintenanceBackup(store, config).execute(

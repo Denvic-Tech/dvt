@@ -31,7 +31,15 @@ from ..domain.release_manifest import (
     digest_of,
     strict_json,
 )
-from ..host_bootstrap import CONTROL, apply_manager, atomic_write, init_container, safe_path
+from ..host_bootstrap import (
+    CONTROL,
+    apply_manager,
+    atomic_write,
+    check_image,
+    docker,
+    init_container,
+    safe_path,
+)
 from ..infrastructure.application_host import (
     CONTEXT_ENV,
     DATABASE_ID,
@@ -40,7 +48,7 @@ from ..infrastructure.application_host import (
     ComposeApplicationHost,
 )
 from ..infrastructure.maintenance_archive import verify_copy
-from ..infrastructure.maintenance_database import frozen_sql
+from ..infrastructure.maintenance_database import confirm_return_to_source_sql, frozen_sql
 from ..infrastructure.maintenance_host import PG_TARGET, ComposeMaintenanceHost
 from ..infrastructure.operation_store import FORMAT_VERSION, OperationStore
 from ..infrastructure.release_verification import MAX_MANIFEST_BYTES, TrustPolicy, verify_file
@@ -59,9 +67,10 @@ from ..infrastructure.staging_compose import (
     effective_config,
     validate_template,
 )
-from ..infrastructure.staging_docker import StagingDocker
+from ..infrastructure.staging_docker import StagingDocker, _compose_value
 from ..infrastructure.staging_host import selected_profile
 from ..logger import logger
+from .recovery import MigrationState, classify_migration, save_observation
 
 APPLY_STAGES = {
     OperationStage.PREPARED,
@@ -426,6 +435,173 @@ class ApplicationApply:
             ) from None
         atomic_write(Path(self.config["data"]) / CONTROL / "current-manager", target.encode())
 
+    @staticmethod
+    def _support(host, directory: Path, migration: MigrationState) -> None:
+        with contextlib.suppress(
+            OSError, ValueError, RuntimeError, subprocess.SubprocessError,
+        ):
+            save_observation(
+                directory, migration, host.containers(), host.image_ids,
+                host.docker.compose_version(host.deadline), host.config,
+            )
+
+    def recover_manager(self, operation_id: UUID) -> None:
+        with contextlib.suppress(OwnershipConflict), self.store.claim(operation_id) as owner:
+            operation = self.store.get(operation_id)
+            if (
+                operation.request.kind not in {OperationKind.INSTALL, OperationKind.UPDATE}
+                or operation.stage not in {
+                    OperationStage.APPLYING, OperationStage.VERIFYING, OperationStage.RESUMING,
+                }
+            ):
+                return
+            try:
+                self._recover_source_manager(operation, owner.record.claim_id)
+            except (
+                OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError,
+            ):
+                owner.checkpoint(
+                    Checkpoint(
+                        operation.stage, CheckpointOutcome.RETRYABLE_ERROR,
+                        FailureReason.MANAGER_UNAVAILABLE,
+                    )
+                )
+            else:
+                owner.checkpoint(Checkpoint(operation.stage, CheckpointOutcome.VERIFIED))
+
+    def _recover_source_manager(self, operation: Operation, claim_id: UUID) -> None:
+        directory = artifact_directory(self.store, ArtifactKind.STAGING, operation.id)
+        plan = strict_json(_artifact(directory / "plan.json"))
+        source = plan["observed_images"]["installation_manager"]
+        target = plan["services"]["installation_manager"]
+        current = Path(self.config["data"]) / CONTROL / "current-manager"
+        if (
+            plan["manifest_digest"] != operation.request.release.manifest_digest
+            or operation.observation.staging_id != operation.id
+            or _artifact(current).decode() not in {source, target}
+            or plan["target_revision"] != operation.observation.target_revision
+        ):
+            raise ApplyError(FailureReason.MANAGER_UNAVAILABLE, "The manager plan is unconfirmed")
+        if init_container({**self.config, "manager": source}, "candidate-inspect") != str(
+            FORMAT_VERSION
+        ):
+            raise ApplyError(FailureReason.MANAGER_UNAVAILABLE, "The previous manager is incompatible")
+        allowed = {check_image(source)}
+        with contextlib.suppress(OSError, ValueError, subprocess.SubprocessError):
+            allowed.add(check_image(target))
+        ids = docker(
+            "container", "ls", "--all", "--quiet", "--no-trunc", "--filter",
+            f"label=com.docker.compose.project={self.config['project']}", "--filter",
+            "label=com.docker.compose.service=installation_manager",
+        ).stdout.split()
+        if len(ids) > 1:
+            raise ApplyError(FailureReason.MANAGER_UNAVAILABLE, "The manager is ambiguous")
+        if ids:
+            (row,) = strict_json(docker("container", "inspect", ids[0]).stdout.encode())
+            if row["Image"] not in allowed:
+                raise ApplyError(FailureReason.MANAGER_UNAVAILABLE, "The manager is unapproved")
+        apply_manager(self.config, source, directory / "manager-fallback.compose.yaml")
+        self.probe_manager(self.config, self.store, operation.id, claim_id)
+        atomic_write(current, source.encode())
+
+    def return_to_source(self, operation_id: UUID) -> None:
+        with contextlib.suppress(OwnershipConflict), self.store.claim(operation_id) as owner:
+            operation = self.store.get(operation_id)
+            if (
+                operation.request.kind is not OperationKind.UPDATE
+                or operation.stage is not OperationStage.BACKUP
+            ):
+                return
+            try:
+                self._return_before_migration(operation)
+            except (
+                OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.SubprocessError,
+            ) as error:
+                reason = error.reason if isinstance(error, ApplyError) else FailureReason.BACKUP
+                owner.checkpoint(
+                    Checkpoint(operation.stage, CheckpointOutcome.RETRYABLE_ERROR, reason)
+                )
+            else:
+                owner.checkpoint(Checkpoint(OperationStage.CANCELLED, CheckpointOutcome.VERIFIED))
+
+    def _return_before_migration(self, operation: Operation) -> None:
+        directory = artifact_directory(self.store, ArtifactKind.STAGING, operation.id)
+        plan = strict_json(_artifact(directory / "plan.json"))
+        saved = self._source(operation, plan, directory)
+        intent = directory / "return-to-source.json"
+        committed = canonical_json({"operation": str(operation.id)})
+        pending = read_artifact(intent, len(committed))
+        if (
+            read_artifact(directory / "migration-context.json", LIMIT) is not None
+            or pending not in {None, committed}
+        ):
+            raise ApplyError(
+                FailureReason.INCOMPATIBLE_SCHEMA, "Migration may have changed the source database"
+            )
+        copy = safe_path(self.config["backup"]) / str(operation.id)
+        verify_backup = (
+            operation.observation.backup_id is not None or copy.exists() or copy.is_symlink()
+        )
+        data = Path(self.config["data"])
+        compose = _artifact(data / "docker-compose.yaml", 8 * COMPOSE_LIMIT)
+        prior = strict_json(_artifact(data / CONTROL / "current-release.json"))
+        if (
+            prior["instance"] != str(operation.instance_id)
+            or prior["manifest_digest"] != operation.observation.source_digest
+            or prior["revision"] != operation.observation.source_revision
+            or prior["compose_digest"] != digest_of(compose)
+            or prior["config_digest"] != digest_of(_artifact(data / ".env"))
+            or {name: image for name, image in prior["images"].items() if name != "migrate"}
+            != saved["source_images"]
+        ):
+            raise ApplyError(FailureReason.INVALID_PACKAGE, "The working source changed")
+        deadline = Deadline(RetryPolicy(), Path(self.config["temporary"]))
+        model = _compose_value(strict_json(compose))
+        host = ComposeApplicationHost(self.config, directory, model, {
+            "services": prior["images"], "profiles": prior["profiles"], "platform": plan["platform"],
+            "observed_images": saved["source_images"],
+        }, deadline)
+        host.bind_images()
+        authority = ComposeMaintenanceHost(self.config, operation.id, saved["source_images"])
+        pg = authority.validate(saved["containers"], saved["source_revision"])
+        context = host.services["gateway"]["environment"].get(CONTEXT_ENV) or None
+        if (
+            host.migration_locked(pg)
+            or host.database_identity(pg) != prior["database"]
+            or authority.pgdata != data / saved["layout"]["postgres_data"]
+            or (context is None and prior.get("legacy_adopted") is not True)
+            or (context is not None and (
+                host.phase(pg, context) != "resumed"
+                or not host.migration_done(pg, host.containers(), context)
+            ))
+        ):
+            raise ApplyError(FailureReason.INCOMPATIBLE_SCHEMA, "The old deployment is unconfirmed")
+        if pending is None:
+            write_artifact(intent, committed)
+        if host.sql(pg, frozen_sql(operation.id)) == "frozen":
+            if verify_backup:
+                self._check_copy(operation, saved, pg)
+            running = {
+                row["Id"] for rows in host.containers().values()
+                for row in rows if row["State"]["Running"]
+            }
+            restart = [
+                row["id"] for row in saved["containers"] if row["running"] and row["id"] not in running
+            ]
+            if restart:
+                docker("container", "start", *restart)
+            count = sum(
+                row["role"] == "task-worker" and row["running"] for row in saved["containers"]
+            )
+            if not host.wait_for_application(
+                pg, context, UUID(prior["operation"]) if context is not None else None,
+                self.store.identity().public_url, count,
+            ):
+                raise ApplyError(FailureReason.GATEWAY_UNAVAILABLE, "The old deployment is not ready")
+            host.restore_restart_policy()
+        if host.sql(pg, confirm_return_to_source_sql(operation.id)) != "open":
+            raise ApplyError(FailureReason.INCOMPATIBLE_SCHEMA, "The old admission remains frozen")
+
     def execute(self, operation_id: UUID) -> None:
         with contextlib.suppress(OwnershipConflict), self.store.claim(operation_id) as owner:
             operation = self.store.get(operation_id)
@@ -457,6 +633,8 @@ class ApplicationApply:
                     )
                 if stage in {OperationStage.BACKUP, OperationStage.PREPARED}:
                     if stage is OperationStage.BACKUP:
+                        if read_artifact(directory / "return-to-source.json", LIMIT) is not None:
+                            raise ApplyError(FailureReason.INCOMPATIBLE_SCHEMA, "Return to source is in progress")
                         pg = self._confirm_source(operation, plan, saved)
                     owner.checkpoint(Checkpoint(OperationStage.MIGRATING))
                     stage = OperationStage.MIGRATING
@@ -533,25 +711,31 @@ class ApplicationApply:
                     rows = host.containers()
                     if not host.migration_done(pg, rows, context_text):
                         active = any(c["State"]["Running"] for c in rows.get("migrate", ()))
-                        if not active:
-                            phase = host.phase(pg, context_text)
-                            expected = (
-                                operation.observation.target_revision
-                                if phase is not None
-                                else operation.observation.source_revision
+                        migration = classify_migration(
+                            phase=host.phase(pg, context_text),
+                            revision=host.revision(pg),
+                            source=operation.observation.source_revision,
+                            target=operation.observation.target_revision,
+                            running=active,
+                            locked=not active and host.migration_locked(pg),
+                        )
+                        self._support(host, directory, migration)
+                        if migration is MigrationState.UNKNOWN:
+                            raise ApplyError(
+                                FailureReason.INCOMPATIBLE_SCHEMA,
+                                "The live schema has no supported resume checkpoint",
                             )
-                            if host.revision(pg) != expected:
-                                raise ApplyError(
-                                    FailureReason.INCOMPATIBLE_SCHEMA,
-                                    "The live schema has no supported resume checkpoint",
-                                )
-                            if saved is not None:
+                        if migration is not MigrationState.IN_PROGRESS:
+                            if saved is not None and migration in {
+                                MigrationState.NOT_STARTED, MigrationState.CORE_COMMITTED,
+                            }:
                                 self._check_copy(operation, saved, pg)
                             if not host.up("migrate"):
                                 logger.warning(
                                     "Compose did not confirm startup of the one-shot migrator"
                                 )
                         host.wait_for_migration(pg, context_text)
+                    self._support(host, directory, MigrationState.TARGET_CONFIRMED)
                     owner.checkpoint(
                         Checkpoint(
                             OperationStage.APPLYING,
@@ -582,6 +766,7 @@ class ApplicationApply:
                     if stage is OperationStage.APPLYING:
                         owner.checkpoint(Checkpoint(OperationStage.VERIFYING))
                         stage = OperationStage.VERIFYING
+                    self._support(host, directory, MigrationState.TARGET_CONFIRMED)
                     reason = FailureReason.MANAGER_UNAVAILABLE
                     self._apply_manager_health(host, directory, managers, operation, owner)
                     reason = FailureReason.PROFILE_UNHEALTHY
@@ -624,6 +809,7 @@ class ApplicationApply:
                 reason = FailureReason.DATABASE_UNAVAILABLE
                 if not host.resume(pg, context_text):
                     raise ApplyError(reason, "The database did not confirm task admission resumed")
+                self._support(host, directory, MigrationState.RESUMED)
                 owner.checkpoint(
                     Checkpoint(
                         OperationStage.SUCCEEDED,

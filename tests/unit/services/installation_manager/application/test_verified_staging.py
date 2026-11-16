@@ -437,3 +437,26 @@ def test_infrastructure_changes_block_before_pull(setup, change):
     assert error.value.reason is FailureReason.INCOMPATIBLE_RELEASE
     assert "source-private-password" not in str(error.value)
     assert service.docker.pulls == []
+
+
+def test_an_older_signed_release_requires_recovery_before_pulling(setup):
+    service, configure, manifest, _ = setup
+    manifest["version"] = "1.22.0"
+    manifest["release_id"] = "older-signed-release"
+    manifest["schema"]["from_releases"][0]["version"] = "1.21.0"
+    newer = ReleasePin("newer", digest_of(b"newer source"))
+    pin, service.downloader.content[MANIFEST_URL] = sign_manifest(manifest)
+    observed = ObservedRelease(
+        version="1.23.0", revision="0068", pin=newer,
+        images=dict.fromkeys(set(CORE) - {"migrate"}, SOURCE_IMAGE),
+    )
+    operation = _admit(service, configure, pin, OperationKind.UPDATE)
+
+    with pytest.raises(StagingError, match="earlier release requires a verified recovery plan"):
+        service.prepare(operation.id, MANIFEST_URL, observed=observed, applied=newer)
+
+    assert service.docker.pulls == []
+    assert service.store.get(operation.id).stage is OperationStage.PREPARING
+    assert service.store.first_failure(operation.id).checkpoint.reason is (
+        FailureReason.INCOMPATIBLE_RELEASE
+    )

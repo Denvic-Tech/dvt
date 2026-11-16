@@ -359,6 +359,8 @@ class VerifiedStaging:
             or not (REQUIRED_SERVICES - {"migrate"}) <= observed.images.keys()
         ):
             raise incompatible("The applied and independently observed source release do not agree")
+        if Version(manifest.version) < Version(observed.version):
+            raise incompatible("Selecting an earlier release requires a verified recovery plan")
         for route in schema.from_releases:
             if (
                 Version(route.version) == Version(observed.version)
