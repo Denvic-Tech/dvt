@@ -8,6 +8,12 @@ from .types import TaskExecutionStatus, TaskSource, TaskTerminationReason
 
 
 @dataclass(frozen=True, slots=True)
+class NestedTaskParent:
+    task_id: str
+    worker_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class TaskExecution:
     """Authoritative lifecycle state of one pipeline execution."""
 
@@ -27,6 +33,7 @@ class TaskExecution:
     termination_reason: TaskTerminationReason | str | None = None
     message: str | None = None
     updated_at: datetime | None = None
+    nested_parent: NestedTaskParent | None = None
 
 
 @dataclass(frozen=True, slots=True)

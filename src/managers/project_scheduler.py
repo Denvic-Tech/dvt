@@ -22,7 +22,13 @@ from src.infra.task import enqueue_task_from_project
 from src.logger import logger
 from src.modules.project.domain import ProjectScheduleRunStatus
 from src.modules.project.infra.db_models import ProjectScheduleRecord, ProjectScheduleRunRecord
-from src.modules.task_execution.domain.types import TaskExecutionStatus, TaskSource
+from src.modules.task_execution.domain.exceptions import TASK_ADMISSION_CLOSED
+from src.modules.task_execution.domain.types import (
+    TaskExecutionStatus,
+    TaskSource,
+    TaskTerminationReason,
+)
+from src.modules.task_execution.infra.admission import task_admission_state
 from src.pipeline.execution_mode import PipelineExecutionMode
 from src.schemas.internal.project_scheduler import (
     ProjectSchedulePatchRequest,
@@ -116,6 +122,10 @@ class ProjectSchedulerManager:
         """Create a durable run chain for one cron occurrence."""
         now = _utcnow()
         async with AsyncSession(engine) as session:
+            operation_id, _ = await task_admission_state(session, lock=True)
+            if operation_id is not None:
+                logger.info(f"Skipping cron during maintenance project_id={project_id}")
+                return
             schedule = (
                 await project_schedule_crud.get_project_schedules_by(
                     session=session,
@@ -230,6 +240,9 @@ class ProjectSchedulerManager:
                 and run.next_retry_at is not None
                 and _as_utc(run.next_retry_at) <= now
             ):
+                operation_id, _ = await task_admission_state(session)
+                if operation_id is not None:
+                    return
                 run.attempt_number += 1
                 run.status = ProjectScheduleRunStatus.STARTING
                 run.attempt_started_at = now
@@ -345,6 +358,8 @@ class ProjectSchedulerManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            from src.clients.orchestrator_client import OrchestratorTaskRejected
+
             logger.exception(
                 f"Failed to start schedule attempt run_id={run_id} attempt={attempt_number}"
             )
@@ -352,6 +367,10 @@ class ProjectSchedulerManager:
                 run_id=run_id,
                 attempt_number=attempt_number,
                 error=str(exc),
+                maintenance=(
+                    isinstance(exc, OrchestratorTaskRejected)
+                    and exc.detail == TASK_ADMISSION_CLOSED
+                ),
             )
         finally:
             self._reconcile_wakeup.set()
@@ -362,6 +381,7 @@ class ProjectSchedulerManager:
         run_id: str,
         attempt_number: int,
         error: str,
+        maintenance: bool = False,
     ) -> None:
         async with AsyncSession(engine) as session:
             run = await schedule_run_crud.get_run_by_id(
@@ -379,7 +399,13 @@ class ProjectSchedulerManager:
             if task is not None:
                 run.current_task_id = task.task_id
                 error = task.message or task.termination_reason or error
-            self._record_attempt_failure(run, now=_utcnow(), error=error)
+            if maintenance:
+                schedule_run_crud.finish_run(
+                    run, status=ProjectScheduleRunStatus.CANCELLED,
+                    now=_utcnow(), error=TASK_ADMISSION_CLOSED,
+                )
+            else:
+                self._record_attempt_failure(run, now=_utcnow(), error=error)
             session.add(run)
             await session.commit()
 
@@ -397,11 +423,16 @@ class ProjectSchedulerManager:
             return True
 
         if task.status == TaskExecutionStatus.ERROR:
-            self._record_attempt_failure(
-                run,
-                now=now,
-                error=task.message or task.termination_reason or "Task execution failed",
-            )
+            error = task.message or task.termination_reason or "Task execution failed"
+            if (
+                task.termination_reason == TaskTerminationReason.WORKER_LOST
+                and task.maintenance_worker_lost
+            ):
+                schedule_run_crud.finish_run(
+                    run, status=ProjectScheduleRunStatus.ERROR, now=now, error=error,
+                )
+            else:
+                self._record_attempt_failure(run, now=now, error=error)
             return True
 
         if task.status == TaskExecutionStatus.CANCELLED:

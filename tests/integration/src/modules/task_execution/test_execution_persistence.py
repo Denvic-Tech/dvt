@@ -2,17 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import socket
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import Session
 from usrak.core.security import hash_password
 
+from services.installation_manager.infrastructure.maintenance_database import (
+    close_sql,
+    drain_sql,
+    reopen_sql,
+)
 from services.orchestrator import task_finalizer
 from services.orchestrator.execution_registry import TaskExecutionRegistry
 from services.orchestrator.execution_supervisor import TaskExecutionSupervisor
@@ -20,7 +29,12 @@ from services.orchestrator.execution_supervisor import TaskExecutionSupervisor
 from src import enums
 from src.models.organization import OrganizationRecord
 from src.modules.project.infra.db_models import ProjectRecord
-from src.modules.task_execution.domain.entities import NestedWaitReservation, TaskExecution
+from src.modules.task_execution.domain.entities import (
+    NestedTaskParent,
+    NestedWaitReservation,
+    TaskExecution,
+)
+from src.modules.task_execution.domain.exceptions import TaskAdmissionClosed
 from src.modules.task_execution.domain.types import (
     TaskExecutionStatus,
     TaskSource,
@@ -767,3 +781,176 @@ async def test_real_valkey_nested_wait_rebalance_evicts_newest_when_capacity_shr
 
     assert [item.parent_task_id for item in evicted] == ["parent-new"]
     assert [item.parent_task_id for item in await gateway.list()] == ["parent-old"]
+
+
+def _maintenance_sql(engine, statement: str) -> str:
+    with (
+        engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection,
+        connection.connection.driver_connection.cursor() as cursor,
+    ):
+        cursor.execute(statement)
+        found = []
+        while True:
+            if cursor.description:
+                found.extend(str(row[0]) for row in cursor.fetchall())
+            if not cursor.nextset():
+                return "\n".join(found)
+
+
+def _reset_maintenance_gate(engine):
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE task_admission_control SET operation_id=NULL, frozen=false"
+        )
+
+
+async def _wait_for_postgres_lock(factory, event: str) -> None:
+    async with asyncio.timeout(5):
+        while True:
+            async with factory() as session:
+                waiting = await session.scalar(sa.text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE "
+                    "wait_event_type = 'Lock' AND LOWER(wait_event) = :event "
+                    "AND datname = current_database())"
+                ), {"event": event})
+                if waiting:
+                    return
+            await asyncio.sleep(0.02)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_maintenance_close_serializes_with_real_durable_enqueue(
+    repository, execution_identity, test_db_engine,
+):
+    repo, factory = repository
+    org_id, user_id, project_id = execution_identity
+    operation = uuid4()
+    admitted = _execution(
+        task_id=f"accepted-{uuid4().hex}", org_id=org_id, user_id=user_id, project_id=project_id,
+    )
+    blocked = replace(admitted, task_id=f"blocked-{uuid4().hex}", source=TaskSource.SCHEDULER)
+    try:
+        async with factory.begin() as session:
+            # Pause real enqueue inside its transaction after it acquires the gate share.
+            await session.execute(sa.text("SELECT pg_advisory_xact_lock(hashtext(:project))"), {
+                "project": project_id,
+            })
+            async with asyncio.TaskGroup() as tasks:
+                submission = tasks.create_task(repo.enqueue_with_dispatch(admitted, {"valid": True}))
+                await _wait_for_postgres_lock(factory, "advisory")
+                closure = tasks.create_task(
+                    asyncio.to_thread(_maintenance_sql, test_db_engine, close_sql(operation))
+                )
+                await _wait_for_postgres_lock(factory, "transactionid")
+                assert not closure.done()
+                assert not submission.done()
+                await session.commit()
+        assert closure.result() == str(operation)
+        assert submission.result().execution.status == TaskExecutionStatus.QUEUED
+
+        with pytest.raises(TaskAdmissionClosed):
+            await SQLTaskExecutionRepository(factory).enqueue_with_dispatch(blocked, {})
+        assert await repo.get(task_id=blocked.task_id) is None
+        items = await repo.pending_dispatches(limit=100)
+        assert admitted.task_id in {item.task_id for item in items}
+    finally:
+        _reset_maintenance_gate(test_db_engine)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_maintenance_drains_persisted_children_and_worker_loss(
+    repository, execution_identity, test_db_engine,
+):
+    repo, factory = repository
+    org_id, user_id, project_id = execution_identity
+    operation = uuid4()
+    parent = _execution(
+        task_id=f"parent-{uuid4().hex}", org_id=org_id, user_id=user_id, project_id=project_id,
+    )
+    abandoned_root = replace(parent, task_id=f"unadmitted-{uuid4().hex}", source=TaskSource.MCP)
+    child = replace(
+        parent,
+        task_id=f"child-{uuid4().hex}",
+        source=TaskSource.NODE,
+        nested_parent=NestedTaskParent(parent.task_id, "worker-1"),
+    )
+    try:
+        # The already queued parent is safe to claim even after close.
+        await repo.enqueue_with_dispatch(parent, {"valid": True})
+        await repo.create_pending(abandoned_root)
+        assert _maintenance_sql(test_db_engine, close_sql(operation)) == str(operation)
+        assert (await repo.get(task_id=abandoned_root.task_id)).status == TaskExecutionStatus.CANCELLED
+        for source in (TaskSource.API, TaskSource.UI, TaskSource.MCP, TaskSource.SCHEDULER):
+            execution = replace(parent, task_id=f"blocked-{uuid4().hex}", source=source)
+            with pytest.raises(TaskAdmissionClosed):
+                await repo.create_pending(execution)
+            with pytest.raises(TaskAdmissionClosed):
+                await repo.enqueue_with_dispatch(execution, {})
+        with pytest.raises(TaskAdmissionClosed):
+            await repo.enqueue_with_dispatch(replace(child, nested_parent=None), {})
+        assert await repo.claim(task_id=parent.task_id, worker_id="worker-1")
+        await repo.create_pending(child)
+        assert await repo.finalize(
+            task_id=parent.task_id, worker_id="worker-1", status=TaskExecutionStatus.SUCCESS,
+        )
+        assert _maintenance_sql(test_db_engine, drain_sql(operation)) != "frozen"
+        assert (await repo.enqueue_with_dispatch(child, {})).execution.status == TaskExecutionStatus.QUEUED
+        assert await repo.claim(task_id=child.task_id, worker_id="worker-2")
+
+        orphan = replace(
+            child, task_id=f"orphan-{uuid4().hex}",
+            nested_parent=NestedTaskParent(child.task_id, "worker-2"),
+        )
+        await repo.create_pending(orphan)
+        await repo.finalize_reconciled(
+            task_id=child.task_id, termination_reason=TaskTerminationReason.WORKER_LOST,
+        )
+        assert not await repo.claim(task_id=child.task_id, worker_id="another-worker")
+        assert _maintenance_sql(test_db_engine, drain_sql(operation)) == "frozen"
+        assert _maintenance_sql(test_db_engine, reopen_sql(operation)) == ""
+        with Session(test_db_engine) as session:
+            assert session.get(TaskRecord, child.task_id).maintenance_worker_lost is True
+        expired = await repo.get(task_id=orphan.task_id)
+        assert expired.status == TaskExecutionStatus.ERROR
+        assert expired.termination_reason == TaskTerminationReason.WORKER_LOST
+
+        fresh = SQLTaskExecutionRepository(factory)
+        with pytest.raises(TaskAdmissionClosed):
+            await fresh.enqueue_with_dispatch(child, {})
+    finally:
+        _reset_maintenance_gate(test_db_engine)
+
+
+def test_admission_migration_cycle_keeps_closed_gate_and_previous_layout(test_db_engine):
+    migration = import_module("migrations.versions.0070_add_task_admission_control")
+    operation = uuid4()
+    fixture_schema = f"migration_{uuid4().hex}"
+    # A transaction-scoped schema containing the prior layout. No application
+    # migration is executed against a non-fixture database.
+    with test_db_engine.connect() as connection, connection.begin():
+        connection.exec_driver_sql(f'CREATE SCHEMA "{fixture_schema}"')
+        connection.exec_driver_sql(f'SET LOCAL search_path TO "{fixture_schema}"')
+        connection.exec_driver_sql("CREATE TABLE tasks (task_id text PRIMARY KEY, status text)")
+        connection.exec_driver_sql("INSERT INTO tasks VALUES ('historical', 'SUCCESS')")
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            connection.execute(
+                sa.text("UPDATE task_admission_control SET operation_id=:operation, frozen=true"),
+                {"operation": operation},
+            )
+            migration.downgrade()
+            # Original binary uses its existing columns and can still read/write old data.
+            assert connection.exec_driver_sql(
+                "SELECT status FROM tasks WHERE task_id = 'historical'"
+            ).scalar_one() == "SUCCESS"
+            connection.exec_driver_sql(
+                "INSERT INTO tasks (task_id, status) VALUES ('legacy', 'QUEUED')"
+            )
+            migration.upgrade()
+        assert connection.exec_driver_sql(
+            "SELECT operation_id, frozen FROM task_admission_control"
+        ).one() == (operation, True)
+        assert connection.exec_driver_sql(
+            "SELECT maintenance_worker_lost, prepared_by_parent_id FROM tasks"
+        ).all() == [(False, None), (False, None)]
+        connection.exec_driver_sql(f'DROP SCHEMA "{fixture_schema}" CASCADE')

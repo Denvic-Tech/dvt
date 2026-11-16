@@ -11,7 +11,7 @@
 | [`01_operation_state`](./stages/01_operation_state/task.md) | — | Identity, адресно читаемый журнал и захват одного владельца переживают независимые процессы | `ACCEPTED` | [Отчёт](./stages/01_operation_state/report.md), Windows: 34 прошли; Linux: 18 прошли; Ruff |
 | [`02_verified_staging`](./stages/02_verified_staging/task.md) | 01 — identity, журнал и владение | Подписанный комплект закреплён; preflight и staging не нарушают действующую установку | `ACCEPTED` | [Отчёт](./stages/02_verified_staging/report.md), Windows: 71 прошёл; Linux: 41 прошёл; сборка, две ВМ и MTU |
 | [`03_bootstrap_executor`](./stages/03_bootstrap_executor/task.md) | 01–02 — журнал, staging, манифест | Повторяемый bootstrap и исполнитель переживают пересоздание и перезапуск хоста на кандидатном пути | `ACCEPTED` | [Отчёт](./stages/03_bootstrap_executor/report.md), Debian reboot, Ubuntu fallback, Chrome, 79 тестов |
-| [`04_maintenance_backup`](./stages/04_maintenance_backup/task.md) | 01–03 — журнал, staging, исполнитель | Новые корневые запуски блокируются на авторитетном пути; точка восстановления доступна и проверена | `PENDING` | — |
+| [`04_maintenance_backup`](./stages/04_maintenance_backup/task.md) | 01–03 — журнал, staging, исполнитель | Новые корневые запуски блокируются на авторитетном пути; точка восстановления доступна и проверена | `ACCEPTED` | [Отчёт](./stages/04_maintenance_backup/report.md), 164 unit, 21 PostgreSQL/Redis, Debian backup и SIGKILL |
 | [`05_migration_apply`](./stages/05_migration_apply/task.md) | 01–04 — проверенный план, исполнитель, guard и копия | Схема меняется один раз, сервисы запускаются после неё, фиксация следует за готовностью и возобновлением | `PENDING` | — |
 | [`06_recovery_legacy`](./stages/06_recovery_legacy/task.md) | 01–05 — полный путь применения | Оператор может безопасно продолжить сбой, восстановить мастер или полную копию; legacy сохраняет данные | `PENDING` | — |
 | [`07_distribution_catalog`](./stages/07_distribution_catalog/task.md) | 02, 05–06 — формат манифеста и клиентские проверки | Публичный контракт возвращает только готовые неизменяемые релизы; клиент работает с закреплённым комплектом | `PENDING` | — |
@@ -55,6 +55,15 @@
 
 - Coding session: `/root/stage03_bootstrap_executor`, effort `high`.
 - `ACCEPTED`: мастер независимо проверил `bash -n`, Ruff, pytest (79 прошли, 6 Linux-only пропущены), реальный reboot Debian (одна операция и два claims, подтверждён boot ID), fallback Ubuntu (исходный digest, сохранённый отказ), живой Chrome (потеря POST с ранее завершённой историей, тот же адрес и новый правильный ID), очистку двух fixture scope. Штатный Dockerfile со сборкой фронтенда успешно собран на обеих ВМ. Проверка установки Docker с нуля на чистом снимке остаётся в матрице этапа 10. Этот этап не переключает приложение и не мигрирует БД.
+
+- Локальный коммит этапа: `e27e7ab`.
+
+### `04_maintenance_backup`
+
+- Coding session: `/root/stage04_maintenance_backup`, effort `high`.
+- Исходная независимая проверка: 82 теста task_execution, Orchestrator и Scheduler прошли. Audit `task_execution`: 0 ошибок, 2 существующих предупреждения (размер контракта и отсутствие `flow/providers.py`).
+- Промежуточная проверка: независимо прошли 18 тестов PostgreSQL/Redis, отдельный цикл `0069 → 0070 → 0069 → 0070`, Compose smoke с реальным PostgreSQL/архивом на Debian (активная задача задержала копирование, старые писатели остановлены, мастер сохранён). Найден и исправлен циклический импорт при старте Scheduler.
+- Ревью 1: `CHANGES_REQUESTED` из-за пяти новых замечаний Ruff в smoke и test helper. Ревью 2: `ACCEPTED`. Независимо подтверждены 164 unit (6 Linux-only пропущены), 18 PostgreSQL/Redis, цикл схемы и 2 Scheduler integration, холодный импорт, отсутствие новых ошибок audit. На Debian `SIGKILL` не открыл gate, новый процесс с тем же ID остановил старых писателей и проверил резервную копию. Новых Ruff-диагностик нет; 9 исходных оставлены за рамками задачи. Полное восстановление и продуктовая матрица остаются впереди.
 
 ## Сквозные проверки
 

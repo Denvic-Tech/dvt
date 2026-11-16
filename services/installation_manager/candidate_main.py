@@ -11,6 +11,7 @@ from uuid import UUID
 
 import uvicorn
 
+from .application.maintenance_backup import MaintenanceBackup
 from .candidate_api import create_app
 from .candidate_auth import CandidateAuth
 from .candidate_executor import execute
@@ -97,6 +98,14 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
         sys.stdout.write(CandidateAuth(config).issue_pairing() + "\n")
     elif action == "candidate-executor" and operation_id is not None:
         execute(config, store, UUID(operation_id))
+    elif action in {"candidate-maintenance", "candidate-maintenance-extend",
+                    "candidate-maintenance-defer"} and operation_id is not None:
+        MaintenanceBackup(store, config).execute(
+            UUID(operation_id),
+            confirm=action == "candidate-maintenance",
+            extend=action == "candidate-maintenance-extend",
+            defer=action == "candidate-maintenance-defer",
+        )
     elif action == "candidate-web":
         path = Path(os.environ.get("UPDATE_SERVICE_STATIC_DIR", "/static"))
         app = create_app(config, store, path)

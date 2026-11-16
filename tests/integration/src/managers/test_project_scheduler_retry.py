@@ -105,6 +105,23 @@ async def test_reconciler_retries_failed_task_and_finishes_on_success(
         fake_enqueue_task_from_project,
     )
     manager = ProjectSchedulerManager()
+    operation_id = uuid4()
+
+    async def admission(*, closed: bool) -> None:
+        async with session_factory.begin() as session:
+            await session.execute(sa.text(
+                "UPDATE task_admission_control SET operation_id=:operation WHERE singleton=1"
+            ), {"operation": operation_id if closed else None})
+
+    await admission(closed=True)
+    try:
+        await manager.start_scheduled_run(project.id)
+        async with session_factory() as session:
+            assert await session.scalar(sa.select(ProjectScheduleRunRecord.id).where(
+                ProjectScheduleRunRecord.schedule_id == schedule.id
+            )) is None
+    finally:
+        await admission(closed=False)
 
     await manager.start_scheduled_run(project.id)
     await manager.start_scheduled_run(project.id)
@@ -153,6 +170,17 @@ async def test_reconciler_retries_failed_task_and_finishes_on_success(
         run.next_retry_at = datetime.now(tz=UTC) - timedelta(seconds=1)
         session.add(run)
         await session.commit()
+
+    await admission(closed=True)
+    try:
+        await manager.reconcile_once()
+        assert enqueue_calls == [(run.id, 1)]
+        async with session_factory() as session:
+            waiting = await session.get(ProjectScheduleRunRecord, run.id)
+            assert waiting.status == ProjectScheduleRunStatus.WAITING_RETRY
+            assert waiting.attempt_number == 1
+    finally:
+        await admission(closed=False)
 
     await manager.reconcile_once()
     async with session_factory() as session:

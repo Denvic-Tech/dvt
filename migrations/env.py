@@ -27,6 +27,7 @@ from src.modules.db_connection.infra.db_models import DVTStoredConnectionRecord 
 from src.modules.file_storage.infra.db_models import DVTServiceFileObjectRecord  # noqa: F403
 from src.modules.app_settings.infra.db_models import AppSettingChangeRecord, AppSettingValueRecord  # noqa: F403
 from src.modules.task_execution.infra.db_models import (  # noqa: F403
+    TaskAdmissionControlRecord,
     TaskDispatchOutboxRecord,
     TaskRecord,
 )

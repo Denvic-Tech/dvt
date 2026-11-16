@@ -156,15 +156,15 @@ def container_name(config):
     return f"dvt-bootstrap-executor-{config['instance']}"
 
 
-def launch(config, operation_id):
+def launch(config, operation_id, action="candidate-executor"):
     import fcntl
 
     with (Path(config["data"]) / CONTROL / "launch.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        _launch(config, operation_id)
+        _launch(config, operation_id, action)
 
 
-def _launch(config, operation_id):
+def _launch(config, operation_id, action="candidate-executor"):
     check_image(config["executor"])
     name = container_name(config)
     existing = docker("container", "inspect", name, check=False)
@@ -178,6 +178,8 @@ def _launch(config, operation_id):
         ):
             raise RuntimeError("The executor name belongs to a different container")
         if current["State"]["Running"]:
+            if action != "candidate-executor":
+                raise RuntimeError("The operation executor is already running; retry after it exits")
             return
         docker("container", "rm", name)
     docker_info = json.loads(docker("info", "--format", "{{json .}}").stdout)
@@ -212,7 +214,7 @@ def _launch(config, operation_id):
     ]
     for item in mounts:
         args.extend(("--mount", item))
-    docker(*args, config["executor"], "candidate-executor", config["data"], operation_id)
+    docker(*args, config["executor"], action, config["data"], operation_id)
 
 
 def active_id(config):
@@ -621,7 +623,11 @@ def bootstrap(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["bootstrap", "resume"])
+    parser.add_argument(
+        "action",
+        choices=["bootstrap", "resume", "maintenance", "maintenance-extend", "maintenance-defer"],
+    )
+    parser.add_argument("--operation-id")
     parser.add_argument("--dir", default="/var/lib/dvt")
     parser.add_argument("--project")
     parser.add_argument("--port", type=int)
@@ -647,10 +653,16 @@ def main():
             raise ValueError("This candidate requires root on Linux amd64")
         if not Path("/run/systemd/system").is_dir():
             raise ValueError("The host must run systemd")
-        if args.action == "resume":
+        if args.action != "bootstrap":
             config = load_host(safe_path(args.dir))
-            if operation := active_id(config):
-                launch(config, operation)
+            operation = active_id(config)
+            if args.action == "resume":
+                if operation:
+                    launch(config, operation)
+            else:
+                if not args.operation_id or args.operation_id != operation:
+                    raise ValueError("Select the active update operation with --operation-id")
+                launch(config, operation, f"candidate-{args.action}")
         else:
             import fcntl
 

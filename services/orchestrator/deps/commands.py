@@ -9,7 +9,13 @@ from services.orchestrator.task_finalizer import publish_task_terminal_event
 
 from src import enums
 from src.logger import logger
-from src.modules.task_execution.domain.types import TaskExecutionStatus, TaskTerminationReason
+from src.modules.task_execution.domain.entities import NestedTaskParent
+from src.modules.task_execution.domain.exceptions import TASK_ADMISSION_CLOSED, TaskAdmissionClosed
+from src.modules.task_execution.domain.types import (
+    TaskExecutionStatus,
+    TaskSource,
+    TaskTerminationReason,
+)
 from src.modules.task_execution.facade import build_task_execution_facade
 from src.modules.task_execution.infra.transport import NestedTaskEnqueueCommand, TaskInternal
 from src.pipeline.execution_mode import PipelineExecutionMode
@@ -28,16 +34,29 @@ class TaskEnqueueDecision:
     error: str | None = None
 
 
-async def accept_task_enqueue(task: TaskInternal) -> TaskEnqueueDecision:
+async def accept_task_enqueue(
+    task: TaskInternal, *, nested_parent: NestedTaskParent | None = None
+) -> TaskEnqueueDecision:
     log = logger.bind(
         component="orchestrator.enqueue",
         task_id=task.task_id,
         project_id=task.project_id,
     )
 
+    if (task.source is TaskSource.NODE) != (nested_parent is not None):
+        return TaskEnqueueDecision(False, task.task_id, False, "Invalid task admission source")
+
     try:
-        enqueue_result = await build_task_execution_facade(celery_app=celery_app).enqueue_task_internal(task)
+        execution_facade = build_task_execution_facade(celery_app=celery_app)
+        if nested_parent is None:
+            enqueue_result = await execution_facade.enqueue_task_internal(task)
+        else:
+            enqueue_result = await execution_facade.enqueue_task_internal(
+                task, nested_parent=nested_parent,
+            )
         execution = enqueue_result.execution
+    except TaskAdmissionClosed:
+        return TaskEnqueueDecision(False, task.task_id, False, TASK_ADMISSION_CLOSED)
     except IntegrityError as exc:
         log.warning("IntegrityError on durable enqueue", error=str(exc))
         return TaskEnqueueDecision(False, task.task_id, False, str(exc))
@@ -111,8 +130,20 @@ async def handle_nested_task_enqueue(command: NestedTaskEnqueueCommand) -> None:
             return
         reservation_created = True
 
-    decision = await accept_task_enqueue(command.task)
+    decision = await accept_task_enqueue(
+        command.task,
+        nested_parent=NestedTaskParent(
+            task_id=command.parent_task_id, worker_id=command.origin_worker_id,
+        ),
+    )
     if not decision.accepted:
         if reservation_created:
             await execution.release_nested_wait.execute(parent_task_id=command.parent_task_id)
+        if decision.error == TASK_ADMISSION_CLOSED:
+            # A stale/unprepared command cannot become runnable. Acknowledge it after
+            # recording the rejection, rather than replaying it after maintenance.
+            await execution.fail_pending_execution.execute(
+                task_id=command.task.task_id, message=decision.error,
+            )
+            return
         raise RuntimeError(decision.error or "Failed to enqueue nested task")

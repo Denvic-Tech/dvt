@@ -237,6 +237,7 @@ def test_worker_lost_error_uses_scheduler_retry_policy():
         status=TaskExecutionStatus.ERROR,
         message=None,
         termination_reason=TaskTerminationReason.WORKER_LOST,
+        maintenance_worker_lost=False,
     )
 
     assert manager._apply_task_result(run, task=task, now=now) is True
@@ -310,3 +311,19 @@ def test_schedule_response_exposes_persisted_policy_and_latest_chain(monkeypatch
     assert response.latest_run_chain.run_id == "run-1"
     assert response.latest_run_chain.attempt_number == 2
     assert response.latest_run_chain.max_attempts == 4
+
+
+def test_worker_lost_during_maintenance_retains_no_retry_decision_after_resume():
+    now = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
+    run = _make_run(max_retries=2, attempt_number=1)
+    task = SimpleNamespace(
+        status=TaskExecutionStatus.ERROR,
+        message=None,
+        termination_reason=TaskTerminationReason.WORKER_LOST,
+        maintenance_worker_lost=True,
+    )
+
+    assert ProjectSchedulerManager()._apply_task_result(run, task=task, now=now) is True
+    assert run.status == ProjectScheduleRunStatus.ERROR
+    assert run.next_retry_at is None
+    assert run.finished_at == now

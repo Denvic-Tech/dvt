@@ -23,6 +23,7 @@ COPY --from=base-builder /app /app
 
 COPY services/task_worker /app/services/task_worker
 
+LABEL tech.denvic.task-admission="1"
 ENV SERVICE_NAME=task-worker
 
 CMD bash -c "ulimit -c 0 && python3 -m services.task_worker.main"

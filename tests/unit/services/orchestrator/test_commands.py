@@ -68,7 +68,9 @@ async def test_accept_task_enqueue_persists_durable_dispatch_without_memory_sche
     facade = SimpleNamespace(enqueue_task_internal=enqueue)
     monkeypatch.setattr(commands_module, "build_task_execution_facade", lambda **_kwargs: facade)
 
-    task = SimpleNamespace(task_id="child-task-1", user_id="user-1", project_id="project-1")
+    task = SimpleNamespace(
+        task_id="child-task-1", user_id="user-1", project_id="project-1", source=TaskSource.API,
+    )
     decision = await commands_module.accept_task_enqueue(task)
 
     assert decision.accepted is True

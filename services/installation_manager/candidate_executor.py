@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 from uuid import UUID
 
+from .application.maintenance_backup import MAINTENANCE_STAGES, MaintenanceBackup
 from .candidate_auth import CandidateAuth
 from .domain.operation_state import (
     ArtifactKind,
@@ -164,6 +165,11 @@ def _probe(config: dict, store: OperationStore, operation_id: UUID, claim_id: UU
 
 
 def execute(config: dict, store: OperationStore, operation_id: UUID) -> None:
+    operation = store.get(operation_id)
+    if operation is not None and operation.request.kind is OperationKind.UPDATE:
+        if operation.stage in MAINTENANCE_STAGES:
+            MaintenanceBackup(store, config).execute(operation_id)
+        return
     with contextlib.suppress(OwnershipConflict), store.claim(operation_id) as owner:
         operation = store.get(operation_id)
         if (

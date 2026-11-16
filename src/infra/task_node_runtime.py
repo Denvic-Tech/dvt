@@ -10,6 +10,7 @@ from src.crud import project as project_crud
 from src.crud.admin import user as user_crud
 from src.db import AsyncSessionLocal
 from src.infra.orchestrator_commands import publish_orchestrator_command
+from src.modules.task_execution.domain.entities import NestedTaskParent
 from src.modules.task_execution.domain.types import TaskExecutionStatus, TaskSource
 from src.modules.task_execution.facade import build_task_lifecycle_commands
 from src.modules.task_execution.infra.queries import get_task_by_id
@@ -118,12 +119,14 @@ async def enqueue_project_task_for_node(
             unresolved_variables_policy=unresolved_variables_policy,
             system_variables_policy=system_variables_policy,
         )
+        origin_worker_id = get_worker_id()
         child_task = await build_pending_task_from_project(
             project=target_project,
             send_ws_messages=send_ws_messages,
             force_exec=force_exec,
             variables=variable_overrides,
             source=TaskSource.NODE,
+            nested_parent=NestedTaskParent(task_id=parent_task_id, worker_id=origin_worker_id),
             user=actor_user,
             session=session,
         )
@@ -132,7 +135,7 @@ async def enqueue_project_task_for_node(
                 NestedTaskEnqueueCommand(
                     request_id=child_task.task_id,
                     task=child_task,
-                    origin_worker_id=get_worker_id(),
+                    origin_worker_id=origin_worker_id,
                     parent_task_id=parent_task_id,
                     parent_project_id=parent_project_id,
                     wait_for_completion=wait_for_completion,

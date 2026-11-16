@@ -232,6 +232,7 @@ class FailureReason(StrEnum):
     GATEWAY_UNAVAILABLE = "gateway_unavailable"
     PROFILE_UNHEALTHY = "profile_unhealthy"
     BACKUP = "backup"
+    MAINTENANCE_DRAIN_TIMEOUT = "maintenance_drain_timeout"
     MANAGER_UNAVAILABLE = "manager_unavailable"
 
 
