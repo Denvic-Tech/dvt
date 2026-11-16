@@ -60,7 +60,10 @@ async def test_business_request_is_blocked_with_registered_error_and_cors() -> N
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "path",
-    ["/health", "/system/state", "/update/status", "/auth/check-auth", "/metrics"],
+    [
+        "/health", "/api/health", "/system/state", "/update/status", "/auth/check-auth", "/metrics",
+        "/internal/ai-mcp/v1/auth/verify",
+    ],
 )
 async def test_allowed_paths_are_not_blocked(path: str) -> None:
     async with AsyncClient(

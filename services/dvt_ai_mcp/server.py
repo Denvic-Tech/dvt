@@ -814,6 +814,13 @@ async def health(_: Request) -> Response:
     return JSONResponse({"status": "ok", "service": "dvt_ai_mcp"})
 
 
+@mcp.custom_route("/ready", methods=["GET"])
+async def readiness(_: Request) -> Response:
+    if not await gateway_client.upstream_ready():
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ok", "service": "dvt_ai_mcp"})
+
+
 @mcp.custom_route("/metrics", methods=["GET"])
 async def metrics(_: Request) -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
@@ -824,7 +831,7 @@ class BearerAuthenticationMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] != "http" or scope.get("path") in {"/health", "/metrics"}:
+        if scope["type"] != "http" or scope.get("path") in {"/health", "/ready", "/metrics"}:
             await self.app(scope, receive, send)
             return
         headers = {key.lower(): value for key, value in scope.get("headers", [])}

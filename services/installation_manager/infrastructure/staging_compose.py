@@ -156,12 +156,15 @@ def effective_config(
             "DVT_VERSION": release_version,
             "DVT_INSTALLATION_MANAGER_EXTERNAL_PORT": str(identity.manager_port),
             "DVT_INSTALLATION_MANAGER_BIND_ADDRESS": identity.manager_address,
+            "DVT_INSTALLATION_MANAGER_DATA_TARGET": identity.data_dir,
             "DVT_AI_MCP_ENABLED": render_bool(enabled),
             "DVT_EXTERNAL_PORT": str(app_port),
             "DVT_TASK_WORKERS_COUNT": str(workers),
         }
     )
     profiles = ("ai-mcp",) if enabled else ()
+    environment.setdefault("DVT_NETWORK_NAME", f"{identity.compose_project}_dvt-net")
+    environment.setdefault("DVT_NETWORK_EXTERNAL", "false")
     environment["COMPOSE_PROFILES"] = ",".join(profiles)
     return environment, profiles
 

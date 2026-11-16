@@ -9,7 +9,11 @@ from src.schemas.http.system import SystemStateValue
 
 
 class SystemUpdateMiddleware:
-    _ALLOWED_EXACT_PATHS: ClassVar[set[str]] = {"/health", "/system/state"}
+    _ALLOWED_EXACT_PATHS: ClassVar[set[str]] = {
+        "/health", "/api/health", "/system/state",
+        # The read-only MCP authentication handshake also tests its Gateway connection.
+        "/internal/ai-mcp/v1/auth/verify",
+    }
     _ALLOWED_PREFIXES: ClassVar[tuple[str, ...]] = ("/auth", "/metrics", "/update")
 
     def __init__(self, app: ASGIApp, monitor: SystemStateMonitor):

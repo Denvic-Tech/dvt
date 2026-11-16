@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Self
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -31,6 +32,19 @@ class TrustPolicy:
     roots: Mapping[str, bytes]
     revoked_signers: frozenset[str] = field(default_factory=frozenset)
 
+    def as_document(self) -> dict:
+        return {
+            "roots": {name: value.hex() for name, value in self.roots.items()},
+            "revoked_signers": sorted(self.revoked_signers),
+        }
+
+    @classmethod
+    def from_document(cls, document: dict) -> Self:
+        return cls(
+            {name: bytes.fromhex(value) for name, value in document["roots"].items()},
+            frozenset(document["revoked_signers"]),
+        )
+
     def verify(
         self, content: bytes, pin: ReleasePin, *, now: datetime | None = None
     ) -> ReleaseManifest:
@@ -52,7 +66,9 @@ class TrustPolicy:
             )
             signer.verify(
                 bytes.fromhex(envelope.manifest_signature),
-                MANIFEST_CONTEXT + canonical_json(manifest.model_dump(mode="json", by_alias=True)),
+                MANIFEST_CONTEXT + canonical_json(
+                    manifest.model_dump(mode="json", by_alias=True, exclude_unset=True)
+                ),
             )
             issued = datetime.fromisoformat(manifest.issued_at)
             expires = datetime.fromisoformat(manifest.expires_at)

@@ -33,7 +33,7 @@ from src.modules.extension_management.infra.dependency_bootstrap import (
 )
 from src.runtime.extension_management import build_extension_management_provider
 from src.utils.cleanup import PgAdvisoryLock, clean_old_logs
-from src.utils.waiting import wait_for_db
+from src.utils.waiting import wait_for_alembic_migrations, wait_for_db
 
 import config
 
@@ -57,6 +57,11 @@ async def lifespan(_app: FastAPI):
 
     with Session(engine) as session:
         wait_for_db(session)
+        wait_for_alembic_migrations(
+            session,
+            release_path=config.PROJECT.RELEASE_FILE,
+            timeout=config.POSTGRES.MIGRATION_WAIT_TIMEOUT_SEC,
+        )
 
     async with AsyncSessionLocal() as session:
         await app_settings_helpers.ensure_setting_value(

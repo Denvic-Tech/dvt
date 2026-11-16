@@ -124,9 +124,14 @@ class Schema(WireModel):
     target_revision: Revision
     initial_install: bool
     from_releases: list[IncomingTransition]
+    required_extensions: Annotated[list[ServiceName], Field(max_length=128)] = Field(
+        default_factory=list
+    )
 
     @model_validator(mode="after")
     def coherent_routes(self) -> Self:
+        if len(set(self.required_extensions)) != len(self.required_extensions):
+            raise ValueError("Duplicate required extension")
         routes: set[tuple[Version, str]] = set()
         for route in self.from_releases:
             key = (Version(route.version), route.revision)

@@ -106,6 +106,9 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
             extend=action == "candidate-maintenance-extend",
             defer=action == "candidate-maintenance-defer",
         )
+        operation = store.get(UUID(operation_id))
+        if operation is not None and operation.observation.backup_id == operation.id:
+            execute(config, store, operation.id)
     elif action == "candidate-web":
         path = Path(os.environ.get("UPDATE_SERVICE_STATIC_DIR", "/static"))
         app = create_app(config, store, path)

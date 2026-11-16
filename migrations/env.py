@@ -209,7 +209,7 @@ def run_migrations_online() -> None:
 
     """
 
-    with engine.connect() as connection:
+    def migrate(connection):
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -220,6 +220,13 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        migrate(connection)
+    else:
+        with engine.connect() as connection:
+            migrate(connection)
 
 
 if context.is_offline_mode():

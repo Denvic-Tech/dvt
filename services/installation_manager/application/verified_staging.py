@@ -30,6 +30,7 @@ from ..domain.release_manifest import (
     ReleaseManifest,
     StagingError,
     canonical_json,
+    digest_of,
 )
 from ..infrastructure.operation_store import OperationStore
 from ..infrastructure.release_verification import (
@@ -302,6 +303,8 @@ class VerifiedStaging:
                     "config_id": str(operation.request.config_id),
                     "profiles": profiles,
                     "services": plan.image_references,
+                    "model_digest": digest_of(canonical_json(current)),
+                    "trust": self.trust.as_document(),
                     "add": plan.additions,
                     "recreate": plan.recreate,
                     "retire": plan.retire,

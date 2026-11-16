@@ -1,4 +1,4 @@
-"""The detached executor for the isolated manager-only handoff candidate."""
+"""The detached executor for candidate deployments and manager handoff."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 from uuid import UUID
 
+from .application.application_apply import APPLY_STAGES, ApplicationApply
 from .application.maintenance_backup import MAINTENANCE_STAGES, MaintenanceBackup
 from .candidate_auth import CandidateAuth
 from .domain.operation_state import (
@@ -166,9 +167,23 @@ def _probe(config: dict, store: OperationStore, operation_id: UUID, claim_id: UU
 
 def execute(config: dict, store: OperationStore, operation_id: UUID) -> None:
     operation = store.get(operation_id)
-    if operation is not None and operation.request.kind is OperationKind.UPDATE:
-        if operation.stage in MAINTENANCE_STAGES:
+    if operation is None:
+        raise ValueError("Unknown candidate operation")
+    if operation.stage.terminal:
+        return
+    if operation.request.kind in {OperationKind.INSTALL, OperationKind.UPDATE}:
+        if (
+            operation.request.kind is OperationKind.UPDATE
+            and operation.stage in MAINTENANCE_STAGES
+            and operation.observation.backup_id is None
+        ):
             MaintenanceBackup(store, config).execute(operation_id)
+            operation = store.get(operation_id)
+        if operation.stage in APPLY_STAGES and (
+            operation.request.kind is OperationKind.INSTALL
+            or operation.observation.backup_id == operation_id
+        ):
+            ApplicationApply(store, config, _probe).execute(operation_id)
         return
     with contextlib.suppress(OwnershipConflict), store.claim(operation_id) as owner:
         operation = store.get(operation_id)

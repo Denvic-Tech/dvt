@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import BinaryIO
 from uuid import UUID
 
-from ..host_bootstrap import DOCKER_ENV, SOCKET, check_image, docker
+from ..host_bootstrap import CONTROL, DOCKER_ENV, SOCKET, check_image, docker
 from .maintenance_database import DATABASE_PROFILE, NO_OTHER_CONNECTIONS, frozen_sql
+from .staging_artifacts import read_artifact
 from .staging_docker import image_references
 
 PG_TARGET = "/var/lib/postgresql/data"
@@ -109,10 +110,12 @@ class ComposeMaintenanceHost:
                 if source != Path(m["Source"]):
                     raise MaintenancePrerequisite("A persistent mount changed through a symlink")
         (manager,) = [c for c in containers if _role(c) == "installation_manager"]
+        current = read_artifact(self.data / CONTROL / "current-manager", 512)
+        approved = {self.config["manager"], self.config["candidate"]}
+        if current is not None:
+            approved.add(current.decode())
         if (
-            self.source_images["installation_manager"] not in {
-                self.config["manager"], self.config["candidate"],
-            }
+            self.source_images["installation_manager"] not in approved
             or manager["Config"]["Cmd"] != ["candidate-web", str(self.data)]
             or not _running(manager)
         ):
