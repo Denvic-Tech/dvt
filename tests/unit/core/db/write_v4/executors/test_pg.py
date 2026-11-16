@@ -406,7 +406,11 @@ def _pg_engine(driver: str) -> sa.Engine:
 def test_resolver_selects_copy_only_for_psycopg3_with_the_switch_on() -> None:
     assert type(resolve_executor(_pg_engine("psycopg"))) is PostgresWriteExecutor
     assert type(resolve_executor(_pg_engine("psycopg"), pg_copy=False)) is SQLWriteExecutor
-    assert type(resolve_executor(_pg_engine("psycopg2"))) is SQLWriteExecutor
+    # psycopg2 cannot be imported where the system libpq is missing (the Docker images), and the
+    # resolver reads only the driver name, so another driver is emulated on a psycopg 3 engine.
+    other_driver_engine = _pg_engine("psycopg")
+    other_driver_engine.dialect.driver = "psycopg2"
+    assert type(resolve_executor(other_driver_engine)) is SQLWriteExecutor
     assert type(resolve_executor(sa.create_engine("sqlite://"))) is SQLWriteExecutor
 
 

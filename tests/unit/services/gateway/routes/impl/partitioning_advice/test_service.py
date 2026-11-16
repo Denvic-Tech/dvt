@@ -90,7 +90,7 @@ async def test_query_mode_follows_the_readonly_sql_policy(sqlite_url):
     # Validation happens before any connection to the source is opened.
     with pytest.raises(PartitioningAdviceError) as raised:
         await suggest_read_partitioning(
-            "postgresql+psycopg2://user:secret@127.0.0.1:1/db",
+            "postgresql+psycopg://user:secret@127.0.0.1:1/db",
             PartitioningAdviceRequest(sql_code="DELETE FROM sales"),
         )
     assert raised.value.code == "UNSAFE_SQL"
