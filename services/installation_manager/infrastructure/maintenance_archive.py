@@ -35,6 +35,9 @@ INTERNAL_EXCLUSIONS = {
     ".bootstrap/launch.lock",
     ".bootstrap/pairing.lock",
     ".installation-state/executor.lock",
+    # The signed transport cache can be recreated from the original archive.
+    # The journal, applied pins and deployed extension files remain in the copy.
+    ".installation-state/artifacts/bundle",
 }
 
 

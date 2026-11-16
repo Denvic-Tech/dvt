@@ -31,8 +31,11 @@ from ..infrastructure.maintenance_database import (
     reopen_sql,
 )
 from ..infrastructure.maintenance_host import ComposeMaintenanceHost, MaintenancePrerequisite
+from ..infrastructure.offline_host import local_trust, offline_ready
 from ..infrastructure.operation_store import OperationStore
 from ..infrastructure.staging_artifacts import artifact_directory, read_artifact, write_artifact
+from ..infrastructure.staging_commands import Deadline, RetryPolicy
+from ..infrastructure.staging_docker import StagingDocker
 from ..logger import logger
 
 DRAIN_SECONDS = 300
@@ -91,6 +94,13 @@ class MaintenanceBackup:
                 host = ComposeMaintenanceHost(self.config, operation_id, plan["observed_images"])
                 backup = safe_path(self.config["backup"])
                 temporary = safe_path(self.config["temporary"])
+                if stage is OperationStage.PREPARED and operation.request.bundle_id is not None:
+                    offline_ready(
+                        operation, self.store, self.config, plan,
+                        local_trust(host.data, plan["trust"]),
+                        StagingDocker(staging, Path("/root/.docker")),
+                        Deadline(RetryPolicy(), temporary),
+                    )
                 settings_path = staging / "maintenance.json"
                 saved = _read(settings_path)
                 if saved is None:
@@ -193,9 +203,16 @@ class MaintenanceBackup:
                 owner.checkpoint(Checkpoint(stage, CheckpointOutcome.BLOCKED, error))
                 # All messages in this exception come from fixed, secret-free checks.
                 logger.warning("%s", exc)
+            except StagingError as failure:
+                outcome = (
+                    CheckpointOutcome.RETRYABLE_ERROR if failure.retryable
+                    else CheckpointOutcome.BLOCKED
+                )
+                owner.checkpoint(Checkpoint(stage, outcome, failure.reason))
+                logger.warning("Maintenance paused at %s: %s", stage.value, failure.reason.value)
             except (
                 OSError, RuntimeError, ValueError, KeyError, TypeError,
-                subprocess.SubprocessError, sqlite3.Error, StagingError,
+                subprocess.SubprocessError, sqlite3.Error,
             ):
                 owner.checkpoint(Checkpoint(stage, CheckpointOutcome.RETRYABLE_ERROR, error))
                 # Do not emit Docker/SQL stderr, mount names, env values or credentials.

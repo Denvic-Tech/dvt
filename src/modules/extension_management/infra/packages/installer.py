@@ -27,6 +27,7 @@ from src.modules.extension_management.infra.packages.artifact import (
 from src.modules.extension_management.infra.packages.deletion_queue import add_pending_deletion
 from src.modules.extension_management.infra.packages.dependencies import (
     build_extension_pip_install_command,
+    extension_pip_environment,
 )
 from src.modules.extension_management.infra.runtime.loader import load_manifest
 
@@ -201,7 +202,8 @@ class ExtensionsInstallManager:
             install_root=install_root,
             offline_only=offline_only,
         )
-        await self._run_command(command)
+        options = {"env": environment} if (environment := extension_pip_environment()) else {}
+        await self._run_command(command, **options)
         logger.debug("Successfully installed extension dependencies")
 
     def activate_staged_package(
@@ -323,7 +325,7 @@ class ExtensionsInstallManager:
         target.chmod(target.stat().st_mode | stat.S_IWRITE)
         function(path)
 
-    async def _run_command(self, command: list[str]) -> None:
+    async def _run_command(self, command: list[str], *, env: dict[str, str] | None = None) -> None:
         logger.debug(f"Running extension command: {' '.join(command)}")
         completed = await asyncio.to_thread(
             subprocess.run,
@@ -331,6 +333,7 @@ class ExtensionsInstallManager:
             check=False,
             capture_output=True,
             text=True,
+            env=env,
         )
         logger.debug(
             "Extension command finished rc={} stdout='{}' stderr='{}'",

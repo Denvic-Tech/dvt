@@ -28,9 +28,11 @@ from services.installation_manager.domain.operation_state import (
     CheckpointOutcome,
     FailureReason,
     InstanceIdentity,
+    OperationConflict,
     OperationKind,
     OperationRequest,
     OperationStage,
+    OwnershipConflict,
     ReleasePin,
 )
 from services.installation_manager.domain.release_manifest import (
@@ -240,6 +242,25 @@ def setup(tmp_path, monkeypatch):
 def _admit(service, config_id, pin, kind=OperationKind.INSTALL):
     request = OperationRequest(kind, pin, config_id=config_id)
     return service.store.admit(request, idempotency_key=str(uuid4()))
+
+
+def test_offline_intent_uses_shared_reservation_and_never_falls_back_to_network(setup):
+    service, config_id, _, pin = setup
+    store = service.store
+    pending = store.admit(
+        OperationRequest(OperationKind.INSTALL, pin, bundle_id=uuid4(), config_id=config_id),
+        idempotency_key="offline-test",
+    )
+    with pytest.raises(OperationConflict) as blocked:
+        _admit(service, config_id, pin)
+    assert blocked.value.operation_id == pending.id
+    with store.claim(pending.id), pytest.raises(OwnershipConflict):
+        service.prepare(pending.id, MANIFEST_URL)
+    with pytest.raises(StagingError, match="protected offline bundle is unavailable"):
+        service.prepare(pending.id, MANIFEST_URL)
+    assert service.downloader.requests == []
+    assert service.docker.pulls == []
+    assert store.get(pending.id).stage is OperationStage.PREPARING
 
 
 def test_primary_origin_cannot_change_through_saved_config(setup):

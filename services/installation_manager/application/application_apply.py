@@ -50,6 +50,13 @@ from ..infrastructure.application_host import (
 from ..infrastructure.maintenance_archive import verify_copy
 from ..infrastructure.maintenance_database import confirm_return_to_source_sql, frozen_sql
 from ..infrastructure.maintenance_host import PG_TARGET, ComposeMaintenanceHost
+from ..infrastructure.offline_host import (
+    EXTENSION_ROLES,
+    OFFLINE_EXTENSION_ENV,
+    install_offline_extensions,
+    local_trust,
+    offline_ready,
+)
 from ..infrastructure.operation_store import FORMAT_VERSION, OperationStore
 from ..infrastructure.release_verification import MAX_MANIFEST_BYTES, TrustPolicy, verify_file
 from ..infrastructure.staging_artifacts import (
@@ -620,6 +627,17 @@ class ApplicationApply:
                 release, plan, full, env, deadline, historical = self._staged(operation, directory)
                 host = ComposeApplicationHost(self.config, directory, full, plan, deadline)
                 host.bind_images()
+                bundle = None
+                if operation.request.bundle_id is not None:
+                    previous = None
+                    if historical:
+                        verified = strict_json(_artifact(directory / "apply-authorization.json"))
+                        previous = datetime.fromisoformat(verified["verified_at"])
+                    bundle = offline_ready(
+                        operation, self.store, self.config, plan,
+                        local_trust(Path(self.config["data"]), plan["trust"]),
+                        host.docker, deadline, now=previous,
+                    )
                 reason = FailureReason.MANAGER_UNAVAILABLE
                 managers = self._manager_images(operation, plan)
                 reason = FailureReason.BACKUP
@@ -693,6 +711,12 @@ class ApplicationApply:
                 }
                 for role in MANAGED_ROLES:
                     full["services"][role].setdefault("environment", {})[CONTEXT_ENV] = context_text
+                if bundle is not None:
+                    for role in EXTENSION_ROLES:
+                        full["services"][role]["environment"].update({
+                            OFFLINE_EXTENSION_ENV: "true",
+                            "PIP_CONFIG_FILE": "/dev/null",
+                        })
                 compose_bytes = canonical_json(_compose_literal(full))
                 env_bytes = _dotenv(env)
                 write_artifact(host.path, compose_bytes)
@@ -730,6 +754,10 @@ class ApplicationApply:
                                 MigrationState.NOT_STARTED, MigrationState.CORE_COMMITTED,
                             }:
                                 self._check_copy(operation, saved, pg)
+                            if bundle is not None:
+                                install_offline_extensions(
+                                    bundle, Path(self.config["data"]) / "extensions"
+                                )
                             if not host.up("migrate"):
                                 logger.warning(
                                     "Compose did not confirm startup of the one-shot migrator"

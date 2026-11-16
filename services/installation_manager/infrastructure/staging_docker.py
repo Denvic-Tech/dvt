@@ -247,6 +247,68 @@ class StagingDocker:
 
         deadline.retry(download, reason)
 
+    def load_image(self, path: Path, deadline: Deadline) -> None:
+        result = self._run(
+            ["image", "load", "--quiet", "--input", str(path)],
+            deadline,
+            reason=FailureReason.INVALID_PACKAGE,
+        )
+        if result.code:
+            raise StagingError(
+                FailureReason.INVALID_PACKAGE,
+                "Docker could not load the verified local OCI archive",
+                "Check the supported image store and its free space",
+            )
+
+    def check_offline_executor(self, reference: str, deadline: Deadline) -> None:
+        if self.local_image(reference, "linux/amd64", deadline):
+            result = self._run(
+                [
+                    "run", "--rm", "--pull=never", "--network=none", "--read-only",
+                    "--cap-drop=ALL", "--security-opt=no-new-privileges",
+                    "--env", "PYTHONDONTWRITEBYTECODE=1",
+                    "--entrypoint", "python3", reference, "-c",
+                    "from services.installation_manager.infrastructure.offline_host "
+                    "import offline_ready, install_offline_extensions",
+                ],
+                deadline,
+                reason=FailureReason.INCOMPATIBLE_RELEASE,
+            )
+            if result.code == 0:
+                return
+        raise StagingError(
+            FailureReason.INCOMPATIBLE_RELEASE,
+            "The pinned executor cannot apply offline release bundles",
+            "Prepare the host with a trusted executor that supports signed offline bundles",
+        )
+
+    def check_offline_extensions(
+        self, reference: str, extensions: Path, deadline: Deadline
+    ) -> None:
+        result = self._run(
+            [
+                "run", "--rm", "--pull=never", "--network=none", "--read-only",
+                "--cap-drop=ALL", "--security-opt=no-new-privileges",
+                "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=512m",
+                "--env", "DVT_EXTENSION_OFFLINE_ONLY=true",
+                "--env", "PIP_CONFIG_FILE=/dev/null",
+                "--env", "PIP_NO_CACHE_DIR=1",
+                "--env", "PYTHONDONTWRITEBYTECODE=1",
+                "--mount", f"type=bind,source={extensions},target=/offline-extensions,readonly",
+                "--entrypoint", "python3", reference, "-m",
+                "src.modules.extension_management.infra.packages.offline_check",
+                "/offline-extensions",
+            ],
+            deadline,
+            reason=FailureReason.INVALID_PACKAGE,
+        )
+        if result.code:
+            raise StagingError(
+                FailureReason.INVALID_PACKAGE,
+                "The target image could not resolve the offline extension dependencies",
+                "Supply compatible extension packages and the complete transitive wheelhouse",
+            )
+
     def network(self, name: str, deadline: Deadline) -> dict | None:
         result = self._run(["network", "inspect", name], deadline)
         if result.code:

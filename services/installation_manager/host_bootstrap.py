@@ -594,7 +594,7 @@ def bootstrap(args):
             raise ValueError("Supply approved image digests and HTTPS certificate, key and CA")
         if any(not IMAGE.fullmatch(img) for img in (args.manager, args.candidate, args.executor)):
             raise ValueError("Supply explicit registry references pinned by SHA-256 digest")
-        if args.manager == args.candidate:
+        if args.manager == args.candidate and not getattr(args, "local_images", False):
             raise ValueError("The candidate requires a distinct manager image")
         public_url = public_url or f"https://localhost:{port}"
         url = urlsplit(public_url)
@@ -610,7 +610,12 @@ def bootstrap(args):
             raise ValueError("Expected a public DVT HTTP(S) origin")
         _ = url.port
         tls = {name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")}
-        install_docker(args.install_docker, not args.non_interactive)
+        local_images = getattr(args, "local_images", False)
+        if local_images:
+            if not docker_ready():
+                raise ValueError("Prepare Docker locally before offline bootstrap")
+        else:
+            install_docker(args.install_docker, not args.non_interactive)
         check_project(project)
         info = json.loads(docker("info", "--format", "{{json .}}").stdout)
         root = safe_path(info["DockerRootDir"])
@@ -639,7 +644,7 @@ def bootstrap(args):
         ):
             raise ValueError("Choose separate data, temporary and backup directories")
         for img in dict.fromkeys([args.manager, args.candidate, args.executor]):
-            check_image(img, pull=True)
+            check_image(img, pull=not local_images)
         data.mkdir(mode=0o700, parents=True, exist_ok=True)
         control = data / CONTROL
         config = {
@@ -677,6 +682,8 @@ def bootstrap(args):
         init_container(config, "candidate-init")
         install_unit(data, config)
         apply_manager(config, config["manager"], control / "bootstrap.compose.yaml")
+    if getattr(args, "quiet", False):
+        return
     print(f"Manager: https://localhost:{config['port']} (127.0.0.1)")
     print(f"Instance: {config['instance']} · {data} · {config['project']}")
     if not prior or args.new_pairing_token:
@@ -687,6 +694,17 @@ def bootstrap(args):
         else:
             print("Enter this pairing code in the browser within 10 minutes:")
             print(init_container(config, "candidate-pair"))
+
+
+def bootstrap_with_lock(args):
+    import fcntl
+
+    lock_dir = Path("/run/dvt-bootstrap")
+    lock_dir.mkdir(mode=0o700, exist_ok=True)
+    safe_path(lock_dir)
+    with (lock_dir / "bootstrap.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        bootstrap(args)
 
 
 def main():
@@ -754,14 +772,7 @@ def main():
                     install_unit(Path(config["data"]), config)
                 launch(config, operation, f"candidate-{args.action}")
         else:
-            import fcntl
-
-            lock_dir = Path("/run/dvt-bootstrap")
-            lock_dir.mkdir(mode=0o700, exist_ok=True)
-            safe_path(lock_dir)
-            with (lock_dir / "bootstrap.lock").open("a") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                bootstrap(args)
+            bootstrap_with_lock(args)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError, sqlite3.Error) as error:
         if isinstance(error, subprocess.CalledProcessError):
             print(

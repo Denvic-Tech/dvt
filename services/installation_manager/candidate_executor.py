@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import http.client
+import ipaddress
 import json
+import socket
+import ssl
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
 from uuid import UUID
 
@@ -49,9 +52,26 @@ from .infrastructure.staging_host import (
 CHECK_ERRORS = (OSError, RuntimeError, ValueError, subprocess.SubprocessError)
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, _req, _fp, _code, _msg, _headers, _newurl):
-        return None
+class _ManagerConnection(http.client.HTTPSConnection):
+    def __init__(self, address: str, port: int, context: ssl.SSLContext) -> None:
+        self.address = ipaddress.ip_address(address)
+        if not self.address.is_loopback:
+            raise ValueError("The protected manager probe requires a loopback IP address")
+        self.tls_context = context
+        super().__init__("localhost", port, timeout=3, context=context)
+
+    def connect(self) -> None:
+        family = socket.AF_INET6 if self.address.version == 6 else socket.AF_INET
+        connection = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            connection.settimeout(self.timeout)
+            connection.connect((str(self.address), self.port))
+            # The transport is numeric. The certificate and HTTP endpoint still
+            # use the manager's established localhost identity.
+            self.sock = self.tls_context.wrap_socket(connection, server_hostname=self.host)
+        except BaseException:
+            connection.close()
+            raise
 
 
 def _project_manager(config: dict, image_ids: dict[str, str]) -> dict | None:
@@ -140,28 +160,28 @@ def _check_host(config: dict, staging: Path) -> None:
 
 def _probe(config: dict, store: OperationStore, operation_id: UUID, claim_id: UUID) -> None:
     auth = CandidateAuth(config)
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}),
-        urllib.request.HTTPSHandler(context=auth.probe_tls()),
-        _NoRedirect(),
-    )
-    request = urllib.request.Request(
-        f"{auth.origin}/api/operations/{operation_id}",
-        headers={"Authorization": f"Bearer {auth.machine}"},
-    )
+    tls = auth.probe_tls()
+    headers = {"Host": auth.host, "Authorization": f"Bearer {auth.machine}"}
+    path = f"/api/operations/{operation_id}"
+    response_limit = 256 * 1024
     deadline = time.monotonic() + 70
     while time.monotonic() < deadline:
         try:
-            with opener.open(request, timeout=3) as response:
-                data = json.load(response)
-            if (
-                data["journal_format"] == FORMAT_VERSION
-                and data["operation"]["id"] == str(operation_id)
-                and data["operation"]["instance_id"] == str(store.identity().instance_id)
-                and data["operation"]["last_owner"]["claim_id"] == str(claim_id)
-            ):
-                return
-        except (OSError, KeyError, TypeError, ValueError):
+            connection = _ManagerConnection(config["address"], config["port"], tls)
+            with contextlib.closing(connection):
+                connection.request("GET", path, headers=headers)
+                with connection.getresponse() as response:
+                    raw = response.read(response_limit + 1) if response.status == 200 else b""
+            if 0 < len(raw) <= response_limit:
+                data = json.loads(raw)
+                if (
+                    data["journal_format"] == FORMAT_VERSION
+                    and data["operation"]["id"] == str(operation_id)
+                    and data["operation"]["instance_id"] == str(store.identity().instance_id)
+                    and data["operation"]["last_owner"]["claim_id"] == str(claim_id)
+                ):
+                    return
+        except (OSError, http.client.HTTPException, KeyError, TypeError, ValueError):
             pass
         time.sleep(1)
     raise RuntimeError("The manager did not confirm access to the current journal")

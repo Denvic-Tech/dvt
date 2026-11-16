@@ -33,10 +33,18 @@ from ..domain.release_manifest import (
     digest_of,
 )
 from ..infrastructure.catalog_files import read_selected_manifest
+from ..infrastructure.offline_host import (
+    check_bundle_host,
+    check_engine,
+    check_offline_extensions,
+    import_offline_images,
+    read_bundle,
+)
 from ..infrastructure.operation_store import OperationStore
 from ..infrastructure.release_verification import (
     MAX_MANIFEST_BYTES,
     TrustPolicy,
+    invalid_package,
     verify_file,
 )
 from ..infrastructure.staging_artifacts import (
@@ -188,6 +196,15 @@ class VerifiedStaging:
         pin = operation.request.release
         manifest_path = directory / "manifest.json"
         signed = read_artifact(manifest_path, MAX_MANIFEST_BYTES)
+        bundle = None
+        if operation.request.bundle_id is not None:
+            bundle = read_bundle(self.store, operation.request.bundle_id, self.trust)
+            if (
+                bundle.pin != pin or bundle.index["kind"] != operation.request.kind.value
+                or (signed is not None and signed != bundle.signed)
+            ):
+                raise invalid_package("The selected offline bundle differs from the saved intent")
+            signed = bundle.signed
         if signed is None:
             signed = read_selected_manifest(Path(identity.data_dir), pin)
         if signed is None:
@@ -222,6 +239,11 @@ class VerifiedStaging:
             )
 
         compose_path, bootstrap_path = directory / "compose.yaml", directory / "bootstrap.sh"
+        if bundle is not None:
+            check_engine(info)
+            check_bundle_host(bundle, self.paths.os_release, profiles, platform)
+            for path in (compose_path, bootstrap_path):
+                write_artifact(path, bundle.verify_asset(path.name))
         self._asset(compose_path, release.compose, deadline, validate=validate_template)
         self._asset(bootstrap_path, release.bootstrap, deadline)
         full = self.docker.config(compose_path, identity.compose_project, ("*",), env, deadline)
@@ -242,9 +264,20 @@ class VerifiedStaging:
         images = {
             img.reference: img
             for name, img in release.images.items()
-            if name in plan.image_references
+            if bundle is not None or name in plan.image_references
         }
-        self.docker.check_registries(set(images), info)
+        if bundle is None:
+            self.docker.check_registries(set(images), info)
+        else:
+            from ..infrastructure.application_host import ApplyError
+            from .application_apply import _validate_runtime
+
+            try:
+                _validate_runtime(current)
+            except ApplyError as error:
+                raise StagingError(
+                    error.reason, str(error), "Check the signed offline Compose model"
+                ) from None
         missing = [
             image
             for ref, image in images.items()
@@ -262,8 +295,15 @@ class VerifiedStaging:
             deadline,
         )
         check_filesystems(budgets)
-        for image in missing:
-            self.docker.pull(image.reference, platform, deadline)
+        if bundle is None:
+            for image in missing:
+                self.docker.pull(image.reference, platform, deadline)
+        else:
+            import_offline_images(bundle, self.docker, deadline)
+            check_offline_extensions(
+                bundle, Path(identity.data_dir) / "extensions", self.docker, deadline,
+                platform=platform,
+            )
 
         # A download can consume the safety margin even if its estimate was correct
         # on a quiet host. Keep headroom for the old application and the backup.

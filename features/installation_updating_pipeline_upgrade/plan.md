@@ -15,7 +15,7 @@
 | [`05_migration_apply`](./stages/05_migration_apply/task.md) | 01–04 — проверенный план, исполнитель, guard и копия | Схема меняется один раз, сервисы запускаются после неё, фиксация следует за готовностью и возобновлением | `ACCEPTED` | [Отчёт](./stages/05_migration_apply/report.md), PostgreSQL 15, обе ВМ, 5 конфигураций Compose |
 | [`06_recovery_legacy`](./stages/06_recovery_legacy/task.md) | 01–05 — полный путь применения | Оператор может безопасно продолжить сбой, восстановить мастер или полную копию; legacy сохраняет данные | `ACCEPTED` | [Отчёт](./stages/06_recovery_legacy/report.md), реальные legacy и полное восстановление между ВМ |
 | [`07_distribution_catalog`](./stages/07_distribution_catalog/task.md) | 02, 05–06 — формат манифеста и клиентские проверки | Публичный контракт возвращает только готовые неизменяемые релизы; клиент работает с закреплённым комплектом | `ACCEPTED` | [Отчёт](./stages/07_distribution_catalog/report.md), MinIO, настоящий TLS/curl и Skopeo |
-| [`08_offline_bundles`](./stages/08_offline_bundles/task.md) | 02–07 — manifest, Linux bootstrap, применение и Distributor | Установка, обновление и восстановление из проверенного архива выполняются без сети | `PENDING` | — |
+| [`08_offline_bundles`](./stages/08_offline_bundles/task.md) | 02–07 — manifest, Linux bootstrap, применение и Distributor | Установка, обновление и восстановление из проверенного архива выполняются без сети | `ACCEPTED` | [Проверка Ubuntu](./stages/08_offline_bundles/artifacts/ubuntu_vm_acceptance.md), подписанный архив и общий исполнитель |
 | [`09_operator_ui`](./stages/09_operator_ui/task.md) | 03–08 — защищённый API, жизненный цикл и каталог | Суперадмин готовит, применяет и продолжает обновление; первый админ создаётся через отдельную привязку | `PENDING` | — |
 | [`10_release_acceptance`](./stages/10_release_acceptance/task.md) | 01–09 — приняты все продуктовые компоненты | Проверенные кандидаты проходят клиентскую матрицу и только затем могут стать готовыми в Distributor | `PENDING` | — |
 
@@ -93,6 +93,16 @@
 - Независимо: MinIO + HTTP API подтвердили одну атомарную запись, отсутствие версии при сбое, сырые байты по тому же digest и фильтры; точное равенство схеме `SignedRelease`. Реальный Skopeo через TLS отклонил доступный манифест с отсутствующим слоем и неподходящую архитектуру; после возврата слоя pin прошёл. Ubuntu: проверенный pin сохраняется после отключения каталога, дата кэша видна, подложная подпись отвергнута.
 - `ACCEPTED`: Distributor 113 unit/integration локально, DVT 108 проверок прошли (6 Linux-only пропущены) и 5 последних адресных, Ruff и whitespace чистые. Поставку в клиентский канал и использование служебного CLI CI предстоит проверить в 10, публичной публикации не было.
 - Локальный коммит Distributor: `61b5434`.
+
+- Локальный коммит DVT: `c93dc23`.
+
+### `08_offline_bundles`
+
+- Coding session: `/root/stage08_offline_bundles`, effort `high`.
+- Docker 29.10.0 с containerd на Debian 13 и Ubuntu 24.04 по локальному OCI-архиву с leaf digest и полноименной аннотацией возвращает исходный `RepoDigest`. Подлинные официальные .deb обеих ОС проверены по APT; тест Ubuntu использовал предустановленный Docker.
+- `ACCEPTED`: на Ubuntu 24.04, 4 ГиБ RAM/30 ГБ, в отдельном пустом Docker без внешнего маршрута импортированы десять digest; приняты холодная установка `1.25.0-rc1`, обновление `1.25.0-rc2` и восстановление предыдущей версии в отсутствовавший каталог с новой физической PostgreSQL, подтверждёнными пользователем/проектом, wheel в Gateway/worker и возобновлением задач. Неполный архив оставил исходный стек здоровым. Доказательства и ограничения рабочей сборки — в [артефакте](./stages/08_offline_bundles/artifacts/ubuntu_vm_acceptance.md).
+- Независимо прошли 117 тестов Distributor, 11 CLI/TLS и реальный numeric TLS probe на Ubuntu с блокированным resolver. Worker: 258 DVT passed, 6 Linux-only skipped; сборка формы Distributor и проверка фактического JSON запроса. Вся матрица на точных release SHA и установка Docker из .deb на чистой VM остаются в этапе 10.
+- Локальный коммит Distributor: `8eaad27`.
 
 ## Сквозные проверки
 
