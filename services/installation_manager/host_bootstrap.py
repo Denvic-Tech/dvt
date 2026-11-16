@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 SOCKET = "/var/run/docker.sock"
 IMAGE = re.compile(r"[a-z0-9][a-z0-9.:-]*/[a-z0-9/_-]+(?:[.][a-z0-9/_-]+)*@sha256:[0-9a-f]{64}")
@@ -437,12 +438,67 @@ WantedBy=multi-user.target
     command(["systemctl", "enable", unit.name])
 
 
+def _catalog_config(path):
+    with Path(path).open("rb") as source:
+        raw = source.read(65537)
+    if len(raw) > 65536:
+        raise ValueError("The release catalog configuration is too large")
+    settings = json.loads(raw)
+    if not isinstance(settings, dict) or set(settings) - {"origin", "trust"}:
+        raise ValueError("The release catalog configuration accepts only origin and trust")
+    origin = settings.get("origin")
+    if not isinstance(origin, str) or not 0 < len(origin) <= 2048:
+        raise ValueError("The release catalog requires an HTTPS origin")
+    url = urlsplit(origin)
+    if (
+        url.scheme != "https" or not url.hostname or url.username is not None
+        or url.path not in ("", "/")
+        or any(char.isspace() or ord(char) < 32 or char in "?#\\" for char in origin)
+    ):
+        raise ValueError("The release catalog requires a credential-free HTTPS origin")
+    port = url.port
+    authority = url.netloc.lower()
+    settings["origin"] = "https://" + (authority.removesuffix(":443") if port == 443 else authority)
+    trust = settings.get("trust")
+    if trust is not None and (
+        not isinstance(trust, dict) or set(trust) != {"roots", "revoked_signers"}
+        or not isinstance(trust["roots"], dict) or not trust["roots"]
+        or not isinstance(trust["revoked_signers"], list)
+        or any(
+            not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key)
+            for key in trust["roots"].values()
+        )
+        or any(
+            not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
+            for value in trust["revoked_signers"]
+        )
+    ):
+        raise ValueError("The DVT release trust document is invalid")
+    distro = dict(
+        line.split("=", 1)
+        for line in Path("/etc/os-release").read_text().splitlines()
+        if "=" in line
+    )
+    distribution = distro.get("ID", "").strip('"')
+    version = distro.get("VERSION_ID", "").strip('"')
+    if not distribution or not version:
+        raise ValueError("The host Linux distribution or version is unknown")
+    return {
+        **settings,
+        "platform": "linux/amd64",
+        "distribution": distribution,
+        "distribution_version": version,
+    }
+
+
 def bootstrap(args):
     from uuid import uuid4
 
     data = safe_path(args.dir)
     config_path = data / CONTROL / "host.json"
     prior = load_host(data) if config_path.exists() else None
+    catalog_file = getattr(args, "release_catalog_config", None)
+    catalog = _catalog_config(catalog_file) if catalog_file else None
     if not args.non_interactive:
         for key, label in (
             ("project", "Compose project"),
@@ -488,9 +544,16 @@ def bootstrap(args):
             ):
                 raise ValueError("The supplied TLS material differs from the stored configuration")
         config = prior
+        if catalog is not None:
+            existing = config.get("release_catalog")
+            if existing is not None and existing["origin"] != catalog["origin"]:
+                raise ValueError("A different release catalog origin is already stored")
+            config = {**config, "release_catalog": catalog}
         docker_ready_now = docker_ready()
         if not docker_ready_now:
             raise ValueError("Docker or Compose is unavailable for the existing instance")
+        if config != prior:
+            atomic_write(config_path, json.dumps(config).encode())
         init_container(config, "candidate-init")
         install_unit(data, config)
         for key in ("temporary", "backup"):
@@ -533,8 +596,6 @@ def bootstrap(args):
             raise ValueError("Supply explicit registry references pinned by SHA-256 digest")
         if args.manager == args.candidate:
             raise ValueError("The candidate requires a distinct manager image")
-        from urllib.parse import urlsplit
-
         public_url = public_url or f"https://localhost:{port}"
         url = urlsplit(public_url)
         if (
@@ -597,6 +658,8 @@ def bootstrap(args):
             "temporary": str(temporary),
             "backup": str(backup),
         }
+        if catalog is not None:
+            config["release_catalog"] = catalog
         with tempfile.TemporaryDirectory(prefix=".bootstrap-partial-", dir=data) as folder:
             staging = Path(folder)
             for name, value in tls.items():
@@ -640,6 +703,7 @@ def main():
     parser.add_argument("--project")
     parser.add_argument("--port", type=int)
     parser.add_argument("--public-url")
+    parser.add_argument("--release-catalog-config", help="Trusted DVT catalog configuration JSON")
     for key in (
         "manager",
         "candidate",

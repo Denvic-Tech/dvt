@@ -32,6 +32,7 @@ from ..domain.release_manifest import (
     canonical_json,
     digest_of,
 )
+from ..infrastructure.catalog_files import read_selected_manifest
 from ..infrastructure.operation_store import OperationStore
 from ..infrastructure.release_verification import (
     MAX_MANIFEST_BYTES,
@@ -187,6 +188,8 @@ class VerifiedStaging:
         pin = operation.request.release
         manifest_path = directory / "manifest.json"
         signed = read_artifact(manifest_path, MAX_MANIFEST_BYTES)
+        if signed is None:
+            signed = read_selected_manifest(Path(identity.data_dir), pin)
         if signed is None:
             signed = self.downloader.get(
                 manifest_url, MAX_MANIFEST_BYTES, cwd=directory, deadline=deadline

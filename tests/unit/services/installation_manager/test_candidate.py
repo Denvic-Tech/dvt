@@ -75,7 +75,9 @@ def test_anonymous_api_and_bad_browser_origin_cannot_control_candidate(candidate
     auth = CandidateAuth(config)
     code = auth.issue_pairing()
     assert client.get("/health").json() == {"status": "ok"}
-    for url in ("/api/config", "/api/secrets", "/api/operations", "/api/operations/active"):
+    for url in (
+        "/api/config", "/api/secrets", "/api/operations", "/api/operations/active", "/api/releases",
+    ):
         assert client.get(url).status_code == 401
     assert client.get("/health", headers={"Host": "evil.example:8888"}).status_code == 421
     assert client.post("/api/session", json={"code": code}).status_code == 403
@@ -96,6 +98,9 @@ def test_anonymous_api_and_bad_browser_origin_cannot_control_candidate(candidate
         flag in paired.headers["set-cookie"] for flag in ("Secure", "HttpOnly", "SameSite=strict")
     )
     assert client.post("/api/session", json={"code": code}, headers=CSRF).status_code == 401
+    assert client.get("/api/releases").status_code == 503
+    assert client.get("/health").json() == {"status": "ok"}
+    assert client.post("/api/releases/selection", json={}).status_code == 403
     assert client.post("/api/update", json={}, headers=CSRF).status_code == 410
     assert client.post("/api/operations", json={}).status_code == 403
     assert client.get("/api/operations/active").json() is None

@@ -22,6 +22,7 @@ from .application.recovery import (
     restore_actions,
 )
 from .candidate_auth import SESSION_TTL, CandidateAuth
+from .catalog_api import catalog_router
 from .domain.operation_state import (
     Operation,
     OperationConflict,
@@ -224,6 +225,8 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
     ) -> list[OperationEvent]:
         lookup(operation_id)
         return store.events(operation_id, after=after, limit=limit)
+
+    app.include_router(catalog_router(config, store, auth))
 
     @app.api_route("/api/{path:path}", methods=["GET", "POST"], dependencies=operator)
     @app.post("/update", dependencies=operator)
