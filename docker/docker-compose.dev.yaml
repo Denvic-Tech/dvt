@@ -438,7 +438,6 @@ volumes:
   pg-data:
   redisinsight-data:
   valkey-data:
-  minio-data:
 
 networks:
   dvt-net:
