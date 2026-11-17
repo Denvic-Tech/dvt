@@ -72,14 +72,15 @@ async def test_superadmin_step_creates_user(monkeypatch):
 
     await SuperadminSetupStep.submit(
         session,
-        {"email": "admin@example.com", "password": "secret"},
+        {"email": "Admin@EXAMPLE.com", "password": "setup-fixture"},
     )
 
     user = session.add.call_args.args[0]
     assert isinstance(user, UserRecord)
     assert user.email == "admin@example.com"
+    setup_api.get_user_by_email.assert_awaited_once_with(session, "admin@example.com")
     assert user.organization_id == "org-1"
-    assert user.hashed_password != "secret"
+    assert user.hashed_password != "setup-fixture"
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(user)
 

@@ -9,6 +9,7 @@ import secrets
 import ssl
 import time
 from pathlib import Path
+from uuid import UUID
 
 from fastapi import HTTPException, Request
 
@@ -37,32 +38,48 @@ class CandidateAuth:
         # The same CA and server name are used from the host network and operator's tunnel.
         return ssl.create_default_context(cafile=self.directory / "ca.pem")
 
-    def issue_pairing(self) -> str:
+    def _issue_one_time(self, purpose: str, operation_id: UUID | None = None) -> str:
         token = secrets.token_urlsafe(32)
-        with executor_lock(self.directory / "pairing.lock"):
+        with executor_lock(self.directory / f"{purpose}.lock"):
             atomic_write(
-                self.directory / "pairing.json",
-                json.dumps(
-                    {
-                        "digest": hashlib.sha256(token.encode()).hexdigest(),
-                        "expires": int(time.time()) + PAIR_TTL,
-                    }
-                ).encode(),
+                self.directory / f"{purpose}.json",
+                json.dumps({
+                    "digest": hashlib.sha256(token.encode()).hexdigest(),
+                    "expires": int(time.time()) + PAIR_TTL,
+                    "operation_id": str(operation_id) if operation_id else None,
+                }).encode(),
             )
         return token
 
-    def pair(self, token: str) -> str:
-        with executor_lock(self.directory / "pairing.lock"):
+    def _consume_one_time(
+        self, purpose: str, token: str, operation_id: UUID | None = None
+    ) -> None:
+        with executor_lock(self.directory / f"{purpose}.lock"):
             try:
-                pairing = json.loads(self._read("pairing.json"))
+                pairing = json.loads(self._read(f"{purpose}.json"))
             except FileNotFoundError:
                 raise HTTPException(401, "Invalid or expired pairing code") from None
-            if pairing["expires"] <= time.time() or not hmac.compare_digest(
-                pairing["digest"], hashlib.sha256(token.encode()).hexdigest()
+            if (
+                pairing.get("operation_id") != (str(operation_id) if operation_id else None)
+                or pairing["expires"] <= time.time()
+                or not hmac.compare_digest(
+                    pairing["digest"], hashlib.sha256(token.encode()).hexdigest()
+                )
             ):
                 raise HTTPException(401, "Invalid or expired pairing code")
-            # Persist consumption before issuing the session cookie.
-            atomic_write(self.directory / "pairing.json", b'{"digest":"","expires":0}')
+            atomic_write(self.directory / f"{purpose}.json", b'{"digest":"","expires":0}')
+
+    def issue_pairing(self) -> str:
+        return self._issue_one_time("pairing")
+
+    def issue_setup(self, operation_id: UUID) -> str:
+        return self._issue_one_time("setup-pairing", operation_id)
+
+    def consume_setup(self, operation_id: UUID, token: str) -> None:
+        self._consume_one_time("setup-pairing", token, operation_id)
+
+    def pair(self, token: str) -> str:
+        self._consume_one_time("pairing", token)
         payload = f"{int(time.time()) + SESSION_TTL}.{secrets.token_urlsafe(24)}"
         return f"{payload}.{self._signature(payload)}"
 
@@ -87,6 +104,27 @@ class CandidateAuth:
             or request.headers.get("content-type", "").split(";", 1)[0] != "application/json"
         ):
             raise HTTPException(403, "Origin or CSRF check failed")
+
+    @property
+    def gateway_token(self) -> str:
+        return self._signature("DVT Gateway operation bridge v1")
+
+    def require_gateway(self, request: Request) -> None:
+        header = request.headers.get("authorization", "")
+        if (
+            "origin" in request.headers or "sec-fetch-site" in request.headers
+            or not header.isascii()
+            or not hmac.compare_digest(header, f"Bearer {self.gateway_token}")
+        ):
+            raise HTTPException(401, "Gateway authorization required")
+
+    def operator_or_gateway(self, request: Request) -> None:
+        header = request.headers.get("authorization", "")
+        if header.isascii() and hmac.compare_digest(header, f"Bearer {self.gateway_token}"):
+            self.require_gateway(request)
+            request.state.gateway_operator = True
+            return
+        self.require_operator(request)
 
     def require_operator(self, request: Request) -> None:
         origin = request.headers.get("origin")

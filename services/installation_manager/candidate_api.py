@@ -129,6 +129,8 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
                 else:
                     command = {
                         Action.CANCEL_PREPARATION: "candidate-cancel-preparation",
+                        Action.APPLY: "candidate-maintenance",
+                        Action.RESTORE_START: "candidate-restore-start",
                         Action.EXTEND_MAINTENANCE: "candidate-maintenance-extend",
                         Action.DEFER_MAINTENANCE: "candidate-maintenance-defer",
                         Action.RECOVER_MANAGER: "candidate-recover-manager",
@@ -196,6 +198,8 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
         "/api/operations/{operation_id}/actions/{action}", status_code=202, dependencies=operator,
     )
     def operate(operation_id: UUID, action: Action) -> Snapshot:
+        if action in {Action.APPLY, Action.RETURN_TO_SOURCE, Action.RESTORE_START}:
+            raise HTTPException(409, "Use the confirmed action in the operator API")
         operation = lookup(operation_id)
         if action not in snapshot(operation).actions:
             raise HTTPException(409, "The action is not available at the current stage")
@@ -226,7 +230,10 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
         lookup(operation_id)
         return store.events(operation_id, after=after, limit=limit)
 
+    from .operator_api import operator_router
+
     app.include_router(catalog_router(config, store, auth))
+    app.include_router(operator_router(config, store, auth, snapshot, start, diagnostics, static_dir))
 
     @app.api_route("/api/{path:path}", methods=["GET", "POST"], dependencies=operator)
     @app.post("/update", dependencies=operator)

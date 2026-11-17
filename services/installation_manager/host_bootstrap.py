@@ -444,8 +444,10 @@ def _catalog_config(path):
     if len(raw) > 65536:
         raise ValueError("The release catalog configuration is too large")
     settings = json.loads(raw)
-    if not isinstance(settings, dict) or set(settings) - {"origin", "trust"}:
-        raise ValueError("The release catalog configuration accepts only origin and trust")
+    if not isinstance(settings, dict) or set(settings) - {
+        "origin", "trust", "registry_hosts", "asset_origins",
+    }:
+        raise ValueError("Unsupported release catalog configuration field")
     origin = settings.get("origin")
     if not isinstance(origin, str) or not 0 < len(origin) <= 2048:
         raise ValueError("The release catalog requires an HTTPS origin")
@@ -459,6 +461,26 @@ def _catalog_config(path):
     port = url.port
     authority = url.netloc.lower()
     settings["origin"] = "https://" + (authority.removesuffix(":443") if port == 443 else authority)
+    registries = settings.get("registry_hosts", [])
+    assets = settings.get("asset_origins", [])
+    if not isinstance(registries, list) or len(registries) > 16 or any(
+        not isinstance(host, str)
+        or not re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)+(?:\:[0-9]{1,5})?", host)
+        or (":" in host and not 1 <= int(host.rsplit(":", 1)[1]) <= 65535)
+        for host in registries
+    ):
+        raise ValueError("Registry allowlist entries must be explicit DNS hosts with optional ports")
+    if not isinstance(assets, list) or len(assets) > 16:
+        raise ValueError("Invalid release asset origin allowlist")
+    for asset in assets:
+        if not isinstance(asset, str) or not re.fullmatch(
+            r"https://[a-z0-9]+(?:[.-][a-z0-9]+)+(?:\:[0-9]{1,5})?", asset
+        ):
+            raise ValueError("Asset allowlist entries must be explicit HTTPS origins")
+        parsed = urlsplit(asset)
+        if parsed.port == 0:
+            raise ValueError("Invalid release asset port")
+    settings["asset_origins"] = [asset.removesuffix(":443") for asset in assets]
     trust = settings.get("trust")
     if trust is not None and (
         not isinstance(trust, dict) or set(trust) != {"roots", "revoked_signers"}

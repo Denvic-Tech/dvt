@@ -38,11 +38,13 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 class Action(StrEnum):
     RESUME = "resume"
+    APPLY = "apply"
     CANCEL_PREPARATION = "cancel_preparation"
     EXTEND_MAINTENANCE = "extend_maintenance"
     DEFER_MAINTENANCE = "defer_maintenance"
     RECOVER_MANAGER = "recover_manager"
     RETURN_TO_SOURCE = "return_to_source"
+    RESTORE_START = "restore_start"
 
 
 class MigrationState(StrEnum):
@@ -112,6 +114,8 @@ def actions(operation: Operation, failure: FailureReason | None) -> list[Action]
         result = [Action.CANCEL_PREPARATION]
         if stage is OperationStage.PREPARED and kind is OperationKind.INSTALL:
             result.insert(0, Action.RESUME)
+        if stage is OperationStage.PREPARED and kind is OperationKind.UPDATE:
+            result.insert(0, Action.APPLY)
         return result
     if stage is OperationStage.MAINTENANCE:
         result = [Action.RESUME, Action.DEFER_MAINTENANCE]

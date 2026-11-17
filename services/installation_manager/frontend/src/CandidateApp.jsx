@@ -1,182 +1,199 @@
 import { useCallback, useEffect, useState } from 'react'
 import { candidateRequest } from './candidateApi.js'
+import CandidateOperation, { failureMessage, terminalStages } from './CandidateOperation.jsx'
+import CandidateReleaseForm from './CandidateReleaseForm.jsx'
 
 const operationKey = 'dvt-candidate-operation'
 const requestKey = 'dvt-candidate-request'
+const operations = '/operator/operations'
 
-const stages = {
-  admitted: 'Операция сохранена',
-  preparing: 'Проверяется кандидат',
-  prepared: 'Кандидат проверен',
-  maintenance: 'Окно обслуживания',
-  backup: 'Подготовка копии',
-  migrating: 'Миграция базы данных',
-  applying: 'Применяется комплект',
-  verifying: 'Проверяется готовность',
-  recovering: 'Выполняется восстановление',
-  resuming: 'Подтверждается доступ',
-  recovery_required: 'Требуется продолжение операции',
-  succeeded: 'Операция завершена',
-  cancelled: 'Операция отменена',
-  failed: 'Операция завершилась ошибкой',
+const initialOperation = new URLSearchParams(window.location.hash.slice(1)).get('operation')
+if (initialOperation && /^[0-9a-f-]{36}$/.test(initialOperation)) {
+  sessionStorage.setItem(operationKey, initialOperation)
+  window.history.replaceState(null, '', window.location.pathname)
 }
-
-const actionLabels = {
-  resume: 'Продолжить операцию',
-  cancel_preparation: 'Отменить подготовку',
-  extend_maintenance: 'Продлить окно',
-  defer_maintenance: 'Отложить обслуживание',
-  recover_manager: 'Восстановить доступ к мастеру',
-  return_to_source: 'Вернуть прежний комплект',
-}
-
-const terminalStages = new Set(['succeeded', 'cancelled', 'failed'])
 
 export default function CandidateApp() {
   const [code, setCode] = useState('')
   const [paired, setPaired] = useState(false)
-  const [snapshot, setSnapshot] = useState(null)
+  const [settings, setSettings] = useState(null)
+  const [operation, setOperation] = useState(null)
+  const [items, setItems] = useState([])
+  const [activeOperation, setActiveOperation] = useState(null)
   const [disconnected, setDisconnected] = useState(false)
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
 
   const show = useCallback((result) => {
     if (!result) return
-    sessionStorage.setItem(operationKey, result.operation.id)
-    const submission = JSON.parse(sessionStorage.getItem(requestKey) ?? 'null')
-    if (submission && submission.previous !== result.operation.id) {
-      sessionStorage.removeItem(requestKey)
-    }
-    setSnapshot(result)
+    sessionStorage.setItem(operationKey, result.id)
+    setOperation(result)
   }, [])
 
   useEffect(() => {
     let stopped = false
     let timer
+    let uiVersion
     let interrupted = false
 
     async function poll() {
       try {
+        const info = await candidateRequest('/operator/settings')
+        const active = await candidateRequest(operations + '/active')
+        const history = await candidateRequest(operations)
+        const selected = history.find((entry) => entry.id === sessionStorage.getItem(operationKey))
         const id = sessionStorage.getItem(operationKey)
-        const submitting = sessionStorage.getItem(requestKey)
-        let result
-        if (submitting) {
-          result = await candidateRequest('/operations/active')
-          if (!result) [result] = await candidateRequest('/operations?limit=1')
-        } else {
-          result = id ? await candidateRequest('/operations/' + id) : null
-          if (!result) result = await candidateRequest('/operations/active')
-          if (!result) [result] = await candidateRequest('/operations?limit=1')
+        let result = selected ?? active ?? history[0]
+        if (!selected && id && id !== active?.id) {
+          result = await candidateRequest(operations + '/' + id).catch((error) => {
+            if (error.status === 404) return active ?? history[0]
+            throw error
+          })
         }
         if (stopped) return
+        const saved = JSON.parse(sessionStorage.getItem(requestKey) ?? 'null')
+        if (saved && result && result.id !== saved.previous) sessionStorage.removeItem(requestKey)
         show(result)
+        setItems(history)
+        setActiveOperation(active)
+        setSettings(info)
         setPaired(true)
         setDisconnected(false)
-        if (interrupted) window.location.reload()
+        if (interrupted || (uiVersion && uiVersion !== info.ui_version)) {
+          window.location.reload()
+          return
+        }
+        uiVersion = info.ui_version
       } catch (error) {
         if (stopped) return
         if (error.status === 401) {
           setPaired(false)
-        } else if (error.status === 404) {
-          sessionStorage.removeItem(operationKey)
+          setDisconnected(false)
         } else {
           interrupted = true
           setDisconnected(true)
         }
       }
-      if (!stopped) timer = setTimeout(poll, 1500)
+      if (!stopped) timer = setTimeout(poll, 1600)
     }
-
     poll()
     return () => { stopped = true; clearTimeout(timer) }
   }, [show, paired])
 
-  async function pair(event) {
-    event.preventDefault()
+  async function run(callback) {
     setMessage('')
     setPending(true)
     try {
-      await candidateRequest('/session', { method: 'POST', data: { code } })
-      setPaired(true)
-    } catch (error) {
-      setMessage(error.message)
-    } finally {
-      setCode('')
-      setPending(false)
-    }
-  }
-
-  async function submit(action) {
-    setMessage('')
-    setPending(true)
-    try {
-      if (action) {
-        const path = '/operations/' + snapshot.operation.id
-        const endpoint = action === 'resume' ? path + '/resume' : path + '/actions/' + action
-        show(await candidateRequest(endpoint, {
-          method: 'POST', data: {},
-        }))
-        return
-      }
-      const release = await candidateRequest('/operations/candidate')
-      const existing = JSON.parse(sessionStorage.getItem(requestKey) ?? 'null')
-      const key = existing?.key ?? crypto.randomUUID()
-      sessionStorage.setItem(requestKey, JSON.stringify({
-        key, previous: existing?.previous ?? sessionStorage.getItem(operationKey),
-      }))
-      show(await candidateRequest('/operations', {
-        method: 'POST', key, data: { kind: 'manager_recovery', release },
-      }))
+      await callback()
     } catch (error) {
       if (error.detail?.operation_id) {
         sessionStorage.setItem(operationKey, error.detail.operation_id)
       }
-      setMessage(error.message)
+      setMessage(error.detail?.reason ? failureMessage(error.detail.reason) : error.message)
     } finally {
       setPending(false)
     }
   }
 
-  const operation = snapshot?.operation
-  const availableActions = snapshot?.actions.filter((action) => action in actionLabels) ?? []
-  const canStart = !operation || terminalStages.has(operation.stage)
+  function pair(event) {
+    event.preventDefault()
+    const data = { code }
+    setCode('')
+    run(async () => {
+      await candidateRequest('/session', { method: 'POST', data })
+      setPaired(true)
+    })
+  }
+
+  function submit(data) {
+    run(async () => {
+      const intent = JSON.stringify(data)
+      const saved = JSON.parse(sessionStorage.getItem(requestKey) ?? 'null')
+      const key = saved?.intent === intent ? saved.key : crypto.randomUUID()
+      sessionStorage.setItem(requestKey, JSON.stringify({
+        key, intent, previous: sessionStorage.getItem(operationKey),
+      }))
+      show(await candidateRequest(operations, { method: 'POST', key, data }))
+      sessionStorage.removeItem(requestKey)
+    })
+  }
+
+  function act(action, confirm) {
+    run(async () => {
+      show(await candidateRequest(`${operations}/${operation.id}/actions/${action}`, {
+        method: 'POST', data: { confirm },
+      }))
+    })
+  }
+
+  function openSetup() {
+    run(async () => {
+      const operationId = settings.setup_operation_id
+      const { code } = await candidateRequest(`/operator/setup/${operationId}/pairing`, {
+        method: 'POST', data: {},
+      })
+      const target = new URL('/setup', settings.app_origin)
+      target.hash = new URLSearchParams({ operation: operationId, pairing: code })
+      window.location.assign(target)
+    })
+  }
+
+  const disabled = pending || disconnected
+  const finished = !operation || terminalStages.has(operation.stage)
+  const needsSetup = settings?.setup_required && settings.setup_operation_id
 
   return (
     <main className="main">
-      <section className="card">
+      <section className="card operator-form">
         <h1>DVT — мастер установки</h1>
-        {disconnected && <p role="status">Мастер перезапускается. Ожидаем восстановления связи.</p>}
+        {disconnected && <p className="banner banner-info" role="status">Мастер перезапускается. Сохраняем последнюю подтверждённую стадию.</p>}
         {!paired && !disconnected && (
-          <form onSubmit={pair}>
-            <label htmlFor="pairing-code">Одноразовый код из административного терминала</label>
-            <input id="pairing-code" type="password" value={code} autoComplete="off"
-              onChange={(event) => setCode(event.target.value)} required />
-            <button disabled={pending} type="submit">Подключиться</button>
+          <form onSubmit={pair} className="operator-form">
+            <p>Мастер доступен по защищённому соединению.</p>
+            <label className="field" htmlFor="pairing-code">Одноразовый код из административного терминала
+              <input id="pairing-code" type="password" value={code} autoComplete="off"
+                onChange={(event) => setCode(event.target.value)} required />
+            </label>
+            <button className="btn btn-primary" disabled={pending} type="submit">Подключиться</button>
           </form>
         )}
-        {paired && (
+        {paired && settings && (
           <>
-            {operation && (
-              <dl>
-                <dt>Операция</dt><dd>{operation.id}</dd>
-                <dt>Статус</dt><dd aria-live="polite">{stages[operation.stage] ?? operation.stage}</dd>
-              </dl>
+            <p>{needsSetup ? 'DVT готов к первичной настройке'
+              : activeOperation?.failure || activeOperation?.stage === 'recovery_required'
+                ? 'Требуется продолжить операцию'
+                : activeOperation || !finished ? 'Операция выполняется'
+                  : settings.installed ? 'DVT готов к работе' : 'Мастер готов'}</p>
+            {needsSetup && <button className="btn btn-primary" disabled={disabled}
+              onClick={openSetup}>Настроить первого администратора</button>}
+            {settings.installed && finished && !activeOperation && !settings.setup_required && (
+              <a href={settings.app_origin}>Открыть DVT</a>
             )}
-            {availableActions.map((action) => (
-              <button key={action} disabled={pending || disconnected} onClick={() => submit(action)}>
-                {actionLabels[action]}
-              </button>
-            ))}
-            {canStart && (
-              <button disabled={pending || disconnected} onClick={() => submit()}>
-                Запустить проверку замены мастера
-              </button>
-            )}
-            {operation && <a href={`/api/operations/${operation.id}/diagnostics`}>Диагностика</a>}
           </>
         )}
-        {message && <p role="alert">{message}</p>}
+        {message && <p className="banner banner-error" role="alert">{message}</p>}
       </section>
+      {paired && operation && <CandidateOperation key={operation.id} operation={operation}
+        disabled={disabled} act={act} />}
+      {paired && activeOperation && activeOperation.id !== operation?.id && (
+        <section className="card">
+          <button className="btn btn-secondary" onClick={() => show(activeOperation)}>Открыть активную операцию</button>
+        </section>
+      )}
+      {paired && settings && finished && !activeOperation && !settings.setup_required && (
+        <section className="card">
+          <CandidateReleaseForm settings={settings} disabled={disabled} onSubmit={submit} />
+        </section>
+      )}
+      {paired && items.length > 0 && <section className="card operator-form">
+        <h2>История операций</h2>
+        <ul className="operator-history">
+          {items.map((entry) => <li key={entry.id}>
+            <button className="btn btn-secondary" disabled={entry.id === operation?.id}
+              onClick={() => show(entry)}>{entry.version} · {entry.id}</button>
+          </li>)}
+        </ul>
+      </section>}
     </main>
   )
 }

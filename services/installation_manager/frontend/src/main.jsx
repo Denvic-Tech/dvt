@@ -10,7 +10,7 @@ function Entry() {
   useEffect(() => {
     let cancelled = false
     fetch('/api/operations/active')
-      .then(response => response.ok || response.status === 401 ? 'candidate' : 'legacy')
+      .then(response => response.status === 404 ? 'legacy' : 'candidate')
       .catch(() => sessionStorage.getItem('dvt-candidate-operation') ? 'candidate' : 'legacy')
       .then(value => { if (!cancelled) setMode(value) })
     return () => { cancelled = true }

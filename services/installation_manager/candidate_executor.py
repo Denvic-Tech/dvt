@@ -16,6 +16,7 @@ from uuid import UUID
 from .application.application_apply import APPLY_STAGES, ApplicationApply
 from .application.legacy_adopt import PLAN as LEGACY_ADOPTION, execute as adopt_legacy
 from .application.maintenance_backup import MAINTENANCE_STAGES, MaintenanceBackup
+from .application.online_operations import is_online, prepare_online
 from .application.restore_runtime import AUTHORIZATION, RestoreRuntime
 from .candidate_auth import CandidateAuth
 from .domain.operation_state import (
@@ -189,6 +190,10 @@ def _probe(config: dict, store: OperationStore, operation_id: UUID, claim_id: UU
 
 def _execute_application(config: dict, store: OperationStore, operation) -> None:
     operation_id = operation.id
+    if operation.stage in {OperationStage.ADMITTED, OperationStage.PREPARING}:
+        if not is_online(store, operation) or not prepare_online(config, store, operation):
+            return
+        operation = store.get(operation.id)
     directory = store.artifact_path(ArtifactKind.STAGING, operation_id)
     if (directory / "restored-data.json").exists():
         if (directory / AUTHORIZATION).exists():

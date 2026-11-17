@@ -363,15 +363,26 @@ class OperationStore:
             )
             return [_decode_event(row) for row in reversed(rows.fetchall())]
 
-    def admit(self, request: OperationRequest, *, idempotency_key: str) -> Operation:
-        """Atomically persist a new intent or return the existing intent on exact replay."""
-        if type(request) is not OperationRequest:
-            raise ValueError("Expected a typed operation request")
+    @staticmethod
+    def _key_hash(idempotency_key: str) -> str:
         if not isinstance(idempotency_key, str) or not re.fullmatch(
             r"[!-~]{1,128}", idempotency_key
         ):
             raise ValueError("Expected a bounded opaque idempotency key")
-        key_hash = hashlib.sha256(idempotency_key.encode("ascii")).hexdigest()
+        return hashlib.sha256(idempotency_key.encode("ascii")).hexdigest()
+
+    def by_idempotency_key(self, key: str) -> Operation | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM operations WHERE key_hash = ?", (self._key_hash(key),)
+            ).fetchone()
+        return _decode_operation(row) if row is not None else None
+
+    def admit(self, request: OperationRequest, *, idempotency_key: str) -> Operation:
+        """Atomically persist a new intent or return the existing intent on exact replay."""
+        if type(request) is not OperationRequest:
+            raise ValueError("Expected a typed operation request")
+        key_hash = self._key_hash(idempotency_key)
         encoded = _encode(request)
         with self._connect(write=True) as db:
             identity = self._identity(db)
@@ -421,6 +432,13 @@ class OperationStore:
             )
             self._append_event(db, operation, EventKind.ADMITTED, now)
             return operation
+
+    def executor_busy(self) -> bool:
+        try:
+            with executor_lock(self._lock):
+                return False
+        except OwnershipConflict:
+            return True
 
     @contextmanager
     def claim(self, operation_id: UUID) -> Iterator[_OperationOwner]:

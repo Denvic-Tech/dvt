@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import posixpath
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -29,6 +29,7 @@ from ..domain.release_manifest import (
     WireModel,
 )
 from ..domain.services import render_bool
+from .operator_wiring import operator_binds
 from .staging_commands import Deadline
 from .staging_docker import StagingDocker, image_references
 from .staging_host import check_free_port, incompatible
@@ -528,7 +529,21 @@ def compare_project(
                 raise incompatible("The candidate removes a persistent service or published port")
             continue
         planned = target[name]
-        for current in services:
+        for index, observed_service in enumerate(services):
+            current = observed_service
+            if name == "gateway":
+                injected = frozenset(
+                    Mount("bind", source, path, True)
+                    for path, source in operator_binds(identity.data_dir).items()
+                )
+                if injected <= current.mounts:
+                    # Ignore only the two protected read-only binds and the manager network.
+                    current = replace(
+                        current, mounts=current.mounts - injected,
+                        networks=current.networks - (manager.networks - planned.networks),
+                    )
+                    # Staging budgets must also use the normalized persistent mounts.
+                    services[index] = current
             if (
                 current.mounts != planned.mounts
                 or current.bindings != planned.bindings

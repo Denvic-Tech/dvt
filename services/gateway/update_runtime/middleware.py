@@ -10,7 +10,7 @@ from src.schemas.http.system import SystemStateValue
 
 class SystemUpdateMiddleware:
     _ALLOWED_EXACT_PATHS: ClassVar[set[str]] = {
-        "/health", "/api/health", "/system/state",
+        "/health", "/api/health", "/system/state", "/setup/status",
         # The read-only MCP authentication handshake also tests its Gateway connection.
         "/internal/ai-mcp/v1/auth/verify",
     }
@@ -64,6 +64,8 @@ class SystemUpdateMiddleware:
         if scope["type"] == "http" and scope.get("method") == "OPTIONS":
             return True
         if path in cls._ALLOWED_EXACT_PATHS:
+            return True
+        if path == "/user/info" and scope["type"] == "http" and scope.get("method") == "GET":
             return True
         return any(
             path == prefix or path.startswith(f"{prefix}/") for prefix in cls._ALLOWED_PREFIXES

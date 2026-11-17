@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import json
 import subprocess
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.data.installation_manager.verified_staging.fixtures import (
+    TARGET_IMAGE,
+    make_compose,
+    make_manifest,
+    sign_manifest,
+)
 
-from services.installation_manager import candidate_api, host_bootstrap
+from services.installation_manager import candidate_api, host_bootstrap, operator_api
 from services.installation_manager.candidate_api import create_app
 from services.installation_manager.candidate_auth import CandidateAuth
 from services.installation_manager.candidate_executor import execute
 from services.installation_manager.domain.operation_state import (
+    ArtifactKind,
     Checkpoint,
     CheckpointOutcome,
     InstanceIdentity,
@@ -22,6 +31,11 @@ from services.installation_manager.domain.operation_state import (
     ReleasePin,
 )
 from services.installation_manager.infrastructure.operation_store import OperationStore
+from services.installation_manager.infrastructure.operator_wiring import wire_gateway
+from services.installation_manager.infrastructure.staging_artifacts import (
+    artifact_directory,
+    write_artifact,
+)
 
 ORIGIN = "https://localhost:8888"
 CSRF = {"Origin": ORIGIN, "X-DVT-CSRF": "1"}
@@ -319,3 +333,167 @@ def test_diagnostics_is_authorized_paginated_and_preserves_failure(candidate):
     assert client.get(f"/api/operations/{uuid4()}/diagnostics", headers=MACHINE).status_code == 404
     assert client.post(url + f"/actions/{Action.RESUME}", headers=MACHINE).status_code == 409
     assert not dispatched
+
+
+def test_operator_install_admission_is_single_and_replay_survives_web_restart(candidate, monkeypatch):
+    config, store, dispatched = candidate
+    auth = CandidateAuth(config)
+    selected = SimpleNamespace(pin=ReleasePin("stable", "sha256:" + "1" * 64))
+    monkeypatch.setattr(operator_api, "select_release", lambda *_: (selected, None))
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    data = {"kind": "install", "version": "1.2.3", "manifest_digest": selected.pin.manifest_digest}
+    path = "/api/operator/operations"
+    key = {"Idempotency-Key": "install-request"}
+
+    assert client.post(path, json=data, headers={**CSRF, **key}).status_code == 401
+    assert client.post("/api/session", json={"code": auth.issue_pairing()}, headers=CSRF).status_code == 200
+    assert client.post(path, json=data, headers=key).status_code == 403
+    assert client.post(path, json=data, headers={
+        **key, "Authorization": f"Bearer {auth.gateway_token}",
+    }).status_code == 403
+
+    response = client.post(path, json=data, headers={**CSRF, **key})
+    assert response.status_code == 202
+    operation = store.active()
+    assert dispatched == [operation.id]
+    assert response.json()["id"] == str(operation.id)
+    assert operation.request.app_port == 80
+    assert operation.request.task_workers_count == 1
+
+    replacement = TestClient(create_app(config, store, None), base_url=ORIGIN, cookies=client.cookies)
+    replay = replacement.post(path, json=data, headers={**CSRF, **key})
+    assert replay.status_code == 202 and replay.json()["id"] == str(operation.id)
+    changed = replacement.post(path, json={**data, "task_workers_count": 2}, headers={**CSRF, **key})
+    assert changed.status_code == 409 and changed.json()["detail"]["operation_id"] == str(operation.id)
+    assert replacement.get(path + "/" + str(operation.id), headers={
+        "Authorization": f"Bearer {auth.gateway_token}",
+    }).status_code == 404
+    assert store.history() == [operation]
+
+
+def test_setup_pairing_is_separate_ready_only_single_use_and_absent_from_diagnostics(candidate):
+    config, store, _ = candidate
+    auth = CandidateAuth(config)
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    browser_code = auth.issue_pairing()
+    client.post("/api/session", json={"code": browser_code}, headers=CSRF).raise_for_status()
+    bridge = {"Authorization": f"Bearer {auth.gateway_token}"}
+    operation = store.admit(
+        OperationRequest(OperationKind.INSTALL, ReleasePin("stable", "sha256:" + "2" * 64)),
+        idempotency_key="first-install",
+    )
+    path = f"/api/operator/setup/{operation.id}"
+    assert client.post(path + "/pairing", headers=CSRF, json={}).status_code == 409
+    with store.claim(operation.id) as owner:
+        for stage in (
+            OperationStage.PREPARING, OperationStage.PREPARED, OperationStage.MIGRATING,
+            OperationStage.APPLYING, OperationStage.VERIFYING, OperationStage.RESUMING,
+        ):
+            owner.checkpoint(Checkpoint(stage, CheckpointOutcome.VERIFIED))
+        owner.checkpoint(Checkpoint(OperationStage.SUCCEEDED, CheckpointOutcome.VERIFIED))
+    current = auth.directory / "current-release.json"
+    host_bootstrap.atomic_write(current, json.dumps({"operation": str(operation.id)}).encode())
+
+    assert client.get("/api/operator/settings").json()["setup_required"]
+    assert client.post(path + "/pairing", headers=bridge, json={}).status_code == 401
+    code = client.post(path + "/pairing", headers=CSRF, json={}).json()["code"]
+    assert code != browser_code
+    assert client.post(path + "/exchange", headers=CSRF, json={"code": code}).status_code == 401
+    assert client.post(path + "/exchange", headers=bridge, json={"code": browser_code}).status_code == 401
+    assert client.post(path + "/exchange", headers=bridge, json={"code": code}).status_code == 200
+    assert client.post(path + "/exchange", headers=bridge, json={"code": code}).status_code == 401
+    response = client.get(f"/api/operator/operations/{operation.id}/diagnostics")
+    assert response.status_code == 200
+    assert all(value not in response.text for value in (code, browser_code, auth.gateway_token))
+    client.post(path + "/complete", headers=bridge).raise_for_status()
+    assert not client.get("/api/operator/settings").json()["setup_required"]
+    assert client.post(path + "/pairing", headers=CSRF, json={}).status_code == 409
+
+
+def test_update_requires_explicit_apply_from_the_same_prepared_operation(candidate, monkeypatch):
+    config, store, _ = candidate
+    operation = store.admit(
+        OperationRequest(OperationKind.UPDATE, ReleasePin("target", "sha256:" + "2" * 64)),
+        idempotency_key="fixed-target",
+    )
+    with store.claim(operation.id) as owner:
+        owner.checkpoint(Checkpoint(OperationStage.PREPARING))
+        owner.checkpoint(Checkpoint(OperationStage.PREPARED))
+    launched = []
+    monkeypatch.setattr(candidate_api, "launch", lambda _, id_, action: launched.append((id_, action)))
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    bridge = {"Authorization": f"Bearer {CandidateAuth(config).gateway_token}"}
+    path = f"/api/operator/operations/{operation.id}"
+    assert "apply" in client.get(path, headers=bridge).json()["actions"]
+    summary = "/api/operator/update-summary"
+    assert client.get(summary).status_code == 401
+    assert client.get(summary, headers=bridge).json() is None
+    assert client.post(path + "/actions/apply", headers=bridge, json={}).status_code == 422
+    assert client.post(path + "/actions/return_to_source", headers=bridge, json={
+        "confirm": True,
+    }).status_code == 409
+    assert launched == []
+    response = client.post(path + "/actions/apply", headers=bridge, json={"confirm": True})
+    assert response.status_code == 202
+    assert response.json()["id"] == str(operation.id)
+    assert launched == [(str(operation.id), "candidate-maintenance")]
+    with store.claim(operation.id) as owner:
+        owner.checkpoint(Checkpoint(OperationStage.MAINTENANCE))
+    status = client.get(summary, headers=bridge).json()
+    assert (status["id"], status["state"]) == (str(operation.id), "running")
+
+
+def test_operator_plan_reports_staged_transition_and_excludes_private_metadata(candidate):
+    config, store, _ = candidate
+    release = make_manifest(make_compose(TARGET_IMAGE))
+    pin, signed = sign_manifest(release)
+    operation = store.admit(OperationRequest(OperationKind.UPDATE, pin), idempotency_key="plan")
+    with store.claim(operation.id) as owner:
+        owner.checkpoint(Checkpoint(OperationStage.PREPARING))
+        owner.checkpoint(Checkpoint(OperationStage.PREPARED, observation=Observation(
+            staging_id=operation.id, source_revision="0068", target_revision="0069",
+        )))
+    artifacts = artifact_directory(store, ArtifactKind.STAGING, operation.id)
+    write_artifact(artifacts / "manifest.json", signed)
+    write_artifact(artifacts / "plan.json", json.dumps({
+        "platform": "linux/amd64",
+        "profiles": [],
+        "services": {"gateway": TARGET_IMAGE},
+        "observed_version": "1.23.0",
+        "observed_revision": "0068",
+        "target_revision": "0069",
+        "transition": release["schema"]["from_releases"][0],
+        "add": [], "recreate": ["gateway"], "retire": [],
+        "private_test_field": "protected-never-returns",
+    }).encode())
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    bridge = {"Authorization": f"Bearer {CandidateAuth(config).gateway_token}"}
+    response = client.get(f"/api/operator/operations/{operation.id}", headers=bridge)
+    assert response.status_code == 200
+    result = response.json()
+    plan = result["plan"]
+    assert result["version"] == plan["target_version"] == "1.24.0"
+    assert (plan["source_version"], plan["migration"], plan["rollback"]) == (
+        "1.23.0", "from_revision", "restore_backup",
+    )
+    assert plan["pull_and_unpack_bytes"] == 12 * 1024**2
+    assert "protected-never-returns" not in response.text
+
+
+def test_gateway_gets_only_read_only_bridge_files_and_manager_network(candidate):
+    config, _, _ = candidate
+    auth = CandidateAuth(config)
+    host_bootstrap.atomic_write(auth.directory / "ca.pem", b"test ca")
+    services = {
+        "gateway": {"networks": {"application": None}, "volumes": [], "environment": {}},
+        "installation_manager": {"networks": {"default": None}},
+    }
+    wire_gateway(services, config)
+    result = services["gateway"]
+    assert set(result["networks"]) == {"application", "default"}
+    assert set(result["environment"].values()) == {ORIGIN}
+    source_names = {mount["source"].replace("\\", "/").rsplit("/", 1)[1] for mount in result["volumes"]}
+    assert source_names == {"gateway-token", "ca.pem"}
+    assert all(mount["read_only"] for mount in result["volumes"])
+    scoped_token = (auth.directory / "gateway-token").read_text()
+    assert scoped_token == auth.gateway_token and scoped_token != auth.machine

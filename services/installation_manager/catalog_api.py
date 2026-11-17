@@ -9,7 +9,8 @@ from subprocess import SubprocessError
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import Field
+
+from core.operator_contract import SelectRelease
 
 from .application.legacy_adopt import _containers
 from .application.release_catalog import (
@@ -20,7 +21,7 @@ from .application.release_catalog import (
 )
 from .candidate_auth import CandidateAuth
 from .domain.operation_state import FailureReason, ReleasePin
-from .domain.release_manifest import Digest, StagingError, VersionText, WireModel, strict_json
+from .domain.release_manifest import StagingError, strict_json
 from .host_bootstrap import CONTROL, docker
 from .infrastructure.application_host import DATABASE_ID
 from .infrastructure.maintenance_host import ComposeMaintenanceHost
@@ -31,11 +32,8 @@ from .infrastructure.staging_commands import Deadline, RetryPolicy
 from .infrastructure.staging_docker import image_references
 from .infrastructure.staging_downloads import ReleaseDownloader
 
-
-class Selection(WireModel):
-    version: VersionText
-    manifest_digest: Digest
-    confirm_rc: bool = Field(default=False)
+# The selection endpoint is also used by existing protected clients.
+Selection = SelectRelease
 
 
 def observe_source(config: dict, store: OperationStore) -> SourceFacts | None:
@@ -134,20 +132,21 @@ def configured_catalog(config: dict) -> ReleaseCatalog:
 _OBSERVATION_ERRORS = (KeyError, TypeError, OSError, RuntimeError, ValueError, SubprocessError)
 
 
+def catalog_client(config: dict) -> ReleaseCatalog:
+    try:
+        return configured_catalog(config)
+    except (*_OBSERVATION_ERRORS, AttributeError):
+        raise HTTPException(503, "DVT release catalog is not configured") from None
+
+
 def catalog_router(
     config: dict, store: OperationStore, auth: CandidateAuth
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/releases", dependencies=[Depends(auth.require_operator)])
+    router = APIRouter(prefix="/api/releases")
 
-    def client() -> ReleaseCatalog:
-        try:
-            return configured_catalog(config)
-        except (*_OBSERVATION_ERRORS, AttributeError):
-            raise HTTPException(503, "DVT release catalog is not configured") from None
-
-    @router.get("")
+    @router.get("", dependencies=[Depends(auth.operator_or_gateway)])
     def releases(channel: Literal["stable", "rc"] = "stable"):
-        catalog = client()
+        catalog = catalog_client(config)
         snapshot = catalog.refresh()
         source_error = None
         paths = {}
@@ -172,35 +171,40 @@ def catalog_router(
             "releases": matching,
             "recommended_stable": matching[0] if matching and channel == "stable" else None,
             "paths": {row.version: [step.version for step in paths[row.version]] for row in matching},
+            "first_steps": {row.version: paths[row.version][0] for row in matching},
         }
 
-    @router.post("/selection")
+    @router.post("/selection", dependencies=[Depends(auth.require_operator)])
     def select(selection: Selection):
-        catalog = client()
-        if catalog.verify is None:
-            raise HTTPException(503, "DVT release trust is not configured")
-        snapshot = catalog.refresh()
-        version = version_tag(selection.version)
-        entry = next((
-            row for row in snapshot.releases
-            if row.version == version and row.manifest_digest == selection.manifest_digest
-        ), None)
-        if entry is None:
-            if snapshot.error:
-                raise HTTPException(503, "No cached matching DVT release is available")
-            raise HTTPException(404, "No matching DVT release is available")
-        try:
-            observed = observe_source(config, store)
-        except _OBSERVATION_ERRORS:
-            raise HTTPException(409, "The current release and schema are not established") from None
-        try:
-            return catalog.select(entry, observed, allow_rc=selection.confirm_rc)
-        except StagingError as error:
-            response_code = 422
-            if error.reason in {FailureReason.DISTRIBUTOR_UNAVAILABLE, FailureReason.TLS}:
-                response_code = 503
-            raise HTTPException(response_code, {"reason": error.reason.value}) from None
-        except OSError:
-            raise HTTPException(503, "The protected catalog cache is unavailable") from None
+        return select_release(config, store, selection)[0]
 
     return router
+
+
+def select_release(config, store, selection):
+    catalog = catalog_client(config)
+    if catalog.verify is None:
+        raise HTTPException(503, "DVT release trust is not configured")
+    snapshot = catalog.refresh()
+    version = version_tag(selection.version)
+    entry = next((
+        row for row in snapshot.releases
+        if row.version == version and row.manifest_digest == selection.manifest_digest
+    ), None)
+    if entry is None:
+        if snapshot.error:
+            raise HTTPException(503, "No cached matching DVT release is available")
+        raise HTTPException(404, "No matching DVT release is available")
+    try:
+        observed = observe_source(config, store)
+    except _OBSERVATION_ERRORS:
+        raise HTTPException(409, "The current release and schema are not established") from None
+    try:
+        return catalog.select(entry, observed, allow_rc=selection.confirm_rc), observed
+    except StagingError as error:
+        response_code = 422
+        if error.reason in {FailureReason.DISTRIBUTOR_UNAVAILABLE, FailureReason.TLS}:
+            response_code = 503
+        raise HTTPException(response_code, {"reason": error.reason.value}) from None
+    except OSError:
+        raise HTTPException(503, "The protected catalog cache is unavailable") from None

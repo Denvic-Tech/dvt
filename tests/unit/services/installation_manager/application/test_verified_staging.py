@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -40,12 +41,17 @@ from services.installation_manager.domain.release_manifest import (
     canonical_json,
     digest_of,
 )
-from services.installation_manager.infrastructure import staging_compose
+from services.installation_manager.infrastructure import staging_compose, staging_host
 from services.installation_manager.infrastructure.operation_store import OperationStore
+from services.installation_manager.infrastructure.operator_wiring import operator_binds
 from services.installation_manager.infrastructure.release_verification import TrustPolicy
 from services.installation_manager.infrastructure.staging_artifacts import save_config
 from services.installation_manager.infrastructure.staging_compose import ObservedRelease
-from services.installation_manager.infrastructure.staging_host import HostPaths
+from services.installation_manager.infrastructure.staging_host import (
+    FilesystemBudget,
+    HostPaths,
+    check_filesystems,
+)
 
 TRUST = TrustPolicy({"beta-root": ROOT.public_key().public_bytes_raw()})
 MANIFEST_URL = ORIGIN + "/manifest.json"
@@ -481,3 +487,65 @@ def test_an_older_signed_release_requires_recovery_before_pulling(setup):
     assert service.store.first_failure(operation.id).checkpoint.reason is (
         FailureReason.INCOMPATIBLE_RELEASE
     )
+
+
+@pytest.mark.parametrize("foreign_readonly_bind", [False, True])
+def test_bridge_files_do_not_become_persistent_storage_budgets(
+    setup, tmp_path, monkeypatch, foreign_readonly_bind,
+):
+    service, _, _, _ = setup
+    identity = service.store.identity()
+    bridge_binds = operator_binds(str(tmp_path))
+    for source in bridge_binds.values():
+        credential = Path(source)
+        credential.parent.mkdir(exist_ok=True)
+        credential.write_text("test-only fixture")
+    monkeypatch.setattr(staging_compose, "operator_binds", lambda _data: bridge_binds)
+
+    env = {
+        "DVT_LIB_DIR": identity.data_dir,
+        "DVT_EXTERNAL_PORT": str(APP_PORT),
+        "DVT_AI_MCP_ENABLED": "false",
+        "DVT_AI_MCP_INTERNAL_SECRET": TEST_SECRET,
+    }
+    roles = set(CORE) - {"migrate"}
+    model = service.docker.config(None, identity.compose_project, (), env, None)
+    service.docker.running = [_container(name) for name in sorted(roles)]
+    gateway = next(
+        container for container in service.docker.running
+        if container["Config"]["Labels"]["com.docker.compose.service"] == "gateway"
+    )
+    gateway["Mounts"] = [
+        {"Type": "bind", "Source": source, "Destination": target, "RW": False}
+        for target, source in bridge_binds.items()
+    ]
+    if foreign_readonly_bind:
+        gateway["Mounts"].append({
+            "Type": "bind", "Source": str(tmp_path / "foreign"),
+            "Destination": "/run/foreign", "RW": False,
+        })
+    observed = ObservedRelease(
+        version="1.23.0", revision="0068", pin=None, images=dict.fromkeys(roles, SOURCE_IMAGE),
+    )
+    if foreign_readonly_bind:
+        with pytest.raises(StagingError, match="Candidate changes data mounts"):
+            staging_compose.compare_project(model, identity, env, service.docker, observed, None)
+        return
+
+    plan = staging_compose.compare_project(model, identity, env, service.docker, observed, None)
+    # Map the mock runtime's database directories to genuine directories. The injected mounts
+    # already point to real files, so an erroneous inclusion must fail the directory check.
+    working_paths = {}
+    for name in ("pgdata", "valkeydata"):
+        directory = tmp_path / name
+        directory.mkdir()
+        working_paths[name] = directory
+    if not hasattr(staging_host.os, "statvfs"):
+        monkeypatch.setattr(staging_host.os, "statvfs", lambda _: SimpleNamespace(
+            f_bavail=1024, f_frsize=4096, f_favail=1024,
+        ), raising=False)
+    check_filesystems([
+        FilesystemBudget("persistent data", working_paths.get(path.name, path), 1, 1)
+        for path in plan.persistent_paths
+    ])
+    assert {path.name for path in plan.persistent_paths} == {"pgdata", "valkeydata"}

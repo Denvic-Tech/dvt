@@ -49,6 +49,7 @@ from ..infrastructure.application_host import (
 )
 from ..infrastructure.maintenance_archive import verify_copy
 from ..infrastructure.maintenance_database import confirm_return_to_source_sql, frozen_sql
+from ..infrastructure.operator_wiring import wire_gateway
 from ..infrastructure.maintenance_host import PG_TARGET, ComposeMaintenanceHost
 from ..infrastructure.offline_host import (
     EXTENSION_ROLES,
@@ -717,6 +718,13 @@ class ApplicationApply:
                             OFFLINE_EXTENSION_ENV: "true",
                             "PIP_CONFIG_FILE": "/dev/null",
                         })
+                # An interrupted operation must continue with its immutable model.
+                # Older already-staged Compose artifacts predate the protected bridge.
+                existing_compose = read_artifact(host.path, 8 * COMPOSE_LIMIT)
+                if existing_compose is None or b"DVT_OPERATOR_MANAGER_ORIGIN" in existing_compose:
+                    bridge_ca = Path(self.config["data"]) / CONTROL / "ca.pem"
+                    if bridge_ca.is_file():
+                        wire_gateway(full["services"], self.config)
                 compose_bytes = canonical_json(_compose_literal(full))
                 env_bytes = _dotenv(env)
                 write_artifact(host.path, compose_bytes)
