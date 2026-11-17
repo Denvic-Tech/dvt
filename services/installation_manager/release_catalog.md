@@ -1,6 +1,7 @@
 # Каталог релизов мастера
 
-На Linux beta-bootstrap принимает `--release-catalog-config <file.json>`.
+[Загрузчик подписанного релиза](customer_installation.md) принимает
+`--release-catalog-config <file.json>`.
 Передайте доверенный HTTPS origin Distributor и публичную политику Ed25519:
 
 ```json
@@ -18,10 +19,10 @@ Bootstrap сохраняет origin и исходную политику в за
 после обновления ОС. Дополнительный владелецкий файл
 `.bootstrap/release-trust.json` (0600) меняет политику для новых выборов и
 применения уже подготовленной операции. Сломанный override не отключает его
-в пользу старого ключа. По умолчанию curl использует системные CA; чтобы
-явно доверить дополнительный CA bundle, установите его отдельным защищённым
-файлом `.bootstrap/release-catalog-ca.pem` (0600). Не помещайте закрытые ключи в эти
-файлы.
+в пользу старого ключа. По умолчанию curl использует системные CA. Передайте
+`--release-catalog-ca <file.pem>`, чтобы загрузчик сохранил дополнительный
+CA bundle в `.bootstrap/release-catalog-ca.pem` (0600) до старта мастера.
+В этих файлах хранятся публичные сертификаты и корни доверия.
 
 - `GET /api/releases?channel=stable` под существующей защитой мастера возвращает
   `catalog_fetched_at`, `catalog_error`, `source_error`, подтверждённый

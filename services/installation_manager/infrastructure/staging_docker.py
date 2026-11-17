@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -139,29 +140,29 @@ class StagingDocker:
             )
         return _compose_value(read_docker_json(result.stdout, "Compose model"))
 
-    def containers(self, project: str, deadline: Deadline) -> list[dict]:
-        ids = (
-            self._checked(
-                [
-                    "ps",
-                    "--all",
-                    "--quiet",
-                    "--no-trunc",
-                    "--filter",
-                    f"label=com.docker.compose.project={project}",
-                ],
-                deadline,
-                "list containers in the confirmed project",
-            )
-            .decode()
-            .split()
-        )
+    def _containers(self, filters: list[str], deadline: Deadline, scope: str) -> list[dict]:
+        args = ["ps", "--all", "--quiet", "--no-trunc"]
+        for selector in filters:
+            args.extend(("--filter", selector))
+        ids = self._checked(args, deadline, f"list containers {scope}").decode().split()
         if not ids:
             return []
         result = self._checked(
-            ["container", "inspect", *ids], deadline, "inspect the confirmed project"
+            ["container", "inspect", *ids], deadline, f"inspect containers {scope}",
         )
         return read_docker_json(result, "container inspection")
+
+    def containers(self, project: str, deadline: Deadline) -> list[dict]:
+        return self._containers(
+            [f"label=com.docker.compose.project={project}"], deadline, "in the confirmed project",
+        )
+
+    def containers_named(self, names: list[str], deadline: Deadline) -> list[dict]:
+        if not names:
+            return []
+        return self._containers(
+            [f"name=^/{re.escape(name)}$" for name in names], deadline, "by exact global name",
+        )
 
     def inspect_image(self, reference: str, deadline: Deadline) -> dict | None:
         result = self._run(["image", "inspect", reference], deadline)

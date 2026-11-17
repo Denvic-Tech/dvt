@@ -252,6 +252,11 @@ class VerifiedStaging:
             compose_path, identity.compose_project, profiles, env, deadline
         )
         check_model(current, identity, release, env, active=True)
+        require_bootstrap_manager = (
+            operation.request.kind is OperationKind.INSTALL
+            and bundle is None
+            and bootstrap_image is not None
+        )
         plan = compare_project(
             current,
             identity,
@@ -260,6 +265,7 @@ class VerifiedStaging:
             observed,
             deadline,
             bootstrap_image=bootstrap_image,
+            require_bootstrap_manager=require_bootstrap_manager,
         )
         images = {
             img.reference: img
@@ -330,6 +336,7 @@ class VerifiedStaging:
                 observed,
                 deadline,
                 bootstrap_image=bootstrap_image,
+                require_bootstrap_manager=require_bootstrap_manager,
             )
             != plan
         ):

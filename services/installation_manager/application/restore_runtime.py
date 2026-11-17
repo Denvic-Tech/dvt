@@ -45,7 +45,9 @@ from ..infrastructure.application_host import (
 )
 from ..infrastructure.maintenance_archive import verify_copy_files
 from ..infrastructure.maintenance_database import frozen_sql
+from ..infrastructure.operation_files import _require_regular_file
 from ..infrastructure.operation_store import FORMAT_VERSION, OperationStore
+from ..infrastructure.operator_wiring import operator_binds
 from ..infrastructure.staging_artifacts import artifact_directory, read_artifact, write_artifact
 from ..infrastructure.staging_commands import Deadline, RetryPolicy
 from ..infrastructure.staging_compose import COMPOSE_LIMIT
@@ -61,7 +63,7 @@ AUTHORIZATION = "restore-authorization.json"
 FINAL_PROOF = "restore-proof.json"
 ACCESS_COOKIE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
 AUTH_PROBE = """
-import json, sys, urllib.request
+import asyncio, json, sys, urllib.request
 port, project = sys.argv[1:3]
 proof = json.loads(sys.stdin.read(32 * 1024))
 token = proof['access_token']
@@ -72,24 +74,95 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
-def read(path):
-    url = 'http://127.0.0.1:' + port + '/api' + path
-    request = urllib.request.Request(url, headers={'Cookie': 'access_token=' + token})
-    with opener.open(request, timeout=6) as response:
-        return json.loads(response.read(2 * 1024 * 1024))
-
-user = read('/user/info')
+headers = {'Cookie': 'access_token=' + token}
+request = urllib.request.Request('http://127.0.0.1:' + port + '/api/user/info', headers=headers)
+with opener.open(request, timeout=6) as response:
+    user = json.loads(response.read(2 * 1024 * 1024))
 if str(user.get('role', '')).lower() not in {'admin', 'superadmin'}:
     sys.exit(1)
-if project:
-    if read('/projects/' + project).get('id') != project:
-        sys.exit(1)
-elif read('/projects'):
-    sys.exit(1)
-installed = sorted(e['name'] for e in read('/extensions') if e.get('is_installed'))
-if installed != sorted(proof['extensions']):
+
+async def verify_project_and_extensions():
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from services.gateway.auth_app import create_auth_app
+    from services.gateway.routes.extensions import list_extensions
+    from services.gateway.routes.project.crud import get_project_by_id, get_projects
+
+    # Initialize the same auth dependencies without starting Gateway lifespan.
+    # Only these read-only routes run in this private process, without a listener.
+    create_auth_app()
+    app = FastAPI(openapi_url=None)
+    app.add_api_route('/projects/{project_id}', get_project_by_id, methods=['GET'])
+    app.add_api_route('/projects', get_projects, methods=['GET'])
+    app.add_api_route('/extensions', list_extensions, methods=['GET'])
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url='http://localhost', headers=headers,
+    ) as client:
+        if project:
+            project_response = await client.get('/projects/' + project)
+            if project_response.raise_for_status().json().get('id') != project:
+                return False
+        elif (await client.get('/projects', params={'limit': 1})).raise_for_status().json():
+            return False
+        extensions = (await client.get('/extensions')).raise_for_status().json()
+        installed = sorted(e['name'] for e in extensions if e.get('is_installed'))
+        return installed == sorted(proof['extensions'])
+
+if not asyncio.run(verify_project_and_extensions()):
     sys.exit(1)
 """
+
+
+def _validate_restored_runtime(services: dict, networks: dict, config: dict) -> None:
+    gateway = services["gateway"]
+    sources = operator_binds(config["data"])
+    volumes = gateway.get("volumes", [])
+    bridge = [mount for mount in volumes if mount["target"] in sources]
+    origin = gateway.get("environment", {}).get("DVT_OPERATOR_MANAGER_ORIGIN")
+    if not bridge and origin is None:
+        _validate_runtime({"services": services})
+        return
+
+    default_network = {"name": f"{config['project']}_default"}
+    if (
+        origin != f"https://localhost:{config['port']}"
+        or services["installation_manager"].get("networks") != {"default": None}
+        or networks.get("default") not in (default_network, {**default_network, "ipam": {}})
+        or gateway.get("networks") != {"dvt-net": None, "default": None}
+        or services["migrate"].get("networks") != {"dvt-net": None}
+        or {mount["target"] for mount in bridge} != sources.keys()
+        or len(bridge) != len(sources)
+    ):
+        raise ApplyError(FailureReason.COMPOSE, "The restored Gateway operator wiring is invalid")
+
+    try:
+        safe_path(Path(config["data"]) / CONTROL)
+        for mount in bridge:
+            target = mount["target"]
+            source = sources[target]
+            if (
+                mount != {
+                    "type": "bind", "source": source, "target": target,
+                    "read_only": True, "bind": {"create_host_path": False},
+                }
+                or mount["read_only"] is not True
+                or mount["bind"]["create_host_path"] is not False
+            ):
+                raise ValueError("Unexpected protected bind")
+            _require_regular_file(Path(source).lstat())
+    except (OSError, ValueError) as error:
+        raise ApplyError(
+            FailureReason.COMPOSE, "The restored Gateway operator binds are invalid",
+        ) from error
+
+    # Compare the original roles using a temporary view. Docker receives the
+    # recovered model, including the verified mounts and the manager network.
+    base_gateway = {
+        **gateway,
+        "volumes": [mount for mount in volumes if mount["target"] not in sources],
+        "networks": {"dvt-net": gateway["networks"]["dvt-net"]},
+    }
+    _validate_runtime({"services": {**services, "gateway": base_gateway}})
 
 
 @dataclass(frozen=True)
@@ -143,7 +216,7 @@ class RestoreRuntime:
                     "profiles": prior["profiles"], "platform": "linux/amd64", "retire": [],
                 }, deadline)
                 host.bind_images()
-                _validate_runtime({"services": host.services})
+                _validate_restored_runtime(host.services, model.get("networks", {}), self.config)
                 origin = self.store.identity().public_url
                 worker = host.services["task-worker"]
                 count = (worker.get("deploy") or {}).get("replicas", worker.get("scale", 1))

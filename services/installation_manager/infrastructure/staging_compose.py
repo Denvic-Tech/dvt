@@ -438,6 +438,35 @@ def _persistent_paths(
     return {path for path in paths if not any(parent in paths for parent in path.parents)}
 
 
+def _check_container_names(
+    services: dict, project: str, docker: StagingDocker, deadline: Deadline,
+) -> None:
+    names = {}
+    for role, service in services.items():
+        name = service.get("container_name")
+        if name is None:
+            continue
+        if name in names:
+            raise compose_error(f"Compose uses container name {name} for multiple active services")
+        names[name] = role
+    if not names:
+        return
+    for container in docker.containers_named(list(names), deadline):
+        name = container["Name"].removeprefix("/")
+        role = names.get(name)
+        if role is None:
+            continue
+        labels = container["Config"].get("Labels") or {}
+        if (
+            labels.get("com.docker.compose.project") != project
+            or labels.get("com.docker.compose.service") != role
+            or labels.get("com.docker.compose.oneoff", "").lower() == "true"
+        ):
+            raise compose_error(
+                f"Container name {name} for service {role} is occupied outside the confirmed role"
+            )
+
+
 def compare_project(
     model: dict,
     identity: InstanceIdentity,
@@ -447,7 +476,9 @@ def compare_project(
     deadline: Deadline,
     *,
     bootstrap_image: str | None = None,
+    require_bootstrap_manager: bool = False,
 ) -> ComposePlan:
+    _check_container_names(model["services"], identity.compose_project, docker, deadline)
     target = {
         name: _target_service(name, value, model, identity)
         for name, value in model["services"].items()
@@ -520,6 +551,13 @@ def compare_project(
         source.setdefault(name, []).append(_source_service(container))
     if observed is not None and set(source) != set(observed.images):
         raise incompatible("The expected running service set is incomplete or changed")
+    if require_bootstrap_manager and "installation_manager" not in source_references:
+        raise StagingError(
+            FailureReason.MANAGER_UNAVAILABLE,
+            "The confirmed bootstrap manager is not running",
+            "Restore the approved bootstrap manager and continue the same operation",
+            retryable=True,
+        )
 
     for name, services in source.items():
         if name not in target:

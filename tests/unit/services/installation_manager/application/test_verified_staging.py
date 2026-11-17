@@ -26,6 +26,7 @@ from tests.data.installation_manager.verified_staging.fixtures import (
 from services.installation_manager.application import verified_staging
 from services.installation_manager.application.verified_staging import VerifiedStaging
 from services.installation_manager.domain.operation_state import (
+    ArtifactKind,
     CheckpointOutcome,
     FailureReason,
     InstanceIdentity,
@@ -124,6 +125,7 @@ class Docker:
     def __init__(self) -> None:
         self.config_calls = []
         self.running = []
+        self.named = []
         self.pulls = []
         self.images = {SOURCE_IMAGE}
         self.pull_error = None
@@ -184,6 +186,9 @@ class Docker:
 
     def containers(self, _project, _deadline):
         return self.running
+
+    def containers_named(self, names, _deadline):
+        return [container for container in self.named if container["Name"].removeprefix("/") in names]
 
     def inspect_image(self, image_id, _deadline):
         assert image_id == "image ID"
@@ -413,7 +418,7 @@ def test_validation_failures_block_before_image_pulls(setup, monkeypatch, failur
     assert service.store.events(operation.id)[-1].checkpoint.outcome is CheckpointOutcome.BLOCKED
 
 
-@pytest.mark.parametrize("case", ["matching", "binding", "unrelated"])
+@pytest.mark.parametrize("case", ["matching", "binding", "unrelated", "digest"])
 def test_first_install_only_accepts_matching_bootstrap(setup, case):
     service, config_id, _, pin = setup
     host = "127.0.0.2" if case == "binding" else "127.0.0.1"
@@ -421,12 +426,13 @@ def test_first_install_only_accepts_matching_bootstrap(setup, case):
     if case == "unrelated":
         service.docker.running.append(_container("proxy"))
     operation = _admit(service, config_id, pin)
+    bootstrap = TARGET_IMAGE if case == "digest" else SOURCE_IMAGE
     if case == "matching":
-        result = service.prepare(operation.id, MANIFEST_URL, bootstrap_image=SOURCE_IMAGE)
+        result = service.prepare(operation.id, MANIFEST_URL, bootstrap_image=bootstrap)
         assert result.recreate == ("installation_manager",)
     else:
         with pytest.raises(StagingError, match=r"running service|established source"):
-            service.prepare(operation.id, MANIFEST_URL, bootstrap_image=SOURCE_IMAGE)
+            service.prepare(operation.id, MANIFEST_URL, bootstrap_image=bootstrap)
         assert service.docker.pulls == []
 
 
@@ -549,3 +555,134 @@ def test_bridge_files_do_not_become_persistent_storage_budgets(
         for path in plan.persistent_paths
     ])
     assert {path.name for path in plan.persistent_paths} == {"pgdata", "valkeydata"}
+
+
+
+@pytest.mark.parametrize("disappears_during_pull", [False, True])
+def test_install_requires_observed_bootstrap_manager_for_prepared(
+    setup, monkeypatch, disappears_during_pull,
+):
+    service, config_id, _, pin = setup
+    operation = _admit(service, config_id, pin)
+    manager = _container("installation_manager")
+    if disappears_during_pull:
+        service.docker.running = [manager]
+        pull = service.docker.pull
+
+        def pull_and_lose_manager(*args):
+            pull(*args)
+            service.docker.running = []
+
+        monkeypatch.setattr(service.docker, "pull", pull_and_lose_manager)
+    plan = service.store.artifact_path(ArtifactKind.STAGING, operation.id) / "plan.json"
+    with pytest.raises(StagingError) as missing:
+        service.prepare(operation.id, MANIFEST_URL, bootstrap_image=SOURCE_IMAGE)
+    assert missing.value.reason is FailureReason.MANAGER_UNAVAILABLE
+    assert missing.value.retryable
+    assert service.store.get(operation.id).stage is OperationStage.PREPARING
+    assert not plan.exists()
+
+    attempts = len(service.docker.pulls)
+    assert bool(attempts) is disappears_during_pull
+    service.docker.running = [manager]
+    prepared = service.prepare(operation.id, MANIFEST_URL, bootstrap_image=SOURCE_IMAGE)
+    assert prepared.operation_id == operation.id
+    assert json.loads(plan.read_bytes())["observed_images"] == {"installation_manager": SOURCE_IMAGE}
+    assert service.store.get(operation.id).stage is OperationStage.PREPARED
+    if disappears_during_pull:
+        assert len(service.docker.pulls) == attempts
+
+
+
+def _with_postgres_name(service, monkeypatch):
+    name = "dvt-postgres"
+    url = ORIGIN + "/compose.yaml"
+    compose = service.downloader.content[url].replace(
+        b"  postgres:\n", f"  postgres:\n    container_name: {name}\n".encode(), 1,
+    )
+    pin, service.downloader.content[MANIFEST_URL] = sign_manifest(make_manifest(compose))
+    service.downloader.content[url] = compose
+    resolve = service.docker.config
+
+    def with_name(*args):
+        model = resolve(*args)
+        model["services"]["postgres"]["container_name"] = name
+        return model
+
+    monkeypatch.setattr(service.docker, "config", with_name)
+    return pin, name
+
+
+@pytest.mark.parametrize("labels", [
+    {"com.docker.compose.project": "other-project"},
+    {"com.docker.compose.service": "other-role"},
+    {"com.docker.compose.oneoff": "True"},
+])
+def test_foreign_stopped_global_name_blocks_signed_staging_before_pulling(
+    setup, monkeypatch, labels,
+):
+    service, config_id, _, _ = setup
+    pin, name = _with_postgres_name(service, monkeypatch)
+    foreign = _container("postgres")
+    foreign["Name"] = f"/{name}"
+    foreign["Id"] = "foreign-container-id"
+    foreign["State"]["Running"] = False
+    foreign["Config"]["Env"] = ["SYNTHETIC_FOREIGN_VALUE=private-fixture-data"]
+    foreign["Config"]["Labels"].update(labels)
+    service.docker.named = [foreign]
+
+    operation = _admit(service, config_id, pin)
+    with pytest.raises(
+        StagingError, match="Container name dvt-postgres for service postgres",
+    ) as error:
+        service.prepare(operation.id, MANIFEST_URL)
+    assert error.value.reason is FailureReason.COMPOSE
+    assert all(
+        value not in str(error.value)
+        for value in ("foreign-container-id", "other-project", "other-role", "private-fixture-data")
+    )
+    assert service.store.get(operation.id).stage is OperationStage.PREPARING
+    checkpoint = service.store.events(operation.id)[-1].checkpoint
+    assert checkpoint.outcome is CheckpointOutcome.BLOCKED
+    assert checkpoint.reason is FailureReason.COMPOSE
+    assert not service.docker.pulls
+    plan = service.store.artifact_path(ArtifactKind.STAGING, operation.id) / "plan.json"
+    assert not plan.exists()
+
+    service.docker.named.clear()
+    prepared = service.prepare(operation.id, MANIFEST_URL)
+    assert prepared.operation_id == operation.id and prepared.pin == pin
+    assert plan.is_file()
+
+
+def test_own_named_postgres_keeps_original_project_checks_on_update(setup, monkeypatch):
+    service, config_id, _, _ = setup
+    pin, name = _with_postgres_name(service, monkeypatch)
+    current = set(CORE) - {"migrate"}
+    service.docker.running = [_container(role) for role in sorted(current)]
+    postgres = next(
+        row for row in service.docker.running
+        if row["Config"]["Labels"]["com.docker.compose.service"] == "postgres"
+    )
+    postgres["Name"] = f"/{name}"
+    service.docker.named = [postgres]
+    applied = ReleasePin("old", digest_of(b"previous release"))
+    observed = ObservedRelease(
+        version="1.23.0", revision="0068", pin=applied, images=dict.fromkeys(current, SOURCE_IMAGE),
+    )
+    operation = _admit(service, config_id, pin, OperationKind.UPDATE)
+
+    inspect_image = service.docker.inspect_image
+
+    def inspect(reference, deadline):
+        if reference == "different image":
+            return {"RepoDigests": [TARGET_IMAGE]}
+        return inspect_image(reference, deadline)
+
+    monkeypatch.setattr(service.docker, "inspect_image", inspect)
+    postgres["Image"] = "different image"
+    with pytest.raises(StagingError, match="differs from the independently established source"):
+        service.prepare(operation.id, MANIFEST_URL, observed=observed, applied=applied)
+    postgres["Image"] = "image ID"
+    plan = service.prepare(operation.id, MANIFEST_URL, observed=observed, applied=applied)
+    assert plan.pin == pin and "postgres" in plan.recreate

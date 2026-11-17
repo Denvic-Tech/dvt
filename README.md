@@ -80,7 +80,9 @@ Deploy DVT on your own infrastructure with Docker and Docker Compose.
 
 ### Run DVT with the installer
 
-The easiest way to start a self-hosted DVT instance is through the included web installer.
+For a ready release in the signed catalog, follow the
+[installation and upgrade guide](services/installation_manager/customer_installation.md).
+For existing deployments on the legacy installer track, use the procedure below.
 
 **Requirements:**
 

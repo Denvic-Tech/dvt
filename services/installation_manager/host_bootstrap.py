@@ -15,6 +15,7 @@ import shutil
 import signal
 import socket
 import sqlite3
+import ssl
 import stat
 import subprocess
 import sys
@@ -193,6 +194,8 @@ def _launch(config, operation_id, action="candidate-executor"):
         raise ValueError("Docker data root has changed since host preparation")
     if image_store(docker_info) != bool(config["containerd_root"]):
         raise ValueError("Docker image store has changed since host preparation")
+    if action == "candidate-executor":
+        restore_initial_manager(config, operation_id)
     mounts = [
         mount(config["data"]),
         mount(SOCKET),
@@ -223,7 +226,7 @@ def _launch(config, operation_id, action="candidate-executor"):
     docker(*args, config["executor"], action, config["data"], operation_id)
 
 
-def active_id(config):
+def active_operation(config):
     journal = Path(config["data"]) / STATE / "journal.sqlite3"
     if not journal.exists():
         return None
@@ -243,11 +246,50 @@ def active_id(config):
             or db.execute("PRAGMA user_version").fetchone()[0] != 1
         ):
             raise ValueError("Unsupported installation journal")
-        row = db.execute(
-            "SELECT id FROM operations WHERE instance_id = ? AND finished_at IS NULL",
+        return db.execute(
+            "SELECT id, stage, request FROM operations WHERE instance_id = ? AND finished_at IS NULL",
             (config["instance"],),
         ).fetchone()
-        return row[0] if row else None
+
+
+def active_id(config):
+    row = active_operation(config)
+    return row[0] if row else None
+
+
+def restore_initial_manager(config, operation_id):
+    from uuid import UUID
+
+    if not config.get("release_catalog"):
+        return
+    active = active_operation(config)
+    if active is None or active[0] != operation_id or active[1] not in {"admitted", "preparing"}:
+        return
+    request = json.loads(active[2])
+    if request["kind"] != "install" or request["bundle_id"] is not None or not request["config_id"]:
+        return
+
+    data = Path(config["data"])
+    control = data / CONTROL
+    config_id = str(UUID(request["config_id"]))
+    operator = data / STATE / "artifacts" / "config" / config_id / "operator.json"
+    current_release = control / "current-release.json"
+    if not operator.is_file() or operator.is_symlink() or current_release.exists() or current_release.is_symlink():
+        return
+    if docker(
+        "container", "ls", "--all", "--quiet",
+        "--filter", f"label=com.docker.compose.project={config['project']}",
+    ).stdout.strip():
+        return
+    marker = control / "current-manager"
+    info = marker.lstat()
+    if info.st_uid or stat.S_IMODE(info.st_mode) != 0o600 or not stat.S_ISREG(info.st_mode):
+        raise ValueError("Unsafe bootstrap manager digest file")
+    installed = marker.read_text().strip()
+    if installed not in {config["manager"], config["candidate"]}:
+        raise ValueError("The local bootstrap manager differs from the approved digests")
+    check_image(installed)
+    apply_manager(config, installed, control / "bootstrap.compose.yaml")
 
 
 def image_store(info):
@@ -513,6 +555,19 @@ def _catalog_config(path):
     }
 
 
+def bootstrap_images(args, *, catalog):
+    if catalog is not None and args.candidate is None:
+        # Catalog operations select their target from the signed release after bootstrap.
+        return args.manager, args.manager, args.executor or args.manager
+    if (
+        args.candidate is not None
+        and args.manager == args.candidate
+        and not getattr(args, "local_images", False)
+    ):
+        raise ValueError("The manager handoff requires a distinct target image")
+    return args.manager, args.candidate, args.executor
+
+
 def bootstrap(args):
     from uuid import uuid4
 
@@ -521,6 +576,19 @@ def bootstrap(args):
     prior = load_host(data) if config_path.exists() else None
     catalog_file = getattr(args, "release_catalog_config", None)
     catalog = _catalog_config(catalog_file) if catalog_file else None
+    catalog_ca_path = getattr(args, "release_catalog_ca", None)
+    catalog_ca = None
+    if catalog_ca_path:
+        if catalog is None and (prior is None or "release_catalog" not in prior):
+            raise ValueError("Select an HTTPS release catalog before providing its trust CA")
+        with Path(catalog_ca_path).open("rb") as stream:
+            catalog_ca = stream.read(128 * 1024 + 1)
+        if not 0 < len(catalog_ca) <= 128 * 1024:
+            raise ValueError("The release catalog CA file is empty or too large")
+        ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(
+            cadata=catalog_ca.decode("ascii")
+        )
+    use_catalog_images = catalog is not None and args.candidate is None
     if not args.non_interactive:
         for key, label in (
             ("project", "Compose project"),
@@ -534,6 +602,8 @@ def bootstrap(args):
             ("ca", "TLS CA path"),
             ("containerd_root", "Containerd data root (if enabled)"),
         ):
+            if use_catalog_images and key in {"candidate", "executor"}:
+                continue
             if getattr(args, key) is None and prior is None:
                 default = {"project": "dvt", "port": "8888"}.get(key, "")
                 reply = input(f"{label} [{default}] ").strip() or default
@@ -574,6 +644,8 @@ def bootstrap(args):
         docker_ready_now = docker_ready()
         if not docker_ready_now:
             raise ValueError("Docker or Compose is unavailable for the existing instance")
+        if catalog_ca is not None:
+            atomic_write(data / CONTROL / "release-catalog-ca.pem", catalog_ca)
         if config != prior:
             atomic_write(config_path, json.dumps(config).encode())
         init_container(config, "candidate-init")
@@ -612,12 +684,11 @@ def bootstrap(args):
         check_port("127.0.0.1", port)
         if docker_ready():
             check_project(project)
-        if not all((args.manager, args.candidate, args.executor, args.cert, args.key, args.ca)):
+        manager, candidate_image, executor = bootstrap_images(args, catalog=catalog)
+        if not all((manager, candidate_image, executor, args.cert, args.key, args.ca)):
             raise ValueError("Supply approved image digests and HTTPS certificate, key and CA")
-        if any(not IMAGE.fullmatch(img) for img in (args.manager, args.candidate, args.executor)):
+        if any(not IMAGE.fullmatch(img) for img in (manager, candidate_image, executor)):
             raise ValueError("Supply explicit registry references pinned by SHA-256 digest")
-        if args.manager == args.candidate and not getattr(args, "local_images", False):
-            raise ValueError("The candidate requires a distinct manager image")
         public_url = public_url or f"https://localhost:{port}"
         url = urlsplit(public_url)
         if (
@@ -665,7 +736,7 @@ def bootstrap(args):
             or data.is_relative_to(backup)
         ):
             raise ValueError("Choose separate data, temporary and backup directories")
-        for img in dict.fromkeys([args.manager, args.candidate, args.executor]):
+        for img in dict.fromkeys([manager, candidate_image, executor]):
             check_image(img, pull=not local_images)
         data.mkdir(mode=0o700, parents=True, exist_ok=True)
         control = data / CONTROL
@@ -677,9 +748,9 @@ def bootstrap(args):
             "address": "127.0.0.1",
             "port": port,
             "public_url": public_url,
-            "manager": args.manager,
-            "candidate": args.candidate,
-            "executor": args.executor,
+            "manager": manager,
+            "candidate": candidate_image,
+            "executor": executor,
             "docker_root": str(root),
             "containerd_root": str(containerd) if containerd else None,
             "temporary": str(temporary),
@@ -691,6 +762,8 @@ def bootstrap(args):
             staging = Path(folder)
             for name, value in tls.items():
                 atomic_write(staging / f"{name}.pem", value)
+            if catalog_ca is not None:
+                atomic_write(staging / "release-catalog-ca.pem", catalog_ca)
             atomic_write(staging / "current-manager", config["manager"].encode())
             atomic_write(staging / config_path.name, json.dumps(config).encode())
             staging.rename(control)
@@ -744,6 +817,7 @@ def main():
     parser.add_argument("--port", type=int)
     parser.add_argument("--public-url")
     parser.add_argument("--release-catalog-config", help="Trusted DVT catalog configuration JSON")
+    parser.add_argument("--release-catalog-ca", help="PEM CA for the release catalog and its assets")
     for key in (
         "manager",
         "candidate",

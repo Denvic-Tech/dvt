@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import subprocess
 from types import SimpleNamespace
 from uuid import uuid4
@@ -497,3 +498,63 @@ def test_gateway_gets_only_read_only_bridge_files_and_manager_network(candidate)
     assert all(mount["read_only"] for mount in result["volumes"])
     scoped_token = (auth.directory / "gateway-token").read_text()
     assert scoped_token == auth.gateway_token and scoped_token != auth.machine
+
+
+
+@pytest.mark.parametrize(
+    "case", ["empty", "prepared", "update", "offline", "different_id", "occupied", "unapproved", "applied"],
+)
+def test_resume_restores_only_an_approved_manager_for_empty_early_online_install(
+    tmp_path, monkeypatch, case,
+):
+    operation_id = str(uuid4())
+    config_id = str(uuid4())
+    config = {
+        "data": str(tmp_path), "project": "test", "release_catalog": {"origin": "https://test.dev"},
+        "manager": TARGET_IMAGE, "candidate": TARGET_IMAGE,
+    }
+    control = tmp_path / host_bootstrap.CONTROL
+    control.mkdir()
+    if case == "applied":
+        (control / "current-release.json").write_text("{}", encoding="utf-8")
+    marker = control / "current-manager"
+    marker.write_text(TARGET_IMAGE if case != "unapproved" else "unapproved", encoding="utf-8")
+    operator = tmp_path / host_bootstrap.STATE / "artifacts" / "config" / config_id / "operator.json"
+    operator.parent.mkdir(parents=True)
+    operator.write_text("{}", encoding="utf-8")
+    active = (
+        str(uuid4()) if case == "different_id" else operation_id,
+        "prepared" if case == "prepared" else "preparing",
+        json.dumps({
+            "kind": "update" if case == "update" else "install",
+            "bundle_id": str(uuid4()) if case == "offline" else None,
+            "config_id": config_id,
+        }),
+    )
+    lstat = type(marker).lstat
+    monkeypatch.setattr(
+        type(marker), "lstat",
+        lambda path: SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | 0o600)
+        if path == marker else lstat(path),
+    )
+    monkeypatch.setattr(host_bootstrap, "active_operation", lambda _: active)
+    monkeypatch.setattr(
+        host_bootstrap, "docker",
+        lambda *args: SimpleNamespace(stdout="unrelated" if case == "occupied" else ""),
+    )
+    checked = []
+    applied = []
+    monkeypatch.setattr(host_bootstrap, "check_image", checked.append)
+    monkeypatch.setattr(host_bootstrap, "apply_manager", lambda *args: applied.append(args))
+
+    if case == "unapproved":
+        with pytest.raises(ValueError, match="differs from the approved"):
+            host_bootstrap.restore_initial_manager(config, operation_id)
+    else:
+        host_bootstrap.restore_initial_manager(config, operation_id)
+
+    if case == "empty":
+        assert checked == [TARGET_IMAGE]
+        assert applied == [(config, TARGET_IMAGE, control / "bootstrap.compose.yaml")]
+    else:
+        assert checked == applied == []

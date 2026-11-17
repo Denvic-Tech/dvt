@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { candidateRequest } from './candidateApi.js'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  candidateOperationKey as operationKey, candidateRequest, candidateRequestKey, confirmCandidateAdmission,
+} from './candidateApi.js'
 import CandidateOperation, { failureMessage, terminalStages } from './CandidateOperation.jsx'
 import CandidateReleaseForm from './CandidateReleaseForm.jsx'
 
-const operationKey = 'dvt-candidate-operation'
-const requestKey = 'dvt-candidate-request'
 const operations = '/operator/operations'
 
 const initialOperation = new URLSearchParams(window.location.hash.slice(1)).get('operation')
@@ -23,6 +23,7 @@ export default function CandidateApp() {
   const [disconnected, setDisconnected] = useState(false)
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
+  const admitting = useRef(false)
 
   const show = useCallback((result) => {
     if (!result) return
@@ -41,18 +42,29 @@ export default function CandidateApp() {
         const info = await candidateRequest('/operator/settings')
         const active = await candidateRequest(operations + '/active')
         const history = await candidateRequest(operations)
-        const selected = history.find((entry) => entry.id === sessionStorage.getItem(operationKey))
+        let confirmed = null
+        if (!stopped && !admitting.current && sessionStorage.getItem(candidateRequestKey)) {
+          admitting.current = true
+          try {
+            confirmed = await confirmCandidateAdmission(operations)
+            if (!stopped && confirmed) setMessage('')
+          } catch (error) {
+            if (error.status === 401) throw error
+            if (!stopped) setMessage(error.detail?.reason ? failureMessage(error.detail.reason) : error.message)
+          } finally {
+            admitting.current = false
+          }
+        }
         const id = sessionStorage.getItem(operationKey)
-        let result = selected ?? active ?? history[0]
-        if (!selected && id && id !== active?.id) {
+        const selected = history.find((entry) => entry.id === id)
+        let result = confirmed ?? selected ?? active ?? history[0]
+        if (!confirmed && !selected && id && id !== active?.id) {
           result = await candidateRequest(operations + '/' + id).catch((error) => {
             if (error.status === 404) return active ?? history[0]
             throw error
           })
         }
         if (stopped) return
-        const saved = JSON.parse(sessionStorage.getItem(requestKey) ?? 'null')
-        if (saved && result && result.id !== saved.previous) sessionStorage.removeItem(requestKey)
         show(result)
         setItems(history)
         setActiveOperation(active)
@@ -108,13 +120,16 @@ export default function CandidateApp() {
   function submit(data) {
     run(async () => {
       const intent = JSON.stringify(data)
-      const saved = JSON.parse(sessionStorage.getItem(requestKey) ?? 'null')
+      if (admitting.current) return
+      const saved = JSON.parse(sessionStorage.getItem(candidateRequestKey) ?? 'null')
       const key = saved?.intent === intent ? saved.key : crypto.randomUUID()
-      sessionStorage.setItem(requestKey, JSON.stringify({
-        key, intent, previous: sessionStorage.getItem(operationKey),
-      }))
-      show(await candidateRequest(operations, { method: 'POST', key, data }))
-      sessionStorage.removeItem(requestKey)
+      sessionStorage.setItem(candidateRequestKey, JSON.stringify({ key, intent }))
+      admitting.current = true
+      try {
+        show(await confirmCandidateAdmission(operations))
+      } finally {
+        admitting.current = false
+      }
     })
   }
 
