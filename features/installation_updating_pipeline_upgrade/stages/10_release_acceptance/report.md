@@ -406,3 +406,64 @@ Readiness, публичная блокировка и последователь
 расписание удалено. Повтор с одним idempotency key в двух вкладках этим
 прогоном не подтверждён, поскольку отдельные входы того же аккаунта
 отозвали предшествующую сессию.
+
+
+### Итерация 5 — публичная команда без системного Python
+
+Зафиксирован исходный отказ на Debian 13. Публичный raw URL отдавал прежний
+`install.sh` из GitHub DVT `main`. Он запускал HTTP-мастер по mutable
+`installation_manager:latest`, а `/api/operations/active` отвечал 404.
+У публичного Distributor `/health` отвечал 200, маршрут каталога — 404.
+Публичная выдача и действующие инсталляции в ходе исправления не менялись.
+
+- Сохранены URL и команда
+  `bash <(sudo curl -fsSL https://raw.distribution.denvic.tech/dvt/install.sh)`.
+  Новый файл написан на POSIX sh. Через TLS он запрашивает дескриптор
+  для ОС и платформы, ограничивает объём файлов и сверяет размер и SHA-256
+  bootstrap до повышения прав и согласованной подготовки Docker. При отказе
+  каталога, TLS, ошибке формата или подмене новый хост не меняется, переход
+  на HTTP отсутствует.
+- Distributor добавляет `GET /api/v1/dvt/releases/install` к существующему
+  проверяющему reader. Публичный результат — самый новый готовый stable с
+  поддержкой чистой установки данной ОС. Для частной приёмки RC требуется
+  явный выбор. Launcher запрашивает `application/vnd.dvt.install+json`,
+  проверяет строгие заголовки `X-DVT-*` и хеш policy JSON. JSON разбирает
+  подписанный bootstrap внутри закреплённого образа. Обычный JSON-ответ
+  остаётся для ручной проверки дескриптора.
+- `bootstrap.py` остаётся прежним по формату артефактом релиза. Изменённый
+  bootstrap работает в одноразовом контейнере по закреплённому digest с
+  Docker socket, каталогом выбранного экземпляра, host os-release и
+  read-only backing paths. Корень хоста не монтируется. `--privileged`,
+  `--pid=host` и отдельный постоянный контейнер не используются. Python
+  и генерация TLS выполняются внутри образа, хост готовит Docker и systemd.
+  Подтверждение Docker APT остаётся отдельным. На хосте Python не требуется.
+- Сохранённый root-owned `.bootstrap/host-launch.sh` сверяет digest
+  локального bootstrap. Повтор и systemd используют прежние TLS, identity,
+  manager и активный ID без запроса нового release. При отсутствии
+  активного ID и контейнера мастер запускается из last-known digest.
+  Тот же shim обслуживает `recover-manager`, `restore-start` и команды
+  обслуживания. На рабочее место по проверенному SSH переносится только
+  публичная CA, fingerprint показывается установщиком. Публичный адрес
+  приложения и loopback URL мастера настраиваются отдельно.
+- Прежний мастер доступен через существующий явный raw путь
+  `dvt/services/installation_manager/install.sh`. Путь и Compose включены
+  в пример allowlist. Ручной и offline-маршруты с хостовым bootstrap
+  сохраняют свои команды. [Руководство оператора](../../../../services/installation_manager/customer_installation.md)
+
+| Проверка | Результат | Наблюдение |
+| --- | --- | --- |
+| Изолированный Debian 13, `network=none`, `/bin/dash -n` и `--help` | `PASS` | В тестовой среде нет `/usr/bin/python3`. Хостовый launcher и сохранённый shim работают через shell. Python тестовой venv имитирует вход в точный временный образ. |
+| Две регрессии Debian с реальным OpenSSL, HTTPS и Bash process substitution | `PASS` | Docker CLI и systemd — стендовые адаптеры. Положительный сценарий проверил получение policy, pinned manager, выпуск и проверку localhost TLS, побайтную сохранность ключей, identity и pins, тот же ID при повторе и в shim без controlling TTY. При пустом журнале восстановился точный last-known manager. Отказы включают 404, 503, TLS, перенаправление, повреждённые bytes, неполный дескриптор и подмену сохранённого bootstrap. |
+| Независимый Ubuntu 24.04 без Python | `PASS` | Одноразовый контейнер без внешней сети, Docker, curl, sudo и systemctl — тестовые адаптеры. Проверены прежняя форма однострочника, один pinned pull, запуск shim через dash без controlling TTY, подмена артефакта и отказ без согласия на APT. |
+| DVT venv, `test_candidate.py` и `test_release.py` | `PASS` | 30 тестов. По независимому целевому набору DVT — 172 прошли, 8 пропущены. Ruff чист. |
+| Distributor venv, `test_dvt_releases.py` | `PASS` | 13 тестов. Проверены ready stable, явная выдача RC в частном read API, отказы без готовой записи и совпадение JSON, POSIX-заголовков и хеша тела. |
+| Пример raw allowlist и `git diff --check` | `PASS` | Проверены `main`, оба пути установщика и Compose прежнего мастера. |
+| Полный чистый хост через реальный частный Distributor и Registry с новым signed pin | `NOT_RUN` | Нужна новая подпись конверта с обновлённым `bootstrap.py`. Старый pin остаётся неизменяемым. Нужны реальная установка Docker, браузер и reboot двух ОС именно для этого комплекта. |
+| Публичный switch и внешний вход | `NOT_RUN` | До согласованной публикации проверить готовность stable на обеих ОС и соответствие raw bytes принятому GitHub `main`. |
+
+Проверенные LF bytes рабочей копии:
+`install.sh` SHA-256 `88ab4ea7eca2129c31da19f5e8032d0c3dad7bddfa4808914585d68f7f8d56d6`,
+`services/installation_manager/host_bootstrap.py` SHA-256
+`ee768e4f99b26899c7c8d346755ec83f66445bc1088cb11002305077acb0e8da`.
+Этап остаётся `PARTIAL`. Наблюдения прежних прогонов привязаны к своим
+исходным pin и не засчитываются как приёмка новой публичной цепочки.
