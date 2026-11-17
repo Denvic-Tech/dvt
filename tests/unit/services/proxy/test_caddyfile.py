@@ -8,4 +8,4 @@ def test_mcp_route_is_guarded_by_disabled_by_default_flag() -> None:
 
     assert "{$DVT_AI_MCP_ENABLED:false} == true" in caddyfile
     assert "{$DVT_AI_MCP_ENABLED:false} != true" in caddyfile
-    assert 'respond @mcp_disabled "Not Found" 404' in caddyfile
+    assert 'handle @mcp_disabled {\n        respond "Not Found" 404\n    }' in caddyfile

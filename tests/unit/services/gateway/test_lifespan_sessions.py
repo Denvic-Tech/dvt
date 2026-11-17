@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 from fastapi import FastAPI
@@ -19,8 +19,11 @@ class _AsyncSessionContext:
 
 
 class _SyncSessionContext:
+    def __init__(self, session: object) -> None:
+        self.session = session
+
     def __enter__(self) -> object:
-        return object()
+        return self.session
 
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
@@ -32,6 +35,7 @@ class _StopAfterExtensionSync(RuntimeError):
 
 @pytest.mark.asyncio
 async def test_lifespan_uses_shared_async_session_factory(monkeypatch) -> None:
+    sync_session = object()
     app_settings_session = SimpleNamespace(commit=AsyncMock())
     extension_session = object()
     sessions = iter((app_settings_session, extension_session))
@@ -50,13 +54,23 @@ async def test_lifespan_uses_shared_async_session_factory(monkeypatch) -> None:
     )
     extension_management_factory = Mock(return_value=extension_management)
 
+    startup = Mock()
+    wait_for_db = Mock()
+    wait_for_alembic = Mock()
+    startup.attach_mock(wait_for_db, "wait_for_db")
+    startup.attach_mock(wait_for_alembic, "wait_for_alembic")
+    startup.attach_mock(async_session_local, "async_session")
+    startup.attach_mock(ensure_setting_value, "ensure_setting_value")
+    startup.attach_mock(ensure_extension_deps_installed, "ensure_extension_deps")
+
     monkeypatch.setattr(lifespan_module.config.AI_MCP, "validate", Mock())
     monkeypatch.setattr(
         lifespan_module,
         "Session",
-        Mock(return_value=_SyncSessionContext()),
+        Mock(return_value=_SyncSessionContext(sync_session)),
     )
-    monkeypatch.setattr(lifespan_module, "wait_for_db", Mock())
+    monkeypatch.setattr(lifespan_module, "wait_for_db", wait_for_db)
+    monkeypatch.setattr(lifespan_module, "wait_for_alembic_migrations", wait_for_alembic)
     monkeypatch.setattr(lifespan_module, "AsyncSessionLocal", async_session_local)
     monkeypatch.setattr(
         lifespan_module.app_settings_helpers,
@@ -88,6 +102,14 @@ async def test_lifespan_uses_shared_async_session_factory(monkeypatch) -> None:
         async with lifespan_module.lifespan(FastAPI()):
             pass
 
+    assert startup.mock_calls[:2] == [
+        call.wait_for_db(sync_session),
+        call.wait_for_alembic(
+            sync_session,
+            release_path=lifespan_module.config.PROJECT.RELEASE_FILE,
+            timeout=lifespan_module.config.POSTGRES.MIGRATION_WAIT_TIMEOUT_SEC,
+        ),
+    ]
     assert async_session_local.call_count == 2
     assert ensure_setting_value.await_args.kwargs["session"] is app_settings_session
     app_settings_session.commit.assert_awaited_once_with()

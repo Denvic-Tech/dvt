@@ -27,6 +27,7 @@ from src.modules.db_connection.infra.db_models import DVTStoredConnectionRecord 
 from src.modules.file_storage.infra.db_models import DVTServiceFileObjectRecord  # noqa: F403
 from src.modules.app_settings.infra.db_models import AppSettingChangeRecord, AppSettingValueRecord  # noqa: F403
 from src.modules.task_execution.infra.db_models import (  # noqa: F403
+    TaskAdmissionControlRecord,
     TaskDispatchOutboxRecord,
     TaskRecord,
 )
@@ -208,7 +209,7 @@ def run_migrations_online() -> None:
 
     """
 
-    with engine.connect() as connection:
+    def migrate(connection):
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -219,6 +220,13 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
+
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        migrate(connection)
+    else:
+        with engine.connect() as connection:
+            migrate(connection)
 
 
 if context.is_offline_mode():

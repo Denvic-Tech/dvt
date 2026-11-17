@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from dataclasses import replace
 from uuid import uuid4
 
 from src.crud import graph as graph_crud
@@ -8,6 +9,8 @@ from src.dto import (
 )
 from src.modules.extension_management.infra.dependency_manager import get_dependency_manager
 from src.modules.project.infra.db_models import ProjectRecord
+from src.modules.task_execution.domain.entities import NestedTaskParent
+from src.modules.task_execution.domain.exceptions import TASK_ADMISSION_CLOSED, TaskAdmissionClosed
 from src.modules.task_execution.domain.types import TaskSource
 from src.modules.task_execution.facade import build_task_lifecycle_commands
 from src.modules.task_execution.infra.mappers import task_internal_to_execution
@@ -64,6 +67,7 @@ async def build_pending_task_from_project(
         source: TaskSource = TaskSource.API,
         schedule_run_id: str | None = None,
         schedule_attempt: int | None = None,
+        nested_parent: NestedTaskParent | None = None,
 ):
     access_scope = get_access_scope(user)
     target_nodes = _normalize_target_nodes(target_nodes)
@@ -132,9 +136,14 @@ async def build_pending_task_from_project(
     )
 
     lifecycle = build_task_lifecycle_commands()
-    await lifecycle.create_pending_execution.execute(
-        execution=task_internal_to_execution(task),
-    )
+    try:
+        await lifecycle.create_pending_execution.execute(
+            execution=replace(task_internal_to_execution(task), nested_parent=nested_parent),
+        )
+    except TaskAdmissionClosed as exc:
+        from src.clients.orchestrator_client import OrchestratorTaskRejected
+
+        raise OrchestratorTaskRejected(status_code=503, detail=TASK_ADMISSION_CLOSED) from exc
     return task
 
 

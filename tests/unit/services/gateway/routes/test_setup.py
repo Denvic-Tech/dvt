@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from services.gateway.routes import setup as setup_route
+
 from src.db import get_async_session
 from src.setup import SetupConflictError, SetupValidationError
 from src.setup.dsl import SetupStatus, SetupStep, SetupStepField
+from src.setup.steps.superadmin import SuperadminSetupPayload, SuperadminSetupStep
 
 
 @pytest.fixture
@@ -186,3 +190,84 @@ async def test_submit_setup_step_maps_validation_error(client, monkeypatch):
 
     assert response.status_code == 422
     assert response.json()["detail"] == "invalid payload"
+
+
+@pytest.mark.asyncio
+async def test_enrolled_setup_does_not_disclose_steps_or_accept_unpaired_browser(
+    client, fake_session, monkeypatch,
+):
+    operation_id = uuid4()
+    origin = "http://testserver"
+    fake_session.execute = AsyncMock()
+    monkeypatch.setattr(setup_route, "manager_origin", lambda: "https://localhost:8888")
+    monkeypatch.setattr(setup_route, "_deployment_id", lambda: operation_id)
+    monkeypatch.setattr(setup_route, "_setup_cookie_mac", lambda *_: "recorded-signature")
+    monkeypatch.setattr(setup_route.config.GATEWAY, "GATEWAY_ORIGINS", [origin])
+    monkeypatch.setattr(setup_route.config.GATEWAY, "GATEWAY_COOKIE_SECURE", False)
+    monkeypatch.setattr(setup_route.setup, "is_setup_initialized", AsyncMock(return_value=False))
+    monkeypatch.setattr(setup_route.setup, "get_setup_status", AsyncMock(return_value=make_status(False)))
+    deliver = AsyncMock()
+    monkeypatch.setattr(setup_route, "operator_request", deliver)
+    headers = {"Origin": origin, "X-DVT-CSRF": "1"}
+    code = "p" * 43
+
+    get_status = await client.get("/api/setup/status")
+    assert get_status.json() == {"initialized": False, "pairing_required": True, "steps": []}
+    assert (await client.post("/api/setup/superadmin", headers=headers, json={"values": {}})).status_code == 403
+    assert (await client.post("/api/setup/pairing", json={
+        "operation_id": str(operation_id), "code": code,
+    })).status_code == 403
+    assert (await client.post("/api/setup/pairing", headers=headers, json={
+        "operation_id": str(uuid4()), "code": code,
+    })).status_code == 409
+    deliver.assert_not_called()
+
+    paired = await client.post("/api/setup/pairing", headers=headers, json={
+        "operation_id": str(operation_id), "code": code,
+    })
+    assert paired.status_code == 200
+    assert all(flag in paired.headers["Set-Cookie"] for flag in ("HttpOnly", "SameSite=strict", "Path=/api/setup"))
+    assert code not in paired.text and code not in paired.headers["Set-Cookie"]
+    deliver.assert_awaited_once_with(
+        "POST", f"/api/operator/setup/{operation_id}/exchange", json={"code": code},
+    )
+    assert len((await client.get("/api/setup/status")).json()["steps"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_invalid_first_admin_email_is_a_field_error_without_password_echo(client, monkeypatch):
+    def validate(_session, *, step_code, values):
+        assert step_code == "superadmin"
+        SuperadminSetupStep.validate_model(SuperadminSetupPayload, values)
+
+    monkeypatch.setattr(setup_route.setup, "submit_setup_step", AsyncMock(side_effect=validate))
+    response = await client.post("/api/setup/superadmin", json={
+        "values": {"email": "invalid-email", "password": "do-not-echo-this"},
+    })
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "values", "email"]
+    assert "do-not-echo-this" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_setup_status_retries_lost_completion_receipt(client, monkeypatch):
+    operation_id = uuid4()
+    monkeypatch.setattr(setup_route, "manager_origin", lambda: "https://localhost:8888")
+    monkeypatch.setattr(
+        setup_route.MigrationContext, "read",
+        lambda: SimpleNamespace(operation_id=operation_id, source=None),
+    )
+    monkeypatch.setattr(
+        setup_route.setup, "is_setup_initialized", AsyncMock(return_value=True),
+    )
+    notify = AsyncMock(side_effect=[HTTPException(503), None])
+    monkeypatch.setattr(setup_route, "operator_request", notify)
+
+    for _ in range(3):
+        result = await client.get("/api/setup/status")
+        assert result.json() == {"initialized": True, "pairing_required": False, "steps": []}
+    assert notify.await_count == 2
+    notify.assert_awaited_with(
+        "POST", f"/api/operator/setup/{operation_id}/complete", timeout=5,
+    )

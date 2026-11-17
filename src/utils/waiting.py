@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 from sqlmodel import Session
 
 from src.logger import logger
+from src.utils.deployment_migrations import MigrationContext
 from src.utils.kafka_tools import parse_kafka_config_response
 
 TRANSIENT_SUBSTRINGS: tuple[str, ...] = tuple(s.lower() for s in [
@@ -170,6 +171,7 @@ def wait_for_alembic_migrations(
 
     expected_revision = _read_expected_alembic_revision(release_path)
     expected_revisions = {expected_revision}
+    deployment = MigrationContext.read()
     engine = _get_engine(session)
     db_name = engine.url.database
     deadline = time.monotonic() + timeout
@@ -187,6 +189,8 @@ def wait_for_alembic_migrations(
                     )
                 else:
                     current_revisions = set()
+                if deployment is not None and current_revisions == expected_revisions:
+                    deployment.assert_ready(connection, expected_revision)
             last_error = None
 
             if current_revisions == expected_revisions:

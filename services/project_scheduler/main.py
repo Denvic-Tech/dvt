@@ -86,5 +86,10 @@ def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+@app.get("/health", include_in_schema=False)
+async def health():
+    return {"status": "ok"}
+
+
 app.include_router(project_router)
 app.include_router(stats_router)

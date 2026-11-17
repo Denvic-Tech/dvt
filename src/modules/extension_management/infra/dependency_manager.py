@@ -20,6 +20,7 @@ from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.extension_management.infra.identity import resolve_record
 from src.modules.extension_management.infra.packages.dependencies import (
     build_extension_pip_install_command,
+    extension_pip_environment,
 )
 
 import config
@@ -171,6 +172,7 @@ class ExtensionDependencyManager:
                 check=False,
                 capture_output=True,
                 text=True,
+                env=extension_pip_environment(),
             )
             if completed.returncode != 0:
                 stderr = (completed.stderr or completed.stdout or "").strip()

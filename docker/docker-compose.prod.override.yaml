@@ -37,7 +37,7 @@
 
   gateway:
     image: dvt/gateway:latest
-    build:
+    build: &gateway-prod-build
       context: .
       dockerfile: services/gateway/docker/prod.Dockerfile
       additional_contexts:
@@ -52,6 +52,14 @@
       JWT_ONETIME_TOKEN_SECRET_KEY: ${DVT_JWT_ONETIME_TOKEN_SECRET_KEY:-}
       JWT_API_TOKEN_SECRET_KEY: ${DVT_JWT_API_TOKEN_SECRET_KEY:-}
       CODE_HASH_SALT: ${DVT_CODE_HASH_SALT:-}
+    volumes:
+      - ./installation:/app/installation
+
+  migrate:
+    image: dvt/gateway:latest
+    build: *gateway-prod-build
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
     volumes:
       - ./installation:/app/installation
 

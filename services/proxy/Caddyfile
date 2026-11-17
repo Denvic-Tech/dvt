@@ -14,7 +14,9 @@
         path /mcp /mcp/*
         expression `{$DVT_AI_MCP_ENABLED:false} != true`
     }
-    respond @mcp_disabled "Not Found" 404
+    handle @mcp_disabled {
+        respond "Not Found" 404
+    }
 
     # 2) Internal
     @internal path /api/internal/*

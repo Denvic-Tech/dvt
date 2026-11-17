@@ -5,6 +5,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...domain.entities import DispatchOutboxItem, EnqueueTaskResult, TaskExecution
+from ...domain.exceptions import TaskAdmissionClosed
 from ...domain.policies import choose_termination_reason, terminal_status_for_termination_reason
 from ...domain.repositories import DispatchOutbox, TaskExecutionRepository
 from ...domain.types import (
@@ -17,6 +18,7 @@ from ...domain.types import (
     TaskSource,
     TaskTerminationReason,
 )
+from ..admission import task_admission_state
 from ..db_models import TaskDispatchOutboxRecord, TaskRecord
 
 
@@ -28,11 +30,28 @@ class SQLTaskExecutionRepository(TaskExecutionRepository, DispatchOutbox):
 
     async def create_pending(self, execution: TaskExecution) -> TaskExecution:
         async with self._session_factory() as session:
+            operation_id, frozen = await task_admission_state(session, lock=True)
+            proof = execution.nested_parent if execution.source is TaskSource.NODE else None
+            if frozen or (operation_id is not None and proof is None):
+                raise TaskAdmissionClosed()
             existing = await session.scalar(
                 sa.select(TaskRecord).where(TaskRecord.task_id == execution.task_id).limit(1)
             )
             if existing is not None:
                 return _to_entity(existing)
+            if proof is not None:
+                parent = await session.scalar(
+                    sa.select(TaskRecord)
+                    .where(TaskRecord.task_id == proof.task_id)
+                    .with_for_update(read=True)
+                )
+                if (
+                    parent is None
+                    or parent.assigned_worker_id != proof.worker_id
+                    or parent.organization_id != execution.organization_id
+                    or parent.status not in WORKER_OWNED_ACTIVE_STATUSES
+                ):
+                    raise ValueError("The child task has no running parent on the source worker")
             task = TaskRecord(
                 task_id=execution.task_id,
                 user_id=execution.user_id,
@@ -42,6 +61,7 @@ class SQLTaskExecutionRepository(TaskExecutionRepository, DispatchOutbox):
                 force_exec=execution.force_exec,
                 source=execution.source,
                 status=TaskExecutionStatus.PENDING,
+                prepared_by_parent_id=proof.task_id if proof is not None else None,
                 queued_at=execution.queued_at,
                 schedule_run_id=execution.schedule_run_id,
                 schedule_attempt=execution.schedule_attempt,
@@ -56,6 +76,9 @@ class SQLTaskExecutionRepository(TaskExecutionRepository, DispatchOutbox):
         payload: dict[str, object],
     ) -> EnqueueTaskResult:
         async with self._session_factory() as session:
+            operation_id, frozen = await task_admission_state(session, lock=True)
+            if frozen or (operation_id is not None and execution.source is not TaskSource.NODE):
+                raise TaskAdmissionClosed()
             if execution.source in ROOT_EXECUTION_SOURCES:
                 bind = session.get_bind()
                 if bind.dialect.name == "postgresql":
@@ -67,6 +90,15 @@ class SQLTaskExecutionRepository(TaskExecutionRepository, DispatchOutbox):
             task = await session.scalar(
                 sa.select(TaskRecord).where(TaskRecord.task_id == execution.task_id).with_for_update()
             )
+            if operation_id is not None and (
+                task is None
+                or task.source != TaskSource.NODE
+                or execution.nested_parent is None
+                or task.prepared_by_parent_id != execution.nested_parent.task_id
+            ):
+                raise TaskAdmissionClosed()
+            if task is not None and task.source != execution.source:
+                raise ValueError("The source of an existing task cannot change")
             if task is None:
                 task = TaskRecord(
                     task_id=execution.task_id,
@@ -264,6 +296,7 @@ class SQLTaskExecutionRepository(TaskExecutionRepository, DispatchOutbox):
         ``WORKER_LOST`` when the worker can no longer write its own terminal state.
         """
         async with self._session_factory() as session:
+            operation_id, _ = await task_admission_state(session, lock=True)
             task = await session.scalar(
                 sa.select(TaskRecord).where(TaskRecord.task_id == task_id).with_for_update()
             )
@@ -290,6 +323,9 @@ class SQLTaskExecutionRepository(TaskExecutionRepository, DispatchOutbox):
             now = datetime.now(tz=UTC)
             task.status = terminal_status
             task.termination_reason = effective_reason
+            task.maintenance_worker_lost = (
+                operation_id is not None and effective_reason == TaskTerminationReason.WORKER_LOST
+            )
             task.finished_at = now
             task.updated_at = now
             if message is not None:

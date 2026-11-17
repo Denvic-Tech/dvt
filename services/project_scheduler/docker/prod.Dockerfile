@@ -26,6 +26,7 @@ EXPOSE ${PROJECT_SCHEDULER_PORT}
 
 COPY services/project_scheduler /app/services/project_scheduler
 
+LABEL tech.denvic.task-admission="1"
 ENV SERVICE_NAME=project_scheduler
 
 CMD python3 -m uvicorn --host ${PROJECT_SCHEDULER_HOST} --port ${PROJECT_SCHEDULER_PORT} services.project_scheduler.main:app

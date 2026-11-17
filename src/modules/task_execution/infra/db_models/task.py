@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     UniqueConstraint,
+    false,
 )
 from sqlmodel import Field, SQLModel
 
@@ -100,6 +101,13 @@ class TaskRecord(SQLModel, table=True):
         ),
     )
     schedule_attempt: int | None = Field(default=None, nullable=True, ge=1)
+    prepared_by_parent_id: str | None = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )
+
+    maintenance_worker_lost: bool = Field(
+        default=False, sa_column=Column(Boolean, nullable=False, server_default=false())
+    )
 
     __table_args__ = (
         UniqueConstraint(

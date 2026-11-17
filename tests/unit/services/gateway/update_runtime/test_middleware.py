@@ -60,7 +60,10 @@ async def test_business_request_is_blocked_with_registered_error_and_cors() -> N
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "path",
-    ["/health", "/system/state", "/update/status", "/auth/check-auth", "/metrics"],
+    [
+        "/health", "/api/health", "/system/state", "/update/status", "/auth/check-auth", "/metrics",
+        "/internal/ai-mcp/v1/auth/verify",
+    ],
 )
 async def test_allowed_paths_are_not_blocked(path: str) -> None:
     async with AsyncClient(
@@ -140,3 +143,18 @@ async def test_websocket_is_closed_with_try_again_later() -> None:
             "reason": "DVT is being updated",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_only_reading_current_role_is_allowed_during_maintenance() -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(FakeMonitor(SystemStateValue.UPDATING))),
+        base_url="http://test",
+    ) as client:
+        profile = await client.get("/user/info")
+        mutation = await client.post("/user/info")
+        private = await client.get("/user/sessions")
+
+    assert profile.status_code == 200
+    assert mutation.status_code == private.status_code == 503
+    assert mutation.json()["code"] == "SYSTEM_UPDATING"

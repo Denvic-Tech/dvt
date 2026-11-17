@@ -24,6 +24,7 @@ COPY --from=base-builder /app /app
 
 COPY services/orchestrator /app/services/orchestrator
 
+LABEL tech.denvic.task-admission="1"
 ENV SERVICE_NAME=orchestrator
 
 CMD bash -c "python3 -m services.orchestrator"
