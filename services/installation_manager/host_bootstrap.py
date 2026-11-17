@@ -1,4 +1,4 @@
-"""Host-side entrypoint for the opt-in installation manager candidate (stdlib only)."""
+"""Host-side entrypoint for the protected installation manager (stdlib only)."""
 
 # ruff: noqa: T201 - bootstrap writes results to the administrator's terminal
 
@@ -34,6 +34,8 @@ DOCKER_ENV = {
 UNIT_DIR = Path("/etc/systemd/system")
 CONTROL = ".bootstrap"
 STATE = ".installation-state"
+LAUNCH_DIGEST = "launch-bootstrap.sha256"
+HOST_OS_RELEASE = Path("/run/dvt-host-os")
 
 
 def command(args, *, check=True, timeout=180):
@@ -438,6 +440,23 @@ def apply_manager(config, image, path):
     )
 
 
+def start_verified_manager(config):
+    if docker(
+        "container",
+        "ls",
+        "--quiet",
+        "--filter",
+        f"label=com.docker.compose.project={config['project']}",
+        "--filter",
+        "label=com.docker.compose.service=installation_manager",
+    ).stdout.strip():
+        return
+    control = Path(config["data"]) / CONTROL
+    installed = (control / "current-manager").read_text().strip()
+    check_image(installed)
+    apply_manager(config, installed, control / "bootstrap.compose.yaml")
+
+
 def init_container(config, action):
     result = docker(
         "run",
@@ -480,7 +499,7 @@ WantedBy=multi-user.target
     command(["systemctl", "enable", unit.name])
 
 
-def _catalog_config(path):
+def _catalog_config(path, os_release=Path("/etc/os-release")):
     with Path(path).open("rb") as source:
         raw = source.read(65537)
     if len(raw) > 65536:
@@ -540,7 +559,7 @@ def _catalog_config(path):
         raise ValueError("The DVT release trust document is invalid")
     distro = dict(
         line.split("=", 1)
-        for line in Path("/etc/os-release").read_text().splitlines()
+        for line in os_release.read_text().splitlines()
         if "=" in line
     )
     distribution = distro.get("ID", "").strip('"')
@@ -568,14 +587,60 @@ def bootstrap_images(args, *, catalog):
     return args.manager, args.candidate, args.executor
 
 
+def managed_tls(directory):
+    ca, ca_key, cert, key, request, extensions = (
+        directory / name for name in ("ca.pem", "ca.key", "cert.pem", "key.pem", "host.csr", "host.ext")
+    )
+    extensions.write_text(
+        "basicConstraints=critical,CA:FALSE\n"
+        "keyUsage=critical,digitalSignature,keyEncipherment\n"
+        "extendedKeyUsage=serverAuth\n"
+        "subjectAltName=DNS:localhost,IP:127.0.0.1\n"
+    )
+    command([
+        "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "3650",
+        "-subj", "/CN=DVT local installation CA",
+        "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+        "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+        "-keyout", str(ca_key), "-out", str(ca),
+    ])
+    command([
+        "openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
+        "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(request),
+    ])
+    command([
+        "openssl", "x509", "-req", "-in", str(request), "-CA", str(ca), "-CAkey", str(ca_key),
+        "-set_serial", f"0x{os.urandom(16).hex()}", "-sha256", "-days", "825",
+        "-extfile", str(extensions), "-out", str(cert),
+    ])
+    command(["openssl", "verify", "-CAfile", str(ca), "-verify_hostname", "localhost", str(cert)])
+    return {name: path.read_bytes() for name, path in (("cert", cert), ("key", key), ("ca", ca))}
+
+
+def print_managed_access(data, port):
+    ca_path = data / CONTROL / "ca.pem"
+    ca = ssl.PEM_cert_to_DER_cert(ca_path.read_text(encoding="ascii"))
+    fingerprint = hashlib.sha256(ca).hexdigest()
+    print("On your workstation, verify the server SSH host key, then run:")
+    print(f"  ssh -N -L 127.0.0.1:{port}:127.0.0.1:{port} administrator@dvt-host")
+    print(f"  ssh -t administrator@dvt-host 'sudo cat -- {ca_path}' | tr -d '\\r' \\")
+    print("    | sed -n '/^-----BEGIN CERTIFICATE-----$/,/^-----END CERTIFICATE-----$/p' "
+          "> dvt-manager-ca.pem")
+    print("  openssl x509 -in dvt-manager-ca.pem -noout -sha256 -fingerprint")
+    print("Verify the CA SHA-256 fingerprint, then trust this CA in your browser:")
+    print("  " + ":".join(fingerprint[i:i + 2] for i in range(0, len(fingerprint), 2)).upper())
+
+
 def bootstrap(args):
     from uuid import uuid4
 
     data = safe_path(args.dir)
     config_path = data / CONTROL / "host.json"
     prior = load_host(data) if config_path.exists() else None
+    contained = getattr(args, "contained", False)
     catalog_file = getattr(args, "release_catalog_config", None)
-    catalog = _catalog_config(catalog_file) if catalog_file else None
+    os_release = HOST_OS_RELEASE if contained else Path("/etc/os-release")
+    catalog = _catalog_config(catalog_file, os_release) if catalog_file else None
     catalog_ca_path = getattr(args, "release_catalog_ca", None)
     catalog_ca = None
     if catalog_ca_path:
@@ -588,6 +653,23 @@ def bootstrap(args):
         ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(
             cadata=catalog_ca.decode("ascii")
         )
+    managed = getattr(args, "managed", False)
+    launch_digest = None
+    if managed:
+        if not contained:
+            raise ValueError("Use the POSIX installer for the managed path")
+        launch_source = Path(__file__)
+        launch_content = launch_source.read_bytes()
+        launch_digest = hashlib.sha256(launch_content).hexdigest()
+        if prior:
+            previous_digest = (data / CONTROL / LAUNCH_DIGEST).read_text(encoding="ascii")
+            if previous_digest != launch_digest:
+                raise ValueError("The saved managed bootstrap differs; rerun the public command")
+            if catalog is not None and catalog["origin"] != prior["release_catalog"]["origin"]:
+                raise ValueError("A different release catalog origin is already stored")
+            args.manager, catalog, catalog_ca = None, None, None
+        elif catalog is None or args.candidate is not None or args.executor is not None:
+            raise ValueError("A managed installation needs an approved release catalog and manager")
     use_catalog_images = catalog is not None and args.candidate is None
     if not args.non_interactive:
         for key, label in (
@@ -602,10 +684,16 @@ def bootstrap(args):
             ("ca", "TLS CA path"),
             ("containerd_root", "Containerd data root (if enabled)"),
         ):
-            if use_catalog_images and key in {"candidate", "executor"}:
+            if (
+                (use_catalog_images and key in {"candidate", "executor"})
+                or (managed and key in {"cert", "key", "ca", "containerd_root"})
+            ):
                 continue
             if getattr(args, key) is None and prior is None:
-                default = {"project": "dvt", "port": "8888"}.get(key, "")
+                default = {
+                    "project": "dvt", "port": "8888",
+                    "public_url": "http://localhost" if managed else "",
+                }.get(key, "")
                 reply = input(f"{label} [{default}] ").strip() or default
                 setattr(args, key, int(reply) if key == "port" else reply or None)
     project = args.project or (prior["project"] if prior else "dvt")
@@ -649,27 +737,17 @@ def bootstrap(args):
         if config != prior:
             atomic_write(config_path, json.dumps(config).encode())
         init_container(config, "candidate-init")
-        install_unit(data, config)
+        if not contained:
+            install_unit(data, config)
         for key in ("temporary", "backup"):
             safe_path(config[key]).mkdir(mode=0o700, parents=True, exist_ok=True)
         operation = active_id(config)
         if operation:
             launch(config, operation)
-        elif not docker(
-            "container",
-            "ls",
-            "--quiet",
-            "--filter",
-            f"label=com.docker.compose.project={project}",
-            "--filter",
-            "label=com.docker.compose.service=installation_manager",
-        ).stdout.strip():
-            # Launch the last verified manager if the running container was removed.
-            installed = (data / CONTROL / "current-manager").read_text().strip()
-            check_image(installed)
-            apply_manager(config, installed, data / CONTROL / "bootstrap.compose.yaml")
+        else:
+            start_verified_manager(config)
     else:
-        if UNIT_DIR.joinpath(f"dvt-bootstrap-{project}.service").exists():
+        if not contained and UNIT_DIR.joinpath(f"dvt-bootstrap-{project}.service").exists():
             raise ValueError("A bootstrap instance already reserves this Compose project")
         if data.exists() and (
             not data.is_dir()
@@ -685,11 +763,13 @@ def bootstrap(args):
         if docker_ready():
             check_project(project)
         manager, candidate_image, executor = bootstrap_images(args, catalog=catalog)
-        if not all((manager, candidate_image, executor, args.cert, args.key, args.ca)):
-            raise ValueError("Supply approved image digests and HTTPS certificate, key and CA")
+        if not all((manager, candidate_image, executor)):
+            raise ValueError("Supply approved image digests")
+        if not managed and not all((args.cert, args.key, args.ca)):
+            raise ValueError("Supply the HTTPS certificate, key and CA")
         if any(not IMAGE.fullmatch(img) for img in (manager, candidate_image, executor)):
             raise ValueError("Supply explicit registry references pinned by SHA-256 digest")
-        public_url = public_url or f"https://localhost:{port}"
+        public_url = public_url or ("http://localhost" if managed else f"https://localhost:{port}")
         url = urlsplit(public_url)
         if (
             url.scheme not in ("http", "https")
@@ -702,11 +782,15 @@ def bootstrap(args):
         ):
             raise ValueError("Expected a public DVT HTTP(S) origin")
         _ = url.port
-        tls = {name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")}
+        if managed:
+            with tempfile.TemporaryDirectory(prefix="dvt-tls-", dir="/tmp") as folder:
+                tls = managed_tls(Path(folder))
+        else:
+            tls = {name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")}
         local_images = getattr(args, "local_images", False)
-        if local_images:
+        if local_images or contained:
             if not docker_ready():
-                raise ValueError("Prepare Docker locally before offline bootstrap")
+                raise ValueError("Prepare Docker on the host before bootstrap")
         else:
             install_docker(args.install_docker, not args.non_interactive)
         check_project(project)
@@ -764,6 +848,11 @@ def bootstrap(args):
                 atomic_write(staging / f"{name}.pem", value)
             if catalog_ca is not None:
                 atomic_write(staging / "release-catalog-ca.pem", catalog_ca)
+            if managed:
+                atomic_write(staging / "host_bootstrap.py", launch_content)
+                atomic_write(staging / LAUNCH_DIGEST, launch_digest.encode("ascii"))
+                for name, mode in (("host-launch.sh", 0o700), ("launch-host.conf", 0o600)):
+                    atomic_write(staging / name, launch_source.with_name(name).read_bytes(), mode)
             atomic_write(staging / "current-manager", config["manager"].encode())
             atomic_write(staging / config_path.name, json.dumps(config).encode())
             staging.rename(control)
@@ -775,12 +864,15 @@ def bootstrap(args):
         for path in (temporary, backup):
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
         init_container(config, "candidate-init")
-        install_unit(data, config)
+        if not contained:
+            install_unit(data, config)
         apply_manager(config, config["manager"], control / "bootstrap.compose.yaml")
     if getattr(args, "quiet", False):
         return
     print(f"Manager: https://localhost:{config['port']} (127.0.0.1)")
     print(f"Instance: {config['instance']} · {data} · {config['project']}")
+    if managed:
+        print_managed_access(data, config["port"])
     if not prior or args.new_pairing_token:
         if not sys.stdout.isatty():
             print(
@@ -830,14 +922,17 @@ def main():
         "backup",
     ):
         parser.add_argument(f"--{key}")
-    for key in ("non-interactive", "install-docker", "new-pairing-token"):
+    for key in ("non-interactive", "install-docker", "new-pairing-token", "managed", "contained"):
         parser.add_argument(f"--{key}", action="store_true")
     args = parser.parse_args()
     try:
         os.umask(0o077)
         if os.geteuid() or not sys.platform.startswith("linux") or platform.machine() != "x86_64":
             raise ValueError("This candidate requires root on Linux amd64")
-        if not Path("/run/systemd/system").is_dir():
+        if args.contained:
+            if not HOST_OS_RELEASE.is_file() or (args.action == "bootstrap" and not args.managed):
+                raise ValueError("Use the managed launcher with the host distribution bind mount")
+        elif not Path("/run/systemd/system").is_dir():
             raise ValueError("The host must run systemd")
         if args.action != "bootstrap":
             config = load_host(safe_path(args.dir))
@@ -845,6 +940,8 @@ def main():
             if args.action == "resume":
                 if operation:
                     launch(config, operation)
+                elif args.contained:
+                    start_verified_manager(config)
             else:
                 if not args.operation_id or args.operation_id != operation:
                     raise ValueError("Select the active update operation with --operation-id")
