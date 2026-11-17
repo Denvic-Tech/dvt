@@ -22,7 +22,13 @@ from src.infra.task import enqueue_task_from_project
 from src.logger import logger
 from src.modules.project.domain import ProjectScheduleRunStatus
 from src.modules.project.infra.db_models import ProjectScheduleRecord, ProjectScheduleRunRecord
-from src.modules.task_execution.domain.types import TaskExecutionStatus, TaskSource
+from src.modules.task_execution.domain.exceptions import TASK_ADMISSION_CLOSED
+from src.modules.task_execution.domain.types import (
+    TaskExecutionStatus,
+    TaskSource,
+    TaskTerminationReason,
+)
+from src.modules.task_execution.infra.admission import task_admission_state
 from src.pipeline.execution_mode import PipelineExecutionMode
 from src.schemas.internal.project_scheduler import (
     ProjectSchedulePatchRequest,
@@ -116,6 +122,10 @@ class ProjectSchedulerManager:
         """Create a durable run chain for one cron occurrence."""
         now = _utcnow()
         async with AsyncSession(engine) as session:
+            operation_id, _ = await task_admission_state(session, lock=True)
+            if operation_id is not None:
+                logger.info(f"Skipping cron during maintenance project_id={project_id}")
+                return
             schedule = (
                 await project_schedule_crud.get_project_schedules_by(
                     session=session,
@@ -230,6 +240,9 @@ class ProjectSchedulerManager:
                 and run.next_retry_at is not None
                 and _as_utc(run.next_retry_at) <= now
             ):
+                operation_id, _ = await task_admission_state(session)
+                if operation_id is not None:
+                    return
                 run.attempt_number += 1
                 run.status = ProjectScheduleRunStatus.STARTING
                 run.attempt_started_at = now
@@ -345,6 +358,8 @@ class ProjectSchedulerManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            from src.clients.orchestrator_client import OrchestratorTaskRejected
+
             logger.exception(
                 f"Failed to start schedule attempt run_id={run_id} attempt={attempt_number}"
             )
@@ -352,6 +367,10 @@ class ProjectSchedulerManager:
                 run_id=run_id,
                 attempt_number=attempt_number,
                 error=str(exc),
+                maintenance=(
+                    isinstance(exc, OrchestratorTaskRejected)
+                    and exc.detail == TASK_ADMISSION_CLOSED
+                ),
             )
         finally:
             self._reconcile_wakeup.set()
@@ -362,6 +381,7 @@ class ProjectSchedulerManager:
         run_id: str,
         attempt_number: int,
         error: str,
+        maintenance: bool = False,
     ) -> None:
         async with AsyncSession(engine) as session:
             run = await schedule_run_crud.get_run_by_id(
@@ -379,7 +399,13 @@ class ProjectSchedulerManager:
             if task is not None:
                 run.current_task_id = task.task_id
                 error = task.message or task.termination_reason or error
-            self._record_attempt_failure(run, now=_utcnow(), error=error)
+            if maintenance:
+                schedule_run_crud.finish_run(
+                    run, status=ProjectScheduleRunStatus.CANCELLED,
+                    now=_utcnow(), error=TASK_ADMISSION_CLOSED,
+                )
+            else:
+                self._record_attempt_failure(run, now=_utcnow(), error=error)
             session.add(run)
             await session.commit()
 
@@ -397,11 +423,16 @@ class ProjectSchedulerManager:
             return True
 
         if task.status == TaskExecutionStatus.ERROR:
-            self._record_attempt_failure(
-                run,
-                now=now,
-                error=task.message or task.termination_reason or "Task execution failed",
-            )
+            error = task.message or task.termination_reason or "Task execution failed"
+            if (
+                task.termination_reason == TaskTerminationReason.WORKER_LOST
+                and task.maintenance_worker_lost
+            ):
+                schedule_run_crud.finish_run(
+                    run, status=ProjectScheduleRunStatus.ERROR, now=now, error=error,
+                )
+            else:
+                self._record_attempt_failure(run, now=now, error=error)
             return True
 
         if task.status == TaskExecutionStatus.CANCELLED:
@@ -492,6 +523,7 @@ class ProjectSchedulerManager:
         retry_delay_seconds: int = 60,
         retry_backoff: RetryBackoff = RetryBackoff.FIXED,
         retry_max_delay_seconds: int = 3600,
+        disabled: bool = False,
     ) -> None:
         CronTrigger.from_crontab(cron, timezone="UTC")
         validate_retry_policy(
@@ -515,7 +547,7 @@ class ProjectSchedulerManager:
             ).first()
             values = {
                 "cron": cron,
-                "disabled": False,
+                "disabled": disabled,
                 "scheduled_by_user_id": scheduled_by_user_id,
                 "mode": mode,
                 "force_exec": force_exec,
@@ -537,6 +569,13 @@ class ProjectSchedulerManager:
                     **values,
                 )
             await session.commit()
+
+        if disabled:
+            if self.get_job(project_id) is not None:
+                self.scheduler.remove_job(project_id)
+            self._reconcile_wakeup.set()
+            logger.info(f"Project ID={project_id} schedule saved disabled with cron '{cron}'")
+            return
 
         self._schedule_project_in_memory(
             project_id=project_id,
@@ -720,41 +759,47 @@ class ProjectSchedulerManager:
         organization_id: str | None = None,
     ) -> list[ProjectScheduleResponse]:
         async with AsyncSession(engine) as session:
-            schedules = list(
-                await project_schedule_crud.get_project_schedules_by(
-                    session=session,
-                    organization_id=organization_id,
-                )
+            schedules = await project_schedule_crud.get_project_schedules_with_project_names_by(
+                session=session,
+                organization_id=organization_id,
             )
             latest_runs = await schedule_run_crud.get_latest_runs_by_schedule_ids(
                 session,
-                schedule_ids=[schedule.id for schedule in schedules],
+                schedule_ids=[schedule.id for schedule, _ in schedules],
             )
             return [
-                self._to_schedule_response(schedule, latest_runs.get(schedule.id))
-                for schedule in schedules
+                self._to_schedule_response(
+                    schedule,
+                    latest_runs.get(schedule.id),
+                    project_name=project_name,
+                )
+                for schedule, project_name in schedules
             ]
 
     async def get_scheduled_project(self, project_id: str) -> ProjectScheduleResponse | None:
         async with AsyncSession(engine) as session:
-            schedule = (
-                await project_schedule_crud.get_project_schedules_by(
-                    session=session,
-                    project_id=project_id,
-                )
-            ).first()
-            if schedule is None:
+            schedules = await project_schedule_crud.get_project_schedules_with_project_names_by(
+                session=session,
+                project_id=project_id,
+            )
+            if not schedules:
                 return None
+            schedule, project_name = schedules[0]
             latest_runs = await schedule_run_crud.get_latest_runs_by_schedule_ids(
                 session,
                 schedule_ids=[schedule.id],
             )
-            return self._to_schedule_response(schedule, latest_runs.get(schedule.id))
+            return self._to_schedule_response(
+                schedule,
+                latest_runs.get(schedule.id),
+                project_name=project_name,
+            )
 
     def _to_schedule_response(
         self,
         schedule: ProjectScheduleRecord,
         latest_run: ProjectScheduleRunRecord | None = None,
+        project_name: str | None = None,
     ) -> ProjectScheduleResponse:
         job = None if schedule.disabled else self.get_job(schedule.project_id)
         latest_run_chain = None
@@ -772,6 +817,7 @@ class ProjectSchedulerManager:
             )
         return ProjectScheduleResponse(
             project_id=schedule.project_id,
+            project_name=project_name,
             cron=schedule.cron,
             disabled=schedule.disabled,
             scheduled_by_user_id=schedule.scheduled_by_user_id,

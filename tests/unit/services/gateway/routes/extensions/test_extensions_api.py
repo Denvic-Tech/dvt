@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from src.modules.extension_management.infra.db_models import ExtensionRecord
+from src.modules.extension_management.infra.mappers import extension_record_to_domain
 
 
 def _deny_superadmin_access():
@@ -57,7 +58,7 @@ async def test_list_extensions_serializes_record(gateway_client, router_prefix):
     )
     with patch(
         "src.modules.extension_management.flow.providers.ExtensionManagementProvider.list_extensions",
-        new=AsyncMock(return_value=[extension]),
+        new=AsyncMock(return_value=[extension_record_to_domain(extension)]),
     ):
         response = await gateway_client.get(f"{router_prefix}/extensions")
 

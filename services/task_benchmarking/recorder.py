@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 import psutil
@@ -12,6 +13,12 @@ from src.node_dsl.types import NodeMetadata
 from src.schemas.internal import TaskInternal
 
 from .metadata import metadata_metrics
+
+# cgroup v2 / v1 peak memory of the container; absent outside Linux containers.
+CGROUP_MEMORY_PEAK_PATHS = (
+    "/sys/fs/cgroup/memory.peak",
+    "/sys/fs/cgroup/memory/memory.max_usage_in_bytes",
+)
 
 
 @dataclass
@@ -36,6 +43,18 @@ class TaskMemoryStats:
     peak_rss: Optional[int] = None
     status: str = "running"
     error: Optional[str] = None
+    cpu_user_s: float | None = None
+    cpu_system_s: float | None = None
+    cgroup_memory_peak_bytes: int | None = None
+
+
+def read_cgroup_memory_peak(paths: tuple[str, ...] = CGROUP_MEMORY_PEAK_PATHS) -> int | None:
+    for path in paths:
+        try:
+            return int(Path(path).read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 class MemorySampler:
@@ -74,6 +93,7 @@ class BenchmarkRecorder:
         self.node_metadata: dict[str, NodeMetadata] = {}
         self.node_metadata_metrics: dict[str, dict[str, int]] = {}
         self._task_sampler: Optional[MemorySampler] = None
+        self._task_start_cpu: Any = None
         self._node_samplers: dict[str, MemorySampler] = {}
 
     def _current_rss(self) -> int:
@@ -82,6 +102,7 @@ class BenchmarkRecorder:
     def on_task_started(self, task: TaskInternal) -> None:
         self.task_stats.start_time = time.perf_counter()
         self.task_stats.start_rss = self._current_rss()
+        self._task_start_cpu = self._process.cpu_times()
         self._task_sampler = MemorySampler(self._process, self._sample_interval_sec)
         self._task_sampler.start()
 
@@ -99,6 +120,11 @@ class BenchmarkRecorder:
         self.task_stats.end_rss = self._current_rss()
         self.task_stats.status = status
         self.task_stats.error = error
+        if self._task_start_cpu is not None:
+            end_cpu = self._process.cpu_times()
+            self.task_stats.cpu_user_s = end_cpu.user - self._task_start_cpu.user
+            self.task_stats.cpu_system_s = end_cpu.system - self._task_start_cpu.system
+        self.task_stats.cgroup_memory_peak_bytes = read_cgroup_memory_peak()
         if self._task_sampler:
             peak = self._task_sampler.stop()
             start_rss = self.task_stats.start_rss or 0

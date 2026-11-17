@@ -8,6 +8,10 @@ from fastapi import FastAPI
 from sqlalchemy.orm import Session
 from ws_forward.v1 import forward_pb2_grpc
 
+from services.gateway.background.data_catalog_reconcile import (
+    start_data_catalog_reconciliation,
+    stop_data_catalog_reconciliation,
+)
 from services.gateway.deps import (
     get_background_scheduler_manager,
     preload_node_documentation_repository,
@@ -29,7 +33,7 @@ from src.modules.extension_management.infra.dependency_bootstrap import (
 )
 from src.runtime.extension_management import build_extension_management_provider
 from src.utils.cleanup import PgAdvisoryLock, clean_old_logs
-from src.utils.waiting import wait_for_db
+from src.utils.waiting import wait_for_alembic_migrations, wait_for_db
 
 import config
 
@@ -53,6 +57,11 @@ async def lifespan(_app: FastAPI):
 
     with Session(engine) as session:
         wait_for_db(session)
+        wait_for_alembic_migrations(
+            session,
+            release_path=config.PROJECT.RELEASE_FILE,
+            timeout=config.POSTGRES.MIGRATION_WAIT_TIMEOUT_SEC,
+        )
 
     async with AsyncSessionLocal() as session:
         await app_settings_helpers.ensure_setting_value(
@@ -181,8 +190,12 @@ async def lifespan(_app: FastAPI):
 
     await system_state_monitor.start()
 
+    if config.DATA_CATALOG.STARTUP_RECONCILE_ENABLED:
+        start_data_catalog_reconciliation(_app)
+
     yield
     logger.info("Gateway service shutting down.")
+    await stop_data_catalog_reconciliation(_app)
     await system_state_monitor.close()
     background_scheduler_manager.shutdown(wait=False)
 

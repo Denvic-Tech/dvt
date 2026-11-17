@@ -100,7 +100,7 @@ class ExecutePython(DFOutputBaseNode):
             return None
 
         if isinstance(value, dd.DataFrame):
-            return value
+            return value.copy()
 
         if isinstance(value, pd.DataFrame):
             return dd.from_pandas(value, npartitions=1)

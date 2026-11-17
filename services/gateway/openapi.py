@@ -3,6 +3,7 @@ from core.types import DBDialect, Metadata
 from src.exception_registry.schema import RegisteredExceptionSchema
 from src.modules.db_connection.facade import build_api_schema_set
 from src.modules.pipeline_graph.infra.schemas import GraphEdgeUISchema, GraphNodeUISchema
+from src.modules.project_transfer.infra.schemas import ImportRequestSchema
 from src.node_dsl.core.input_values import NodeInputValue, NodeInputValues
 from src.node_dsl.types import NodeMetadata, NodeOutputMetadata
 from src.node_dsl.variables.types import VariableDescriptorMetadata, VariableMapMetadata
@@ -47,6 +48,10 @@ included_models = [
 
     ("GraphNodeUISchema", GraphNodeUISchema),
     ("GraphEdgeUISchema", GraphEdgeUISchema),
+
+    # Multipart import payload is sent as a JSON string; register its model (and nested
+    # $defs) so the x-dvt-payload-schema extension can reference it from components.
+    ("ImportRequestSchema", ImportRequestSchema),
 
     ("DBConnectionCreateV1", db_connections_api_schema_set.create),
     ("DBConnectionReadV1", db_connections_api_schema_set.read),

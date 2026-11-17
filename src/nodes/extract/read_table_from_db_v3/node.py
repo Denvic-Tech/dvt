@@ -23,6 +23,7 @@ from src.node_dsl.runtime.connections import (
 )
 from src.node_dsl.types import NodeMetadata
 from src.node_dsl.variables import is_unresolved_value
+from src.nodes.extract._shared.read_concurrency import resolve_read_concurrency
 
 import config
 
@@ -189,14 +190,18 @@ class ReadTableFromDBV3(DFOutputBaseNode):
         agent_description=(
             "Set explicitly in MCP graphs, including one-partition reads. Use the exact raw "
             "catalog column name without SQL quotes or backticks. Assess type, indexes, nulls, "
-            "cardinality and skew before choosing a stable scalar key; prefer a non-null indexed "
-            "key with enough distinct values. A primary key or date alone does not justify selection."
+            "cardinality and skew before choosing a stable scalar key: suggest_read_partitioning "
+            "measures them and ranks candidates; do not choose a column it excludes. Prefer a "
+            "non-null indexed key with enough distinct values. A primary key or date alone does "
+            "not justify selection."
         ),
     )
     partition_grouping: Optional[IO.DICT] = InputField(  # noqa: UP045
         description="Read partitioning strategy; omit for automatic range/hash selection.",
         agent_description=(
-            "Profile the actual read size, selected row width and key distribution before choosing. "
+            "Profile the actual read size, selected row width and key distribution before "
+            "choosing; suggest_read_partitioning returns ranked partition_grouping values with "
+            "reasons. "
             "Omission deliberately selects automatic range/hash; it does not waive profiling. "
             "Use only grouping formats documented in the README. Range needs an orderable non-null "
             "key; hash does not split identical values or a large null group. For time grouping, "
@@ -221,10 +226,32 @@ class ReadTableFromDBV3(DFOutputBaseNode):
     )
     max_rows_per_partition: int | None = InputField(
         min_value=1,
-        description="Row ceiling per segment; exceeding it fails the read.",
+        description=(
+            "Row ceiling per segment; oversized custom groups are split by key hash, "
+            "other overflows fail."
+        ),
         agent_description=(
-            "This is a failure guard, not automatic splitting of oversized segments. Assess key "
-            "skew before setting a ceiling; choose a better key or grouping when a segment is too large."
+            "Custom partition_grouping groups above this ceiling are split into key-hash "
+            "sub-segments of about 80% of it. Planning fails before reading when an oversized "
+            "group cannot be split (null group, single key value, partition limit). Hashing "
+            "cannot spread one key value repeated more often than the ceiling inside a prefix, "
+            "period or range group, and range/hash segments are not split: planning fails when "
+            "one key value or the null group exceeds the ceiling (ClickHouse; PostgreSQL tables "
+            "by pg_stats estimate), other sources fail while reading. Assess key skew before "
+            "setting a ceiling; choose a better key or grouping when one value or the null group "
+            "is too large."
+        ),
+    )
+    max_concurrent_queries: int | None = InputField(
+        default=None,
+        min_value=1,
+        description="Partition queries of this reader running at once; omit for the default.",
+        agent_description=(
+            "Normally omit: the instance applies a per-database-type default that protects the "
+            "source and avoids driver thread contention. Set only after measuring this source: "
+            "more queries can speed up server-bound sources but slow GIL-bound drivers such as "
+            "psycopg or pyodbc and load the source. It limits this reader only and does not "
+            "change partitioning, rows read or the downstream thread pool."
         ),
     )
 
@@ -279,6 +306,7 @@ class ReadTableFromDBV3(DFOutputBaseNode):
             partitioning_overhead_coef=config.DASK_PARTITIONING.OVERHEAD_COEF,
             max_partitions=config.DASK_PARTITIONING.MAX_PARTITIONS,
             datetime_precision=self.execution_settings.datetime_precision,
+            key_skew_check=config.DASK_PARTITIONING.READ_V3_KEY_SKEW_CHECK,
         )
         table = load_db_table_metadata(
             engine,
@@ -287,7 +315,10 @@ class ReadTableFromDBV3(DFOutputBaseNode):
             database_name=self.database_name,
         )
         self._remember_source_comments(table)
-        executor = resolve_executor(engine)
+        executor = resolve_executor(
+            engine,
+            max_concurrent_queries=resolve_read_concurrency(self.max_concurrent_queries, engine),
+        )
         self.output = frame_from_executor(executor, plan)
         self.emit_system_variables(SystemVariables(
             source_table_name=self.table_name,
@@ -343,22 +374,10 @@ class ReadTableFromDBV3(DFOutputBaseNode):
                 schema_name=self.schema_name,
                 database_name=self.database_name,
             )
-            dialect = engine.dialect.name.lower()
-            normalized_columns = []
-            for column in table.columns:
-                if dialect == "postgresql":
-                    index = bool(column.index or column.primary_key)
-                elif dialect == "sqlite":
-                    index = bool(column.index)
-                else:
-                    index = False
-                normalized_columns.append(column.model_copy(update={"index": index}))
-
-            columns = (
-                [column for column in normalized_columns if column.name in self.columns]
-                if self.columns
-                else normalized_columns
-            )
+            columns = [column.model_copy(update={"index": False}) for column in table.columns]
+            if self.columns:
+                by_name = {column.name: column for column in columns}
+                columns = [by_name[name] for name in self.columns if name in by_name]
             return {"output": DataFrameMetadata(columns=columns, comment=table.comment)}
         except ValueError as exc:
             raise ValueError("No matched table from engine") from exc

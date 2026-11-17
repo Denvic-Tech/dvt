@@ -11,6 +11,7 @@ from src.db.fastapi.dependencies import AsyncSessionDepends
 from src.exceptions import ProjectNotFoundException
 from src.infra.task import enqueue_task_from_project
 from src.logger import logger
+from src.modules.data_catalog.facade import rebuild_project_catalog_projection
 from src.modules.pipeline_graph.infra.db_models import GraphEdgeRecord, GraphNodeRecord
 from src.modules.pipeline_graph.infra.mappers import (
     graph_edges as graph_edges_dto,
@@ -183,6 +184,27 @@ def _has_processed_graph_changes(
             subgraph_reference_rows_cleared,
         )
     )
+
+
+async def _refresh_catalog_projection(
+    *,
+    session,
+    project_id: str,
+    organization_id: str,
+    force: bool = False,
+) -> None:
+    """Пересборка каталожной проекции после commit графа; ошибки не ломают сохранение."""
+    try:
+        await rebuild_project_catalog_projection(
+            session=session,
+            project_id=project_id,
+            organization_id=organization_id,
+            force=force,
+        )
+        await session.commit()
+    except Exception:
+        logger.exception("Data catalog projection refresh failed for project {}", project_id)
+        await session.rollback()
 
 
 async def _process_graph_op_impl(
@@ -443,6 +465,13 @@ async def _process_graph_op_impl(
         )
 
     await session.commit()
+
+    if computational_graph_changed:
+        await _refresh_catalog_projection(
+            session=session,
+            project_id=project.id,
+            organization_id=organization_id,
+        )
 
     task_id = None
     affected_target_node_ids = None

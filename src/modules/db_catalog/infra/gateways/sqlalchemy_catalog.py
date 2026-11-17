@@ -42,6 +42,7 @@ from src.modules.db_catalog.domain.gateways import CatalogSourceGateway, TablePr
 from src.modules.db_catalog.domain.policies import decode_cursor, encode_cursor
 
 from .table_comments import table_comments_statement
+from .table_row_count import table_row_count_statement
 
 TABLE_PREVIEW_ROW_LIMIT = 50
 
@@ -154,15 +155,9 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
         except sa.exc.TimeoutError as exc:
             raise CatalogSourceTimeoutError("DB catalog query timed out.") from exc
         except sa.exc.DBAPIError as exc:
-            error_name = type(exc.orig).__name__.lower() if exc.orig is not None else ""
-            error_text = str(exc.orig).lower() if exc.orig is not None else ""
-            if (
-                "timeout" in error_name
-                or "timed out" in error_text
-                or "statement timeout" in error_text
-            ):
-                raise CatalogSourceTimeoutError("DB catalog query timed out.") from None
-            raise CatalogSourceUnavailableError("DB catalog source query failed.") from None
+            # Исходное исключение намеренно не присоединяется (from None): в нём может быть
+            # строка подключения. В сообщение попадает только санированный текст драйвера.
+            raise _classify_dbapi_error(exc) from None
         except (OSError, TypeError, ValueError) as exc:
             raise CatalogSourceUnavailableError("DB catalog source is unavailable.") from exc
         finally:
@@ -264,6 +259,11 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
             raw_rows = db_connection.execute(statement).fetchmany(TABLE_PREVIEW_ROW_LIMIT + 1)
 
         has_more_rows = len(raw_rows) > TABLE_PREVIEW_ROW_LIMIT
+        if has_more_rows:
+            row_count, row_count_exact = self._fetch_row_count(engine, connection, request)
+        else:
+            # The whole table fit into the preview read, so its size is already known.
+            row_count, row_count_exact = len(raw_rows), True
         preview = CatalogTablePreview(columns=columns, rows=(), truncated=has_more_rows)
         if _preview_payload_size(preview) > self._preview_max_response_bytes:
             raise CatalogPreviewTooLargeError("DB table preview columns exceed the size limit.")
@@ -297,7 +297,45 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
             columns=columns,
             rows=tuple(rows),
             truncated=truncated,
+            row_count=row_count,
+            row_count_exact=row_count_exact,
         )
+
+    def _fetch_row_count(
+        self,
+        engine: sa.Engine,
+        connection: AuthorizedCatalogConnection,
+        request: CatalogTablePreviewRequest,
+    ) -> tuple[int | None, bool]:
+        """Read the table size from DBMS statistics; the table itself is never scanned."""
+        entry = table_row_count_statement(connection.dialect)
+        if entry is None:
+            return None, False
+        statement, exact = entry
+        name, schema = request.table_name, request.schema_name
+        if connection.dialect == "oracle":
+            # The catalog stores case-insensitive identifiers in upper case.
+            name = engine.dialect.denormalize_name(name)
+            schema = engine.dialect.denormalize_name(schema) if schema else schema
+        params = {
+            "name": name,
+            "schema": schema,
+            "database": request.database_name or connection.configured_database,
+        }
+        try:
+            # Separate connection: a failed optional query must not break the preview itself.
+            with engine.connect() as db_connection:
+                self._apply_session_deadline(db_connection, connection.dialect)
+                value = db_connection.execute(statement, params).scalar()
+            row_count = int(value) if value is not None else None
+        except (sa.exc.SQLAlchemyError, OSError, TypeError, ValueError):
+            logger.warning("Unable to read optional table row count for preview.")
+            return None, False
+        # Called only when the table holds more rows than the preview limit, so a smaller
+        # value is stale or missing statistics rather than a usable number.
+        if row_count is None or row_count <= TABLE_PREVIEW_ROW_LIMIT:
+            return None, False
+        return row_count, exact
 
     @staticmethod
     def _build_preview_statement(table: sa.Table) -> sa.Select:
@@ -819,3 +857,42 @@ class SQLAlchemyCatalogSource(CatalogSourceGateway, TablePreviewSourceGateway):
     def _normalize_kind(value: object) -> CatalogTableKind:
         normalized = str(value or "").upper().replace("_", " ")
         return CatalogTableKind.VIEW if "VIEW" in normalized else CatalogTableKind.TABLE
+
+
+_MISSING_DATABASE_SQLSTATES = frozenset({"3D000"})
+_MISSING_DATABASE_PATTERNS = (
+    "does not exist",  # postgresql: database "x" does not exist
+    "unknown database",  # mysql/mariadb error 1049
+    "cannot open database",  # mssql error 4060
+    "doesn't exist",  # clickhouse: Database x doesn't exist
+)
+_MAX_DRIVER_MESSAGE_LENGTH = 300
+
+
+def sanitize_driver_message(error: BaseException | None) -> str:
+    """Первая строка сообщения драйвера без переводов строк, обрезанная по длине."""
+    if error is None:
+        return ""
+    text = " ".join(str(error).split())
+    return text[:_MAX_DRIVER_MESSAGE_LENGTH]
+
+
+def _classify_dbapi_error(exc: sa.exc.DBAPIError) -> Exception:
+    """Переводит ошибку драйвера в доменную: таймаут, отсутствующая база или недоступный источник."""
+    original = exc.orig
+    error_name = type(original).__name__.lower() if original is not None else ""
+    error_text = sanitize_driver_message(original)
+    lowered = error_text.lower()
+
+    if "timeout" in error_name or "timed out" in lowered or "statement timeout" in lowered:
+        return CatalogSourceTimeoutError("DB catalog query timed out.")
+
+    sqlstate = str(getattr(original, "sqlstate", "") or getattr(original, "pgcode", "") or "")
+    mentions_database = "database" in lowered
+    if sqlstate in _MISSING_DATABASE_SQLSTATES or (
+        mentions_database and any(pattern in lowered for pattern in _MISSING_DATABASE_PATTERNS)
+    ):
+        return CatalogTableNotFoundError(f"DB catalog database was not found: {error_text}")
+
+    detail = f": {error_text}" if error_text else "."
+    return CatalogSourceUnavailableError(f"DB catalog source query failed{detail}")

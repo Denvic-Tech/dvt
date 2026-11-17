@@ -3,6 +3,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import text
 
+from core.db import concurrency
 from core.types import Column, DataFrameMetadata, DataType
 
 from src.nodes.extract.read_query_from_db_v3 import node as read_query_module
@@ -14,6 +15,8 @@ from src.node_dsl import (
 )
 from src.node_dsl.variables import make_unresolved_value
 from src.nodes.extract.read_query_from_db_v3 import ReadQueryFromDBV3
+
+import config
 
 
 class _Dialect:
@@ -40,7 +43,7 @@ def test_read_query_from_db_v3_forwards_partitioning_params_to_planner(monkeypat
             return "plan"
 
     monkeypatch.setattr(read_query_module, "resolve_planner", lambda mode="query": _Planner())
-    monkeypatch.setattr(read_query_module, "resolve_executor", lambda engine: "executor")
+    monkeypatch.setattr(read_query_module, "resolve_executor", lambda engine, **_kwargs: "executor")
     monkeypatch.setattr(read_query_module, "frame_from_executor", lambda executor, plan: "output")
 
     node = ReadQueryFromDBV3(
@@ -76,7 +79,7 @@ def test_read_query_from_db_v3_passes_none_npartitions_to_planner(monkeypatch):
             return "plan"
 
     monkeypatch.setattr(read_query_module, "resolve_planner", lambda mode="query": _Planner())
-    monkeypatch.setattr(read_query_module, "resolve_executor", lambda engine: "executor")
+    monkeypatch.setattr(read_query_module, "resolve_executor", lambda engine, **_kwargs: "executor")
     monkeypatch.setattr(read_query_module, "frame_from_executor", lambda executor, plan: "output")
 
     node = ReadQueryFromDBV3(
@@ -93,6 +96,45 @@ def test_read_query_from_db_v3_passes_none_npartitions_to_planner(monkeypatch):
     node.process()
 
     assert captured["npartitions"] is None
+
+
+@pytest.mark.parametrize(("node_value", "expected"), [(5, 5), (None, 3)])
+def test_read_query_from_db_v3_passes_query_limit_to_executor(monkeypatch, node_value, expected):
+    captured: dict[str, object] = {}
+
+    class _Planner:
+        def build_plan(self, **kwargs):
+            return "plan"
+
+    def _resolve_executor(engine, **kwargs):
+        captured.update(kwargs)
+        return "executor"
+
+    monkeypatch.setattr(config.OTHER, "DB_CONCURRENCY_POLICY", "dialect")
+    monkeypatch.setattr(config.OTHER, "DB_READ_CONCURRENCY_OVERRIDES", {})
+    monkeypatch.setitem(
+        concurrency.DIALECT_CONCURRENCY,
+        "sqlite",
+        concurrency.DialectConcurrency(write_workers=1, read_queries=3),
+    )
+    monkeypatch.setattr(read_query_module, "resolve_planner", lambda mode="query": _Planner())
+    monkeypatch.setattr(read_query_module, "resolve_executor", _resolve_executor)
+    monkeypatch.setattr(read_query_module, "frame_from_executor", lambda executor, plan: "output")
+
+    node = ReadQueryFromDBV3(
+        user_id="user",
+        project_id="project",
+        task_id="task",
+        node_id="node",
+        connection=_Connection(),
+        sql_code="SELECT id FROM events",
+        partition_col="id",
+        max_concurrent_queries=node_value,
+    )
+
+    node.process()
+
+    assert captured["max_concurrent_queries"] == expected
 
 
 def test_read_query_from_db_v3_no_longer_has_local_auto_npartitions() -> None:

@@ -13,6 +13,10 @@ from core.db.write_v4.models import WritePlan, WriteRequest, WriteResult
 from core.db.write_v4.normalize import ColumnAlignment, align_partition_to_table
 
 _DIRECT_TRUNCATE_DIALECTS = {"postgresql", "mysql", "mssql", "clickhouse"}
+# Rows per INSERT (and per commit) without ``WriteRequest.rows_per_batch``; not sized by bytes.
+# Per-row Python work dominates this path: larger batches only cost memory (measurements in
+# ``core/db/concurrency.py``).
+INSERT_BATCH_ROWS = 1_000
 
 
 class SQLWriteExecutor(WriteExecutor):
@@ -65,7 +69,7 @@ class SQLWriteExecutor(WriteExecutor):
             if copy_column_names:
                 self._copy_table(staging_table, table, copy_column_names)
             elif staged_rows:
-                self._insert_default_only_rows(table, staged_rows, request.chunksize)
+                self._insert_default_only_rows(table, staged_rows, request.rows_per_batch)
             return WriteResult(
                 mode=request.mode,
                 target_name=table.fullname,
@@ -110,10 +114,12 @@ class SQLWriteExecutor(WriteExecutor):
             return 0
 
         if alignment.default_only_insert:
-            return self._insert_default_only_rows(table, alignment.row_count, request.chunksize)
+            return self._insert_default_only_rows(
+                table, alignment.row_count, request.rows_per_batch
+            )
 
         total_rows = alignment.row_count
-        chunk_rows = request.chunksize or total_rows
+        chunk_rows = request.rows_per_batch or INSERT_BATCH_ROWS
         for start in range(0, total_rows, chunk_rows):
             chunk = alignment.normalized.iloc[start: start + chunk_rows]
             records = chunk.to_dict(orient="records")
@@ -136,8 +142,10 @@ class SQLWriteExecutor(WriteExecutor):
             include_default_only_diagnostic=include_default_only_diagnostic,
         )
 
-    def _insert_default_only_rows(self, table: sa.Table, row_count: int, chunksize: int | None) -> int:
-        chunk_rows = chunksize or row_count
+    def _insert_default_only_rows(
+        self, table: sa.Table, row_count: int, rows_per_batch: int | None
+    ) -> int:
+        chunk_rows = rows_per_batch or INSERT_BATCH_ROWS
         with self.engine.begin() as conn:
             for start in range(0, row_count, chunk_rows):
                 batch_rows = min(chunk_rows, row_count - start)

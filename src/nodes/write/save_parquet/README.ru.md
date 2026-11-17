@@ -10,7 +10,7 @@
 
 Подайте объект S3, FTP/SFTP или SMB из выхода `connection` соответствующей ноды во вход `connection`. `path` задаётся относительно bucket/prefix, начального каталога или share; не дублируйте корень и не передавайте credentials. Необязательный `connection_overrides` поддерживает bucket/prefix/verify S3 и начальный каталог FTP/SFTP с совпадающим `type`; переопределения SMB не поддерживаются.
 
-Подключите `df`; задайте `path` и обязательный `mode`: `create`, `overwrite`, `append`. Defaults: `compression="snappy"`, `write_index=false`, `compatibility_mode="new"`. `parquet_types` задаёт контракт Arrow-типов. `row_cap` ограничивает строки файла, `partition_on` выбирает Hive-ключи; `filename_template` поддерживает `<partition_index>`, `<increment>`, `<uuid>`.
+Подключите `df`; задайте `path` и обязательный `mode`: `create`, `overwrite`, `append`. Defaults: `compression="snappy"`, `write_index=false`, `compatibility_mode="new"`. `parquet_types` задаёт контракт Arrow-типов. `sync_column_descriptions` по умолчанию `true`: описания входных колонок из Data Catalog сохраняются в метаданных полей Arrow (`description`) и в метаданных схемы DVT записанных файлов (только новый режим). `row_cap` ограничивает строки файла, `partition_on` выбирает Hive-ключи; `filename_template` поддерживает `<partition_index>`, `<increment>`, `<uuid>`.
 
 ## Результат
 
@@ -18,7 +18,7 @@
 
 ## Поведение и ограничения
 
-Простой layout выбирается без row_cap, ключей партиций, шаблона и append. Любая из этих настроек включает расширенный layout. Create отклоняет существующую цель, overwrite заменяет содержимое, append требует существующий совместимый dataset. Независимые записи в один dataset нужно выполнять последовательно. Обнаруженная перезапись пути источника запрещена. Legacy использует прежний Dask-layout каталогов и создание при отсутствии цели append; не переключайте режим без проверки хранилища.
+Простой layout выбирается без row_cap, ключей партиций, шаблона и append. Любая из этих настроек включает расширенный layout. Create отклоняет существующую цель, overwrite заменяет содержимое, append требует существующий совместимый dataset. Независимые записи в один dataset нужно выполнять последовательно. Обнаруженная перезапись пути источника запрещена. Legacy использует прежний Dask-layout каталогов и создание при отсутствии цели append; не переключайте режим без проверки хранилища. Legacy не сохраняет описания колонок. Описания не участвуют в проверке совместимости append: dataset, записанный до появления описаний, принимает новые части с ними.
 
 ## Примеры
 

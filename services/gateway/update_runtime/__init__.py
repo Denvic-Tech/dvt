@@ -4,10 +4,17 @@ import config
 
 from .client import InstallationManagerClient
 from .monitor import ServiceReadinessChecker, SystemStateMonitor
+from .operator import get_operator_manager
 
 
 @lru_cache
 def get_installation_manager_client() -> InstallationManagerClient:
+    try:
+        protected = get_operator_manager()
+    except (OSError, ValueError):
+        protected = None
+    if protected is not None:
+        return protected
     return InstallationManagerClient(
         base_url=config.INSTALLATION_MANAGER.INSTALLATION_MANAGER_URL,
         request_timeout_sec=config.INSTALLATION_MANAGER.REQUEST_TIMEOUT_SEC,

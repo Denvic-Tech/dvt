@@ -150,6 +150,42 @@ async def test_projects_list_can_sort_by_updated_at_desc_across_root_and_nested_
 
 
 @pytest.mark.asyncio
+async def test_projects_list_limit_keeps_first_sorted_projects(
+        gateway_client,
+        router_prefix,
+        db_session,
+        test_user,
+):
+    db_session.add_all(
+        [
+            ProjectRecord(
+                id=str(uuid4()),
+                name=f"Limited project {day}",
+                user_id=test_user.id,
+                organization_id=test_user.organization_id,
+                created_at=datetime(2026, 8, day, 8, 0, tzinfo=UTC),
+                updated_at=datetime(2026, 8, day, 12, 0, tzinfo=UTC),
+            )
+            for day in (1, 2, 3)
+        ]
+    )
+    db_session.commit()
+    params = {"sort_by": "updated_at", "sort_order": "asc"}
+
+    full_response = await gateway_client.get(f"{router_prefix}/projects", params=params)
+    limited_response = await gateway_client.get(
+        f"{router_prefix}/projects",
+        params={**params, "limit": 2},
+    )
+
+    assert full_response.status_code == 200, full_response.json()
+    assert limited_response.status_code == 200, limited_response.json()
+    full_ids = [item["id"] for item in full_response.json()]
+    assert len(full_ids) >= 3
+    assert [item["id"] for item in limited_response.json()] == full_ids[:2]
+
+
+@pytest.mark.asyncio
 async def test_project_items_lists_root_folders_and_projects(
         gateway_client,
         router_prefix,

@@ -7,6 +7,7 @@ from core.types import Column, DataFrameMetadata, DataType
 from src.node_dsl import IO
 from src.modules.sql_code_metadata import SQLCodeMetadata, SQLStatementMetadata
 from src.nodes.tool.execute_sql import ExecuteSQL
+from tests.fixtures.percent_format_sqlite import percent_format_sqlite_engine
 
 
 def _build_node(*, connection, sql_code: str) -> ExecuteSQL:
@@ -105,6 +106,33 @@ def test_execute_sql_commits_returning_statement_and_populates_output(tmp_path):
     assert node.output_variables["id"].type == IO.INT
     assert node.output_variables["value"].value == "ok"
     assert node.output_variables["value"].type == IO.STRING
+
+
+def test_execute_sql_keeps_percent_signs_of_non_query_statements(tmp_path):
+    database = str(tmp_path / "execute_sql_percent.sqlite")
+    with sa.create_engine(f"sqlite:///{database}").begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE test_events (id INTEGER PRIMARY KEY, value TEXT)")
+    calls: list[tuple[str, object]] = []
+    engine = percent_format_sqlite_engine(database, calls)
+
+    statements = [
+        "INSERT INTO test_events(id, value) VALUES (1, 'A%'), (2, '%%'), (3, 'B')",
+        "UPDATE test_events SET value = 'C%' WHERE id % 2 = 1 AND value NOT LIKE 'A%'",
+    ]
+    for sql_code in statements:
+        _build_node(connection=engine, sql_code=sql_code).process()
+    returning = _build_node(
+        connection=engine,
+        sql_code="INSERT INTO test_events(id, value) VALUES (4, '%s') RETURNING id, value",
+    )
+    returning.process()
+
+    with sa.create_engine(f"sqlite:///{database}").connect() as conn:
+        rows = conn.exec_driver_sql("SELECT id, value FROM test_events ORDER BY id").all()
+    # '%%' stays two percent signs, as in the database's own client.
+    assert [tuple(row) for row in rows] == [(1, "A%"), (2, "%%"), (3, "C%"), (4, "%s")]
+    assert returning.output.compute().to_dict(orient="records") == [{"id": 4, "value": "%s"}]
+    assert all(params is None for sql, params in calls if "test_events" in sql)
 
 
 def test_execute_sql_single_row_null_result_populates_nullable_variable(tmp_path):

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,22 @@ class ExtensionManifestSchema(BaseModel):
     nodes: list[ExtensionManifestNodeSchema] = Field(default_factory=list)
 
 
+class ExtensionCompatibilityDifferenceSchema(BaseModel):
+    field: Literal["os", "architecture", "python", "implementation", "dvt_version"]
+    current: str | None
+    required: str
+
+
+class ExtensionCatalogVersionSchema(BaseModel):
+    version: str
+    channel: Literal["stable", "rc"]
+    download_url: str
+    dvt_version: str | None = None
+    incompatibility: Literal["target", "dvt_version"] | None = None
+    operation: Literal["install", "upgrade", "downgrade", "reinstall"] | None = None
+    incompatibility_details: list[ExtensionCompatibilityDifferenceSchema] = Field(default_factory=list)
+
+
 class ExtensionReadSchema(BaseModel):
     id: str | None = None
     name: str
@@ -56,6 +72,8 @@ class ExtensionReadSchema(BaseModel):
     manifest_json: ExtensionManifestSchema = Field(default_factory=ExtensionManifestSchema)
     state_json: dict[str, Any] = Field(default_factory=dict)
     available_versions: list[str] = Field(default_factory=list)
+    catalog_versions: list[ExtensionCatalogVersionSchema] = Field(default_factory=list)
+    recommended_version: str | None = None
     error_message: str | None = None
     installed_at: datetime | None = None
     created_at: datetime | None = None

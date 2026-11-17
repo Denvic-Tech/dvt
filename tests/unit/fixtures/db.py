@@ -17,6 +17,15 @@ from src.modules.app_settings.infra.db_models import (  # noqa: F403
     AppSettingChangeRecord,
     AppSettingValueRecord,
 )
+from src.modules.data_catalog.infra.db_models import (  # noqa: F403
+    DatasetConnectionRecord,
+    DatasetFieldRecord,
+    DatasetLinkRecord,
+    DatasetRecord,
+    NodeColumnAnnotationRecord,
+    NodePortObservationRecord,
+    ProjectCatalogProjectionRecord,
+)
 from src.modules.db_connection.infra.db_models import DVTStoredConnectionRecord  # noqa: F403
 from src.modules.file_storage.infra.db_models import DVTServiceFileObjectRecord  # noqa: F403
 from src.modules.pipeline_graph.infra.db_models import (  # noqa: F403
@@ -25,6 +34,7 @@ from src.modules.pipeline_graph.infra.db_models import (  # noqa: F403
     SubgraphRecord,
 )
 from src.modules.project.infra.db_models import (
+    ProjectFavoriteRecord,  # noqa: F403
     ProjectFolderRecord,  # noqa: F403
     ProjectRecord,  # noqa: F403
     ProjectScheduleRecord,  # noqa: F403

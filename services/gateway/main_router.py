@@ -8,6 +8,7 @@ from .routes import (
     app_settings,
     cache,
     config,
+    data_catalog,
     db_connections,
     exception_registry,
     extensions,
@@ -25,7 +26,9 @@ from .routes import (
     user,
     utils,
     websocket,
+    widgets,
 )
+from .routes.agents import router as agents_router
 from .routes.installation import update
 from .routes.internal.ai_mcp.router import router as ai_mcp_internal_router
 from .routes.mcp_tokens import router as mcp_tokens_router
@@ -44,6 +47,9 @@ router.include_router(logs.router)
 router.include_router(organization.router)
 router.include_router(project.router, dependencies=GLOBAL_DEPS)
 router.include_router(db_connections.router)
+router.include_router(data_catalog.router, dependencies=GLOBAL_DEPS)
+router.include_router(data_catalog.lineage_router, dependencies=GLOBAL_DEPS)
+router.include_router(widgets.router, dependencies=GLOBAL_DEPS)
 router.include_router(utils.router)
 router.include_router(storage.router, dependencies=GLOBAL_DEPS)
 router.include_router(public.router, dependencies=GLOBAL_DEPS)
@@ -57,6 +63,7 @@ router.include_router(app_settings.router)
 router.include_router(setup.router)
 router.include_router(extensions.router)
 router.include_router(mcp_tokens_router)
+router.include_router(agents_router)
 router.include_router(ai_mcp_internal_router)
 
 

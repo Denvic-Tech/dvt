@@ -345,6 +345,8 @@ async def get_table_preview(
         ],
         rows=[list(row) for row in response.preview.rows],
         truncated=response.preview.truncated,
+        row_count=response.preview.row_count,
+        row_count_exact=response.preview.row_count_exact,
     )
 
 

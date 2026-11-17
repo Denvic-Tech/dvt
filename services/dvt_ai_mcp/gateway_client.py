@@ -103,6 +103,22 @@ class GatewayClient:
             )
         return payload
 
+    async def upstream_ready(self) -> bool:
+        """Verify the configured facade and shared secret without an operator token."""
+        try:
+            response = await self._client.post(
+                "/internal/ai-mcp/v1/auth/verify",
+                headers={"X-DVT-AI-MCP-Internal-Secret": settings.internal_secret},
+                json={},
+                timeout=3.0,
+            )
+            return (
+                response.status_code == 401
+                and response.json()["detail"]["code"] == "AUTH_INVALID"
+            )
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            return False
+
     async def verify(self, token: str) -> dict[str, Any]:
         return await self._request("/internal/ai-mcp/v1/auth/verify", token=token, body={})
 

@@ -16,7 +16,7 @@ Connect a DataFrame to `df`; set `columns` to exact names to remove.
 
 ## Behavior and limitations
 
-Missing names are ignored. If a dropped business column also names the physical index, the index is retained but renamed to an internal DVT name; its divisions remain available. This removes a field, not rows or duplicates.
+Missing names are ignored. Dropping a column also clears its binding to a DBV3 index. If a legacy business index shares the dropped field's name, the index takes an internal DVT name and retains its divisions.
 
 ## Examples
 

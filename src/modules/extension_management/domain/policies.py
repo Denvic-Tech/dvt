@@ -1,10 +1,11 @@
-from collections.abc import Iterable, Mapping
-from typing import Any
+from collections.abc import Iterable
+from typing import Literal
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from src.modules.extension_management.domain.catalog import CatalogRelease, RuntimeTarget
 from src.modules.extension_management.domain.types import (
     ExtensionDependencyStatus,
     ExtensionPackageOperation,
@@ -71,40 +72,41 @@ def is_dvt_version_compatible(
         return False
 
 
-def filter_compatible_versions(
-    versions: Iterable[Mapping[str, Any]],
+def release_incompatibility(
+    release: CatalogRelease,
     *,
     current_dvt_version: str | None,
-    channel: str,
-) -> list[dict[str, Any]]:
-    normalized = [dict(item) for item in versions]
-    if not current_dvt_version:
-        return normalized
+    target: RuntimeTarget,
+) -> Literal["target", "dvt_version"] | None:
+    if release.target != target:
+        return "target"
+    if release.dvt_version not in {None, "*"} and (
+        not current_dvt_version or not is_dvt_version_compatible(
+            current_dvt_version=current_dvt_version,
+            required_dvt_version=release.dvt_version,
+        )
+    ):
+        return "dvt_version"
+    return None
 
-    compatible: list[dict[str, Any]] = []
-    for item in normalized:
-        version_str = item.get("version")
-        if channel.lower() == "prod" and isinstance(version_str, str):
-            try:
-                if Version(version_str).is_prerelease:
-                    continue
-            except InvalidVersion:
-                pass
 
-        required_dvt_version = item.get("dvt_version")
-        if required_dvt_version in {None, "*"}:
-            compatible.append(item)
-            continue
-        try:
-            if Version(current_dvt_version) in SpecifierSet(
-                str(required_dvt_version), prereleases=True
-            ):
-                compatible.append(item)
-        except (InvalidVersion, InvalidSpecifier):
-            # Keep distributor entries with malformed compatibility metadata for
-            # backwards compatibility; package validation will still run before activation.
-            compatible.append(item)
-    return compatible
+def filter_compatible_versions(
+    versions: Iterable[CatalogRelease],
+    *,
+    current_dvt_version: str | None,
+    target: RuntimeTarget,
+) -> list[CatalogRelease]:
+    return sorted(
+        (
+            release
+            for release in versions
+            if release_incompatibility(
+                release, current_dvt_version=current_dvt_version, target=target
+            ) is None
+        ),
+        key=lambda release: Version(release.version),
+        reverse=True,
+    )
 
 
 def extension_readiness_reasons(

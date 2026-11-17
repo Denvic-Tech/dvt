@@ -3,6 +3,7 @@ from typing import List, Literal, Optional
 from dask import dataframe as dd
 
 from core.utils import get_useful_indexes, is_internal_dvt_name
+from core.utils.dataframe_index import get_physical_index
 
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
 from src.node_dsl.node_typing import IO
@@ -120,6 +121,33 @@ class DataFrameJoin(DFOutputBaseNode):
         # Drop broken shuffle metadata before rename; data and schema stay unchanged.
         return right.map_partitions(lambda partition: partition, meta=right._meta)
 
+    @staticmethod
+    def _for_column_merge(df: dd.DataFrame) -> dd.DataFrame:
+        name = df.index.name
+        if name in df.columns:
+            return df.reset_index(drop=True)
+        if get_useful_indexes(df):
+            return df.reset_index()
+        return df
+
+    @staticmethod
+    def _has_bound_index(df: dd.DataFrame, key: str) -> bool:
+        index = get_physical_index(df)
+        return (
+            index is not None
+            and index.bound_column == key
+            and df.known_divisions
+            and key in df.columns
+            and df.index.dtype == df.dtypes[key]
+        )
+
+    @staticmethod
+    def _use_business_index(df: dd.DataFrame, keys: list[str] | None) -> bool:
+        if is_internal_dvt_name(df.index.name):
+            return False
+        indexes = get_useful_indexes(df)
+        return indexes == (keys or []) and all(name not in df.columns for name in indexes)
+
     def process(self):
         df1 = self.left
         df2 = self.right
@@ -127,16 +155,9 @@ class DataFrameJoin(DFOutputBaseNode):
         left_on = self._normalize_join_keys(self.left_on)
         right_on = self._normalize_join_keys(self.right_on)
 
-        df1_indexes = get_useful_indexes(df1)
-        df2_indexes = get_useful_indexes(df2)
-
         if self.how == "cross":
-
-            if df1_indexes:
-                df1 = df1.reset_index()
-
-            if df2_indexes:
-                df2 = df2.reset_index()
+            df1 = self._for_column_merge(df1)
+            df2 = self._for_column_merge(df2)
 
             tmp = "__tmp_key"
             df1 = df1.assign(**{tmp: 1})
@@ -157,17 +178,40 @@ class DataFrameJoin(DFOutputBaseNode):
             ).drop(columns=[tmp])
 
         else:
-            can_merge_by_left_index = df1_indexes == (left_on or [])
-            can_merge_by_right_index = df2_indexes == (right_on or [])
+            if left_on and len(left_on) == 1 and left_on == right_on:
+                key = left_on[0]
+                if (
+                    self._has_bound_index(df1, key)
+                    and self._has_bound_index(df2, key)
+                    and df1.index.dtype == df2.index.dtype
+                ):
+                    df2, _ = self._rename_conflicting_right_columns(df1, df2, left_on, right_on)
+                    columns = [*df1.columns, *(name for name in df2.columns if name != key)]
+                    merged = dd.merge(
+                        df1.drop(columns=key),
+                        df2.drop(columns=key),
+                        how=self.how,
+                        left_index=True,
+                        right_index=True,
+                        suffixes=("", ""),
+                    )
+                    self.output = self._drop_internal_columns(
+                        merged.assign(**{key: merged.index})[columns]
+                    )
+                    return
 
-            left_on = None if can_merge_by_left_index else left_on
-            right_on = None if can_merge_by_right_index else right_on
+            can_merge_by_left_index = self._use_business_index(df1, left_on)
+            can_merge_by_right_index = self._use_business_index(df2, right_on)
+            if not left_on and not right_on and not (
+                can_merge_by_left_index and can_merge_by_right_index
+            ) and any(is_internal_dvt_name(df.index.name) for df in (df1, df2)):
+                can_merge_by_left_index = can_merge_by_right_index = False
+                left_on = right_on = [name for name in df1.columns if name in df2.columns]
 
-            if df1_indexes and not can_merge_by_left_index:
-                df1 = df1.reset_index()
-
-            if df2_indexes and not can_merge_by_right_index:
-                df2 = df2.reset_index()
+            if not can_merge_by_left_index:
+                df1 = self._for_column_merge(df1)
+            if not can_merge_by_right_index:
+                df2 = self._for_column_merge(df2)
 
             df2, right_on = self._rename_conflicting_right_columns(
                 left=df1,
@@ -181,8 +225,8 @@ class DataFrameJoin(DFOutputBaseNode):
                 df1,
                 df2,
                 how=self.how,
-                left_on=left_on,
-                right_on=right_on,
+                left_on=None if can_merge_by_left_index else left_on or None,
+                right_on=None if can_merge_by_right_index else right_on or None,
                 left_index=can_merge_by_left_index,
                 right_index=can_merge_by_right_index,
                 suffixes=("", ""),

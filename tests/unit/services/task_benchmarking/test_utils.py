@@ -2,6 +2,7 @@ from pathlib import Path
 
 from services.task_benchmarking.utils import (
     apply_input_overrides,
+    build_env_snapshot,
     cartesian_parameter_grid,
     prepare_run_paths,
     resolve_pipeline_path,
@@ -77,3 +78,23 @@ def test_cartesian_parameter_grid_builds_cross_product() -> None:
         (("npartitions", 32), ("num_workers", 1)),
         (("npartitions", 32), ("num_workers", 2)),
     }
+
+
+def test_build_env_snapshot_redacts_secret_like_variables(monkeypatch) -> None:
+    secrets = {
+        "DVT_BENCH_PG_PASSWORD": "pg-secret",
+        "Security_Fernet_Value": "fernet-secret",
+        "aws_secret_access": "aws-secret",
+        "GITHUB_TOKEN": "token-secret",
+        "SERVICE_API_KEY": "key-secret",
+    }
+    for name, value in secrets.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("DVT_BENCH_PG_HOST", "db.internal")
+
+    snapshot = build_env_snapshot()
+
+    for name, value in secrets.items():
+        assert value not in snapshot
+        assert any(line.upper() == f"{name.upper()}=***" for line in snapshot.splitlines())
+    assert "DVT_BENCH_PG_HOST=db.internal" in snapshot.splitlines()

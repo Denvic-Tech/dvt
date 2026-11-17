@@ -1,11 +1,13 @@
 """Public composition API for task execution callers."""
 
+from dataclasses import replace
+
 from src.db import AsyncSessionLocal
 from src.schemas.internal import TaskInternal
 
 import config
 
-from .domain.entities import EnqueueTaskResult
+from .domain.entities import EnqueueTaskResult, NestedTaskParent
 from .flow.use_cases import (
     ClaimTaskUseCase,
     CreatePendingExecutionUseCase,
@@ -63,12 +65,14 @@ class TaskExecutionFacade:
         self.cancellation = cancellation
         self.nested_wait_gateway = nested_wait_gateway
 
-    async def enqueue_task_internal(self, task: TaskInternal) -> EnqueueTaskResult:
+    async def enqueue_task_internal(
+        self, task: TaskInternal, *, nested_parent: NestedTaskParent | None = None
+    ) -> EnqueueTaskResult:
         """Boundary adapter kept here so legacy callers do not import module infra."""
         from .infra.mappers import task_internal_to_execution
 
         return await self.enqueue_task.execute(
-            execution=task_internal_to_execution(task),
+            execution=replace(task_internal_to_execution(task), nested_parent=nested_parent),
             payload=task.model_dump(mode="json"),
         )
 

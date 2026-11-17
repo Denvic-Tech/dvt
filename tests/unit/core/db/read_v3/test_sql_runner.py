@@ -4,8 +4,34 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from tests.fixtures.percent_format_sqlite import percent_format_sqlite_engine
 
-from core.db.read_v3.sql_runner import ClickHouseReadV3SqlRunner, resolve_sql_runner
+from core.db.read_v3.sql_runner import (
+    ClickHouseReadV3SqlRunner,
+    SqlAlchemyReadV3SqlRunner,
+    resolve_sql_runner,
+)
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("SELECT 'A%' AS v", ["A%"]),
+        # A doubled percent sign is two characters, as in psql or the mysql client.
+        ("SELECT '%%' AS v", ["%%"]),
+        ("SELECT 7 % 3 AS v", [1]),
+        ("SELECT 'x%sy' AS v", ["x%sy"]),
+    ],
+)
+def test_sqlalchemy_runner_sends_percent_sql_to_the_driver_unchanged(sql, expected) -> None:
+    calls: list[tuple[str, object]] = []
+    engine = percent_format_sqlite_engine(":memory:", calls)
+
+    df = SqlAlchemyReadV3SqlRunner(engine).query_df(sql)
+
+    assert df["v"].tolist() == expected
+    # The text reaches cursor.execute without a parameter collection.
+    assert calls[-1] == (sql, None)
 
 
 class _FakeClickHouseEngine:

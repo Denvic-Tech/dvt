@@ -1,9 +1,12 @@
+import asyncio
 from contextlib import contextmanager
 from io import BytesIO
+from unittest.mock import AsyncMock
 
 import dask.dataframe as dd
 import fsspec
 import pandas as pd
+import pytest
 
 from core.types import FsCtx
 
@@ -36,6 +39,13 @@ def _make_smb_context(path: str, *, fs=None) -> FsCtx:
         host="fileserver",
         port=445,
         url_root="smb://fileserver:445",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _no_catalog(monkeypatch):
+    monkeypatch.setattr(
+        "src.nodes.write.save_parquet.node.load_catalog_descriptions", AsyncMock(return_value={})
     )
 
 
@@ -97,7 +107,7 @@ def test_save_parquet_writes_to_smb_path(monkeypatch):
         raising=True,
     )
 
-    node.process()
+    asyncio.run(node.process())
 
     assert captured["path"] == "smb://fileserver:445/shared/reports/export.parquet"
     assert captured["kwargs"]["storage_options"]["host"] == "fileserver"
@@ -126,7 +136,7 @@ def test_save_parquet_new_mode_writes_exact_simple_and_advanced_smb_layout(monke
             fs=fs,
         ),
     )
-    simple.process()
+    asyncio.run(simple.process())
 
     advanced = SaveParquet(
         user_id="user",
@@ -140,7 +150,7 @@ def test_save_parquet_new_mode_writes_exact_simple_and_advanced_smb_layout(monke
         compatibility_mode="new",
         filename_template="<increment>.parquet",
     )
-    advanced.process()
+    asyncio.run(advanced.process())
 
     assert sorted(fs.find("/shared/reports")) == [
         "/shared/reports/export.parquet",

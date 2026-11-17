@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
-from mcp.types import INTERNAL_ERROR, ToolAnnotations
+from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ToolAnnotations
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import Field, StrictBool
 from starlette.requests import Request
@@ -18,8 +18,11 @@ from .gateway_client import (
     gateway_client,
 )
 from .models import (
+    ColumnDescriptionInput,
     DataFrameMetadata,
     DDLColumn,
+    FieldDescriptionInput,
+    FieldRefInput,
     GraphPatch,
     RuntimeVariable,
     SchedulePatch,
@@ -182,6 +185,7 @@ async def _call(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             "PROJECT_NOT_FOUND_OR_DENIED",
             "CONNECTION_NOT_FOUND_OR_DENIED",
             "TASK_NOT_FOUND_OR_DENIED",
+            "DATASET_NOT_FOUND_OR_DENIED",
         }:
             SCOPE_FAILURES.labels(code=exc.code).inc()
         elif exc.code == "GRAPH_VALIDATION_FAILED":
@@ -245,6 +249,17 @@ WRITE_PROJECT = ToolAnnotations(
 )
 WRITE_SCHEDULE = ToolAnnotations(
     read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=True,
+)
+# Data Catalog: описания живут в БД DVT (closed world), refresh ходит в источник (open world),
+# подтверждение переименования удаляет строку-дубликат (destructive).
+WRITE_CATALOG = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False,
+)
+REFRESH_CATALOG = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True,
+)
+CONFIRM_CATALOG_RENAME = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False,
 )
 
 
@@ -452,6 +467,29 @@ async def query_database_readonly(
     return await _call("query_database_readonly", locals())
 
 
+@mcp.tool(annotations=READ_OPEN)
+async def suggest_read_partitioning(
+    connection_id: str,
+    table_name: str | None = None,
+    sql_code: str | None = None,
+    database_name: str | None = None,
+    schema_name: str | None = None,
+    columns: list[str] | None = None,
+    read_columns: list[str] | None = None,
+    candidate_limit: int | None = None,
+    npartitions: int | None = None,
+    max_rows_per_partition: int | None = None,
+) -> dict[str, Any]:
+    """Profile partition-key candidates of a table or read-only query for database readers.
+
+    Pass exactly one of table_name or sql_code. Returns per-column statistics (distinct count,
+    heaviest value and its count, NULLs, min/max; exact or marked as estimates), the planner's
+    target partition count and row ceiling, ranked partition_col/partition_grouping/npartitions/
+    max_rows_per_partition recommendations, and excluded columns with reasons.
+    """
+    return await _call("suggest_read_partitioning", locals())
+
+
 @mcp.tool(annotations=WRITE_DDL)
 async def create_database(connection_id: str, database_name: str) -> dict[str, Any]:
     """Create a missing database through a scoped SQL connection; existing targets are unchanged."""
@@ -547,6 +585,185 @@ async def preview_storage_file(
     return await _call("preview_storage_file", locals())
 
 
+@mcp.tool(annotations=READ_CLOSED)
+async def search_datasets(
+    query: str | None = None,
+    connection_id: str | None = None,
+    project_id: str | None = None,
+    kind: str | None = None,
+    cursor: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Search the Data Catalog: physical data sources known from saved graphs, with reader/writer counts.
+
+    Each dataset has a `kind` (today only `db_table`), a human-readable `location` and a
+    `physical_key` URI; `query` matches both. The catalog is time-stamped knowledge recorded from
+    saved graphs, not a live source query; check `freshness` and use get_database_table for the
+    current physical schema.
+    """
+    return await _call("search_datasets", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_dataset(dataset_id: str, include_fields: bool = True) -> dict[str, Any]:
+    """Get one catalog dataset with its locator (`kind`, `location`, `parts`), connections and fields.
+
+    Field statuses (new/ok/missing/type_changed) describe drift since the previous sync; the
+    schema is refreshed lazily through an accessible connection when it is older than the TTL.
+    """
+    return await _call("get_dataset", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_dataset_usage(
+    dataset_id: str,
+    direction: Literal["read", "write"] | None = None,
+) -> dict[str, Any]:
+    """List project nodes that read or write a catalog dataset, within the token's project scope."""
+    return await _call("get_dataset_usage", locals())
+
+
+@mcp.tool(annotations=WRITE_CATALOG)
+async def set_dataset_description(
+    dataset_id: str,
+    description: str | None = None,
+    clear_description: bool = False,
+    fields: list[FieldDescriptionInput] | None = None,
+) -> dict[str, Any]:
+    """Set global Data Catalog descriptions for a dataset and/or its fields.
+
+    Descriptions are shared by every project and user who can see the dataset, so confirm
+    before overwriting someone else's text. Omit `description` to keep the dataset text;
+    pass `clear_description=true` to clear it. Each `fields` item references a field by `name`
+    or `field_id` and must carry `description` (null clears). DB comments are never copied:
+    responses expose `effective_description` and `description_provenance` instead.
+    """
+    if clear_description and description is not None:
+        raise MCPError(
+            code=INVALID_PARAMS,
+            message="clear_description cannot be combined with description.",
+        )
+    return await _call("set_dataset_description", locals())
+
+
+@mcp.tool(annotations=REFRESH_CATALOG)
+async def refresh_dataset(dataset_id: str) -> dict[str, Any]:
+    """Re-read a dataset's schema from the source, bypassing the catalog cache.
+
+    Returns the diff (new/missing/type_changed) and the projects that use the dataset.
+    An unreachable source yields `status: failed`, not a tool error.
+    """
+    return await _call("refresh_dataset", locals())
+
+
+@mcp.tool(annotations=CONFIRM_CATALOG_RENAME)
+async def confirm_field_rename(
+    dataset_id: str,
+    missing_field: FieldRefInput,
+    new_field: FieldRefInput,
+) -> dict[str, Any]:
+    """Confirm that a `missing` catalog field was renamed to a `new` one.
+
+    The old row keeps its identity and description, takes the new name and attributes, and
+    the duplicate new row is removed. Requires `missing` status on the old field.
+    """
+    return await _call("confirm_field_rename", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_node_fields(
+    project_id: str,
+    node_id: str,
+    port: str | None = None,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """List the columns of a node's DataFrame port with their lineage and inherited descriptions.
+
+    Each field carries `op` (source/pass/rename/compute/aggregate/merge/unknown), its `origin`
+    reference, dependencies, an `explanation` text and the effective description with provenance
+    (declared/source/inherited/derived/none/unknown). `none` means the source is known but has no
+    text; `derived` means the column is computed and needs its own description via
+    `set_node_column_description`. `orphaned_annotations` lists descriptions of columns that no
+    longer exist on the port. Lineage is static knowledge from the saved graph; for nodes whose
+    columns cannot be derived (custom code, pivot), the column set comes from the last run
+    (`partially_resolved`, reason `lineage_schema_observed`) and columns carry `op: unknown`.
+    """
+    return await _call("get_node_fields", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_project_columns(project_id: str) -> dict[str, Any]:
+    """Overview of every DataFrame column in a project: `rows` to read and describe, `groups` for impact.
+
+    Each row is a chain segment where the column name and the description text do not change,
+    so a row has exactly one `description` and one place to write it (`targets`: `project` writes
+    an annotation on the `start` node column via `set_node_column_description`; `global`, offered
+    only for the first segment read from a table, writes the dataset field via
+    `set_dataset_description`). A rename starts a new row (`is_rename`, `renamed_from`); a
+    description written mid-chain starts a new row too (`is_refinement`), and clearing it merges
+    the rows back. `depends_on` lists the rows a computed column is built from. `groups` keep the
+    whole origin chain with `occurrences` and `is_override` for impact analysis. `unresolved_ports`
+    show where lineage is unknown, `orphaned_annotations` list descriptions of columns that no
+    longer exist. No explanation texts: use `explain_field`.
+    """
+    return await _call("get_project_columns", locals())
+
+
+@mcp.tool(annotations=WRITE_CATALOG)
+async def set_node_column_description(
+    project_id: str,
+    node_id: str,
+    fields: list[ColumnDescriptionInput],
+    port: str | None = None,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """Describe columns of a node's DataFrame port in business terms, inside one project.
+
+    Use it for columns whose text cannot be inherited from a source field (`derived` or `none`
+    provenance in `get_node_fields`): computed metrics, aggregates, merged columns. The text
+    becomes `declared` on that column, takes priority over inherited text, and is inherited
+    downstream through pass/rename and through merges (join keys, unions) whose other parents have
+    no text of their own; two different parent texts leave the column `derived`. Each item carries `column` and
+    `description` (null removes). Descriptions belong to the node and move with project copies,
+    exports and imports. Omit `port` to target the main DataFrame output. A description on the
+    `df` input of a write node becomes the target column comment (DB) or Parquet field metadata on
+    the next run when the node keeps `sync_column_descriptions` enabled. Returns the same payload
+    as `get_node_fields`.
+    """
+    return await _call("set_node_column_description", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def explain_field(
+    project_id: str,
+    node_id: str,
+    column: str,
+    port: str | None = None,
+    direction: Literal["upstream", "downstream"] = "upstream",
+    max_depth: int = 20,
+    locale: Literal["en", "ru"] = "en",
+) -> dict[str, Any]:
+    """Trace one node column to its sources (upstream) or to its consumers (downstream) in a project.
+
+    Steps follow the saved graph; `gaps` list places where lineage is unknown (dynamic inputs,
+    custom code, sources without a static schema).
+    """
+    return await _call("explain_field", locals())
+
+
+@mcp.tool(annotations=READ_CLOSED)
+async def get_field_dependents(
+    dataset_id: str,
+    field_id: str,
+    max_depth: int = 20,
+) -> dict[str, Any]:
+    """List node columns in every accessible project that depend on a catalog dataset field.
+
+    Use before changing or dropping a source column: the result is the blast radius across projects.
+    """
+    return await _call("get_field_dependents", locals())
+
+
 @mcp.tool(annotations=WRITE_EXECUTION)
 async def run_project(
     project_id: str,
@@ -597,6 +814,13 @@ async def health(_: Request) -> Response:
     return JSONResponse({"status": "ok", "service": "dvt_ai_mcp"})
 
 
+@mcp.custom_route("/ready", methods=["GET"])
+async def readiness(_: Request) -> Response:
+    if not await gateway_client.upstream_ready():
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ok", "service": "dvt_ai_mcp"})
+
+
 @mcp.custom_route("/metrics", methods=["GET"])
 async def metrics(_: Request) -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
@@ -607,7 +831,7 @@ class BearerAuthenticationMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] != "http" or scope.get("path") in {"/health", "/metrics"}:
+        if scope["type"] != "http" or scope.get("path") in {"/health", "/ready", "/metrics"}:
             await self.app(scope, receive, send)
             return
         headers = {key.lower(): value for key, value in scope.get("headers", [])}

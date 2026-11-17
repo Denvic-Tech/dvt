@@ -1,0 +1,114 @@
+{
+  "connection": {
+    "name": "BenchmarkSqlConnection",
+    "inputs": {
+      "connection_type": {
+        "__dvt_type": "const",
+        "value": "mssql"
+      },
+      "host": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_HOST:-localhost}"
+      },
+      "port": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_PORT:-11433}"
+      },
+      "database": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_DB:-benchdb}"
+      },
+      "user": {
+        "__dvt_type": "const",
+        "value": "sa"
+      },
+      "password": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_PASSWORD:-Str0ngP@ss!}"
+      }
+    }
+  },
+  "read": {
+    "name": "ReadTableFromDBV3",
+    "inputs": {
+      "connection": {
+        "__dvt_type": "link",
+        "node_id": "connection",
+        "output_name": "connection"
+      },
+      "table_name": {
+        "__dvt_type": "const",
+        "value": "bench_wide_5m"
+      },
+      "partition_col": {
+        "__dvt_type": "const",
+        "value": "id"
+      },
+      "partition_grouping": {
+        "__dvt_type": "const",
+        "value": {
+          "mode": "range"
+        }
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 64
+      }
+    }
+  },
+  "groupby": {
+    "name": "DataFrameGroupByAgg",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "read",
+        "output_name": "output"
+      },
+      "group_by_columns": {
+        "__dvt_type": "const",
+        "value": [
+          "str_low"
+        ]
+      },
+      "new_cols": {
+        "__dvt_type": "const",
+        "value": [
+          "amount_sum",
+          "id_count"
+        ]
+      },
+      "source_cols": {
+        "__dvt_type": "const",
+        "value": [
+          "amount",
+          "id"
+        ]
+      },
+      "agg_funcs": {
+        "__dvt_type": "const",
+        "value": [
+          "sum",
+          "count"
+        ]
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "groupby",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

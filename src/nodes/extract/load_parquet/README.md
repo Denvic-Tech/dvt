@@ -18,7 +18,7 @@ Set `path` to the relative file/dataset path. Optional `usecols` projects select
 
 ## Behavior and limitations
 
-Reads use pyarrow and file schemas rather than CSV-style type guessing. FTP datasets are enumerated recursively and files are read through local temporary copies. DVT logical schema metadata helps restore partition types/categories. All parts need compatible schemas; metadata inspection is not a full data-read verification.
+Reads use pyarrow and file schemas rather than CSV-style type guessing. FTP datasets are enumerated recursively and files are read through local temporary copies. DVT logical schema metadata helps restore partition types/categories. All parts need compatible schemas; metadata inspection is not a full data-read verification. Column descriptions stored by DVT writers in Arrow field metadata (`description`) are exposed as column comments in the node metadata and flow into the Data Catalog as inherited descriptions.
 
 ## Examples
 

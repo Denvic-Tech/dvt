@@ -115,33 +115,14 @@ def prepare_configuration(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    """Forward supported legacy invocations through the signed-bundle admission."""
+    from services.installation_manager.application.offline_bundles import main as offline_main
+
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--mode", choices=("install", "update"), required=True)
-    parser.add_argument("--version", required=True)
-    parser.add_argument("--host-dir", required=True)
-    parser.add_argument("--public-url")
-    parser.add_argument("--external-port")
-    parser.add_argument("--workers", type=int)
-    parser.add_argument("--ai-mcp", choices=("true", "false"))
-    args = parser.parse_args()
-    try:
-        cfg = prepare_configuration(
-            Path("/dvt-lib"),
-            mode=args.mode,
-            version=args.version,
-            host_dir=args.host_dir,
-            public_url=args.public_url,
-            external_port=args.external_port,
-            workers=args.workers,
-            ai_mcp=None if args.ai_mcp is None else args.ai_mcp == "true",
-        )
-    except (ValueError, OSError) as exc:
-        print(f"Offline configuration failed: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
-    # Non-secret settings consumed by the Bash runner.
-    print(cfg.project_name)
-    print(cfg.task_workers_count)
-    print(domain.render_bool(cfg.ai_mcp_enabled))
+    args, remaining = parser.parse_known_args()
+    sys.argv = [sys.argv[0], args.mode, *remaining]
+    raise SystemExit(offline_main())
 
 
 if __name__ == "__main__":

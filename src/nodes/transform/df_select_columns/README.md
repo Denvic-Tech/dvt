@@ -16,7 +16,7 @@ Connect `df` and provide a non-empty `columns` list in the desired order.
 
 ## Behavior and limitations
 
-The implementation silently filters absent names and excludes a selected name equal to the index name, even if that name also exists as a column. It preserves the physical index. An empty configured list returns before assigning `output`; it is not an all-columns shortcut. If every requested name is filtered out, the result can have no ordinary columns.
+The node selects ordinary columns in the requested order, including a column that shares its name with the index. Missing and index-only names are skipped. The physical index is preserved. An empty configured list returns before assigning `output`; a non-empty list with no matching columns produces an output with zero columns.
 
 ## Examples
 

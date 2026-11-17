@@ -134,7 +134,7 @@ services:
     volumes:
       - mssql_test_data:/var/opt/mssql
     healthcheck:
-        test: ["CMD-SHELL", "sqlcmd -S localhost -U SA -P 'Str0ngP@ss!' -Q 'SELECT 1'"]
+        test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'Str0ngP@ss!' -Q 'SELECT 1'"]
         interval: 5s
         timeout: 5s
         retries: 5
@@ -204,13 +204,34 @@ services:
     build:
       context: .
       dockerfile: services/task_benchmarking/docker/dev.Dockerfile
+      additional_contexts:
+        dvt_deps_image: "service:deps"
+        dvt_dev_builder_image: "service:dev-builder"
+        dvt_base_image: "service:base"
+        dvt_base_odbc_image: "service:base-odbc"
     image: dvt/task-benchmarking:dev
     container_name: dvt-task-benchmarking
+    env_file:
+      - .env
     environment:
       CLICKHOUSE_TEST_HOST: clickhouse_test_db
       CLICKHOUSE_TEST_HTTP_PORT: 8123
+      DVT_BENCH_PG_HOST: postgres_test_db
+      DVT_BENCH_PG_PORT: 5432
+      DVT_BENCH_CH_HOST: clickhouse_test_db
+      DVT_BENCH_CH_PORT: 8123
+      DVT_BENCH_MSSQL_HOST: mssql_test_db
+      DVT_BENCH_MSSQL_PORT: 1433
+      DVT_BENCH_MYSQL_HOST: mysql_test_db
+      DVT_BENCH_MYSQL_PORT: 3306
+    mem_limit: ${DVT_BENCH_MEM_LIMIT:-8g}
     volumes:
       - ./tmp:/app/tmp
+    networks:
+      # postgres_test_db / mssql_test_db are on the project default network,
+      # clickhouse_test_db only on dvt-net.
+      - default
+      - dvt-net
 
 volumes:
   postgres_test_data:

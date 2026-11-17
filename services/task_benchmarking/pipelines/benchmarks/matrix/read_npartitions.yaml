@@ -1,0 +1,24 @@
+# ReadTableFromDBV3 npartitions sweep on the PostgreSQL 5M-row full read (seed bench_wide_5m first).
+# Run from the repository root (case paths are relative to it):
+#   python -m services.task_benchmarking.main \
+#     --pipeline services/task_benchmarking/pipelines/benchmarks/read/postgres/full_5m.json \
+#     --matrix services/task_benchmarking/pipelines/benchmarks/matrix/read_npartitions.yaml
+pipelines:
+  - path: services/task_benchmarking/pipelines/benchmarks/read/postgres/full_5m.json
+    name: pg-full-5m
+cases:
+  - name: pg-full-5m_npartitions-16
+    pipeline_name: pg-full-5m
+    node_overrides:
+      read:
+        npartitions: 16
+  - name: pg-full-5m_npartitions-64
+    pipeline_name: pg-full-5m
+    node_overrides:
+      read:
+        npartitions: 64
+  - name: pg-full-5m_npartitions-256
+    pipeline_name: pg-full-5m
+    node_overrides:
+      read:
+        npartitions: 256

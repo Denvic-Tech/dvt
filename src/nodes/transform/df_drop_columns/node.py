@@ -3,6 +3,7 @@ from typing import List
 from dask import dataframe as dd
 
 from core.utils import INTERNAL_DVT_PARTITION_INDEX_NAME, is_internal_dvt_name
+from core.utils.dataframe_index import available_index_name, carry_physical_index
 
 from src.logger import logger
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
@@ -36,9 +37,8 @@ class DataFrameDropColumns(DFOutputBaseNode):
         # errors='ignore' позволяет не падать, если колонка уже отсутствует
         result = self.df.drop(columns=self.columns, errors='ignore')
 
-        # Read DB V3 intentionally exposes partition_col both as an ordinary business column
-        # and as the physical Dask index. Once the user explicitly drops that business field,
-        # keep the physical index/divisions for performance but hide its old business identity.
+        # Legacy frames can expose a field as both a column and a named index. Hide its
+        # old business identity after projection, while preserving the physical divisions.
         # Dask DataFrame currently has a single logical index level in this path.
         index_name = self.df.index.name
         if (
@@ -46,7 +46,9 @@ class DataFrameDropColumns(DFOutputBaseNode):
             and index_name in self.columns
             and not is_internal_dvt_name(index_name)
         ):
-            result = result.rename_axis(INTERNAL_DVT_PARTITION_INDEX_NAME)
+            result = result.rename_axis(
+                available_index_name(INTERNAL_DVT_PARTITION_INDEX_NAME, result.columns)
+            )
 
-        self.output = result
+        self.output = carry_physical_index(self.df, result)
         logger.info(f"Columns after drop: {self.output.columns}")

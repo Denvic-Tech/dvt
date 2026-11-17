@@ -2,8 +2,11 @@ from typing import Dict, Optional
 
 from dask import dataframe as dd
 
-from src.node_dsl import DFOutputBaseNode, InputField, OutputField
+from core.utils import is_internal_dvt_name
+from core.utils.dataframe_index import carry_physical_index
+
 from src.logger import logger
+from src.node_dsl import DFOutputBaseNode, InputField, OutputField
 
 
 class DataFrameRenameColumns(DFOutputBaseNode):
@@ -39,11 +42,15 @@ class DataFrameRenameColumns(DFOutputBaseNode):
         result = self.df
 
         index_name = result.index.name
-        if index_name is not None and index_name in self.mapping:
+        if (
+            index_name is not None
+            and not is_internal_dvt_name(index_name)
+            and index_name in self.mapping
+        ):
             new_index_name = self.mapping[index_name]
             result = result.rename_axis(new_index_name)
 
         logger.info(f"Renaming columns: {self.mapping}")
         result = result.rename(columns=self.mapping)
 
-        self.output = result
+        self.output = carry_physical_index(self.df, result, rename=self.mapping)

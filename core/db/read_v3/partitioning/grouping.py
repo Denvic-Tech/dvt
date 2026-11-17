@@ -24,6 +24,21 @@ class GroupingBuildResult:
     divisions: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class _GroupPlan:
+    """One grouping segment before index assignment; ``expected_rows`` is an exact count."""
+
+    label: str
+    predicate_sql: str
+    expected_rows: int | None
+    is_null: bool = False
+    is_single_value: bool = False
+
+
+# Oversized groups at most this many per reason are listed in a planning error.
+_MAX_REPORTED_GROUPS = 5
+
+
 def _wrap_cte(cte_prefix_sql: Optional[str], sql: str) -> str:
     if cte_prefix_sql:
         return f"{cte_prefix_sql} {sql}"
@@ -228,6 +243,106 @@ def _render_segment_predicate(
     return "1 = 1"
 
 
+def _split_bucket_count(rows: int, max_rows_per_partition: int) -> int:
+    # Sub-segments target 80% of the ceiling so hash non-uniformity stays below it.
+    target_rows = max(1, max_rows_per_partition * 4 // 5)
+    return -(-rows // target_rows)
+
+
+def _oversized_groups_error(
+    *,
+    mode: str,
+    problems: list[tuple[_GroupPlan, str]],
+    max_rows_per_partition: int,
+) -> ReadV3PlanningError:
+    groups_by_reason: dict[str, list[_GroupPlan]] = {}
+    for group, reason in problems:
+        groups_by_reason.setdefault(reason, []).append(group)
+
+    details: list[str] = []
+    for reason, groups in groups_by_reason.items():
+        listed = ", ".join(
+            f"{group.label!r} with {group.expected_rows} rows"
+            for group in groups[:_MAX_REPORTED_GROUPS]
+        )
+        if len(groups) > _MAX_REPORTED_GROUPS:
+            listed += f" and {len(groups) - _MAX_REPORTED_GROUPS} more"
+        details.append(f"{listed} ({reason})")
+
+    return ReadV3PlanningError(
+        f"partition_grouping mode={mode!r} produced segments above "
+        f"max_rows_per_partition={max_rows_per_partition} that cannot be split: "
+        f"{'; '.join(details)}. Raise max_rows_per_partition, use a finer partition_grouping "
+        "or another partition_col."
+    )
+
+
+def _split_oversized_groups(
+    groups: list[_GroupPlan],
+    *,
+    mode: str,
+    dialect: SQLDialect,
+    key_sql: str,
+    max_rows_per_partition: int,
+    max_partitions: int,
+) -> list[_GroupPlan]:
+    """Replace each group above the ceiling by key-hash sub-groups, or fail planning."""
+    problems: list[tuple[int, _GroupPlan, str]] = []
+    splits: dict[int, tuple[int, str]] = {}
+    for position, group in enumerate(groups):
+        rows = group.expected_rows
+        if rows is None or rows <= max_rows_per_partition:
+            continue
+        if group.is_null:
+            problems.append((position, group, "NULL keys all hash into one bucket"))
+            continue
+        if group.is_single_value:
+            problems.append((position, group, "a single key value cannot be spread by hashing"))
+            continue
+        buckets = _split_bucket_count(rows, max_rows_per_partition)
+        try:
+            hash_sql = dialect.hash_expr(key_sql, buckets)
+        except NotImplementedError:
+            problems.append(
+                (position, group, f"dialect {dialect.name!r} has no hash expression to split it")
+            )
+            continue
+        splits[position] = (buckets, hash_sql)
+
+    segment_count = len(groups) + sum(buckets - 1 for buckets, _ in splits.values())
+    if splits and segment_count > max_partitions:
+        reason = (
+            f"splitting by key hash needs {segment_count} segments, "
+            f"above max_partitions={max_partitions}"
+        )
+        problems.extend((position, groups[position], reason) for position in splits)
+    if problems:
+        problems.sort(key=lambda problem: problem[0])
+        raise _oversized_groups_error(
+            mode=mode,
+            problems=[(group, reason) for _, group, reason in problems],
+            max_rows_per_partition=max_rows_per_partition,
+        )
+
+    expanded: list[_GroupPlan] = []
+    for position, group in enumerate(groups):
+        split = splits.get(position)
+        if split is None:
+            expanded.append(group)
+            continue
+        buckets, hash_sql = split
+        sub_rows = -(-int(group.expected_rows or 0) // buckets)
+        expanded.extend(
+            _GroupPlan(
+                label=f"{group.label}#{bucket}/{buckets}",
+                predicate_sql=f"({group.predicate_sql}) AND {hash_sql} = {bucket}",
+                expected_rows=sub_rows,
+            )
+            for bucket in range(buckets)
+        )
+    return expanded
+
+
 def build_grouping_segments(
     *,
     engine: Engine,
@@ -242,6 +357,8 @@ def build_grouping_segments(
     npartitions: int,
     limit: Optional[int],
     partition_granularity: Optional[str],
+    max_rows_per_partition: int,
+    max_partitions: int,
 ) -> GroupingBuildResult:
     try:
         grouping_spec = GroupingSpec.parse(partition_grouping)
@@ -297,21 +414,44 @@ def build_grouping_segments(
             f"partition_grouping mode={grouping_spec.mode!r} produced no segments"
         )
 
-    segments: list[ReadSegment] = []
-    for idx, legacy_segment in enumerate(legacy_segments):
-        predicate_sql = _render_segment_predicate(
-            segment=legacy_segment,
-            key_sql=key_sql,
-            dialect=dialect,
+    groups = [
+        _GroupPlan(
+            label=legacy_segment.label or f"group_{idx}",
+            predicate_sql=_render_segment_predicate(
+                segment=legacy_segment,
+                key_sql=key_sql,
+                dialect=dialect,
+            ),
+            expected_rows=legacy_segment.count,
+            is_null=legacy_segment.is_null,
+            # A group on the raw key with one included value holds a single key value.
+            is_single_value=(
+                legacy_segment.value_expr is None
+                and legacy_segment.include_values is not None
+                and len(legacy_segment.include_values) == 1
+            ),
         )
+        for idx, legacy_segment in enumerate(legacy_segments)
+    ]
+    groups = _split_oversized_groups(
+        groups,
+        mode=grouping_spec.mode,
+        dialect=dialect,
+        key_sql=key_sql,
+        max_rows_per_partition=max_rows_per_partition,
+        max_partitions=max_partitions,
+    )
+
+    segments: list[ReadSegment] = []
+    for idx, group in enumerate(groups):
         segments.append(
             ReadSegment(
-                label=legacy_segment.label or f"group_{idx}",
-                predicate_sql=predicate_sql,
+                label=group.label,
+                predicate_sql=group.predicate_sql,
                 order_by_sql=f"ORDER BY {key_sql} ASC",
                 division=SegmentDivision(start=idx, end=idx + 1, include_end=True),
                 strategy=PartitionStrategy.HASH,
-                expected_rows=legacy_segment.count,
+                expected_rows=group.expected_rows,
                 bucket_start=idx,
                 bucket_end=idx + 1,
                 index_literal=idx,

@@ -1,3 +1,50 @@
-from .use_cases import BuildSchema
+from .exceptions import DataCatalogFlowError, ProjectionRebuildFailedError
+from .providers import ProjectionFreshnessProvider
+from .use_cases import (
+    BuildSchema,
+    ConfirmFieldRename,
+    ExplainField,
+    GetDataset,
+    GetDatasetUsage,
+    GetFieldDependents,
+    GetNodeFields,
+    GetProjectColumns,
+    OnProjectVariablesChanged,
+    ProjectRebuildRunner,
+    RebuildProjectCatalogProjection,
+    RebuildProjectLineage,
+    ReconcileCatalogProjections,
+    RecordObservedPortSchemas,
+    RecordObservedSchema,
+    RefreshDatasetSchema,
+    SearchDatasets,
+    SetDatasetDescriptions,
+    SetNodeColumnDescriptions,
+    SyncDatasetSchema,
+)
 
-__all__ = ["BuildSchema"]
+__all__ = [
+    "BuildSchema",
+    "ConfirmFieldRename",
+    "DataCatalogFlowError",
+    "ExplainField",
+    "GetDataset",
+    "GetDatasetUsage",
+    "GetFieldDependents",
+    "GetNodeFields",
+    "GetProjectColumns",
+    "OnProjectVariablesChanged",
+    "ProjectRebuildRunner",
+    "ProjectionFreshnessProvider",
+    "ProjectionRebuildFailedError",
+    "RebuildProjectCatalogProjection",
+    "RebuildProjectLineage",
+    "ReconcileCatalogProjections",
+    "RecordObservedPortSchemas",
+    "RecordObservedSchema",
+    "RefreshDatasetSchema",
+    "SearchDatasets",
+    "SetDatasetDescriptions",
+    "SetNodeColumnDescriptions",
+    "SyncDatasetSchema",
+]

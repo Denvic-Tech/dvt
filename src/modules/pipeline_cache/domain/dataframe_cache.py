@@ -6,7 +6,9 @@ from enum import StrEnum
 from time import time
 from typing import Any
 
-DATAFRAME_CACHE_FORMAT_VERSION = 3
+from core.types.dataframe_index import PhysicalDataFrameIndex
+
+DATAFRAME_CACHE_FORMAT_VERSION = 4
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -82,6 +84,7 @@ class DataFrameCacheManifest:
     divisions: tuple[Any, ...] | None
     created_at: float
     state: CacheGenerationState
+    physical_index: PhysicalDataFrameIndex | None = None
 
     @classmethod
     def writing(
@@ -97,6 +100,7 @@ class DataFrameCacheManifest:
         npartitions: int,
         known_divisions: bool,
         divisions: tuple[Any, ...] | None,
+        physical_index: PhysicalDataFrameIndex | None = None,
     ) -> DataFrameCacheManifest:
         return cls(
             format_version=DATAFRAME_CACHE_FORMAT_VERSION,
@@ -114,6 +118,7 @@ class DataFrameCacheManifest:
             divisions=divisions,
             created_at=time(),
             state=CacheGenerationState.WRITING,
+            physical_index=physical_index,
         )
 
     def ready(self, partitions: tuple[DataFramePartitionDescriptor, ...]) -> DataFrameCacheManifest:

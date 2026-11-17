@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import pandas as pd
@@ -88,7 +88,7 @@ def _estimate_from_dataframe(df: pd.DataFrame, *, safety_coef: float) -> int | N
     return _with_safety(raw_bpr, safety_coef=safety_coef)
 
 
-def _finalize_estimate(
+def finalize_partition_estimate(
     *,
     dialect_name: str,
     bytes_per_row_est: int,
@@ -218,20 +218,26 @@ def _table_bytes_and_rows(
     return total_rows_int * DEFAULT_VARCHAR_BYTES, total_rows_int
 
 
-def _column_avg_bytes_from_metadata(  # noqa: PLR0911
+def _column_avg_bytes_from_metadata(
     engine: Engine,
-    dialect_name: str,
+    dialect: SQLDialect,
     table_name: str,
     schema: str | None,
 ) -> dict[str, float] | None:
+    dialect_name = dialect.name.lower()
     if dialect_name == "clickhouse":
+        # column_data_uncompressed_bytes is the column's own size; data_uncompressed_bytes in
+        # system.parts_columns is the whole part repeated on every column row. Compact parts
+        # report 0 for every column, so only Wide parts give per-column widths.
         with engine.connect() as conn:
             rows = conn.execute(
                 sa.text(
                     """
-                    SELECT column, sum(data_uncompressed_bytes) AS uncompressed_bytes, sum(rows) AS r
+                    SELECT column,
+                           sum(column_data_uncompressed_bytes) AS uncompressed_bytes,
+                           sum(rows) AS r
                     FROM system.parts_columns
-                    WHERE database = :db AND table = :tbl AND active = 1
+                    WHERE database = :db AND table = :tbl AND active = 1 AND part_type = 'Wide'
                     GROUP BY column
                     """
                 ),
@@ -247,21 +253,27 @@ def _column_avg_bytes_from_metadata(  # noqa: PLR0911
         return result or None
 
     if dialect_name == "postgresql":
-        full_name = f"{schema}.{table_name}" if schema else table_name
+        # ANALYZE widths of the table that the quoted name resolves to (search_path included);
+        # inherited rows describe a parent together with its children, which a read returns.
         with engine.connect() as conn:
             rows = conn.execute(
                 sa.text(
                     """
-                    SELECT attname AS column, avg_width
-                    FROM pg_stats
-                    WHERE (schemaname || '.' || tablename) = :fq
+                    SELECT s.attname AS column_name, s.avg_width
+                    FROM pg_catalog.pg_stats s
+                    JOIN pg_catalog.pg_class c ON c.oid = CAST(:fq AS regclass)
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                    WHERE s.schemaname = n.nspname AND s.tablename = c.relname
+                    ORDER BY s.attname, s.inherited DESC
                     """
                 ),
-                {"fq": full_name},
+                {"fq": dialect.full_table_name(table_name, schema)},
             ).fetchall()
-        if not rows:
-            return None
-        return {str(row.column): float(row.avg_width) for row in rows if row.avg_width is not None}
+        widths: dict[str, float] = {}
+        for row in rows:
+            if row.avg_width is not None:
+                widths.setdefault(str(row.column_name), float(row.avg_width))
+        return widths or None
 
     if dialect_name == "oracle":
         with engine.connect() as conn:
@@ -307,14 +319,17 @@ def _sample_query_rows(
     relation_sql: str,
     selected_sql_columns: Sequence[str],
     sample_rows: int,
+    query_df: Callable[[str], pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     columns_sql = ", ".join(dialect.quote_result_column(column) for column in selected_sql_columns)
     base_sql = f"{cte_prefix_sql} SELECT {columns_sql} {relation_sql}".strip()
     sample_sql = dialect.cap_rows_sql(base_sql, sample_rows)
+    if query_df is not None:
+        return query_df(sample_sql)
     return read_sql_df(engine, sample_sql)
 
 
-def estimate_table_partitions(
+def estimate_table_bytes_per_row(
     *,
     engine: Engine,
     dialect: SQLDialect,
@@ -322,19 +337,18 @@ def estimate_table_partitions(
     schema: str | None,
     selected_columns: Sequence[str],
     columns_info: Sequence[dict[str, object]],
-    effective_rows_est: int,
-    min_rows_per_part: int,
-    target_partition_mem_mb: int,
-    partitioning_overhead_coef: float,
-    max_partitions: int,
-) -> AutoPartitionEstimate:
+) -> int:
+    """Estimated in-memory bytes per row of the selected table columns.
+
+    Sources in order: catalog column widths (ClickHouse uncompressed bytes of Wide parts,
+    PostgreSQL ``pg_stats.avg_width``, Oracle ``AVG_COL_LEN``), a sample of rows, type heuristics.
+    """
     column_info_by_name = {str(column["name"]): column for column in columns_info}
     all_columns = [str(column["name"]) for column in columns_info]
-    dialect_name = dialect.name.lower()
 
     bytes_per_row_est: int | None = None
     try:
-        avg_bytes = _column_avg_bytes_from_metadata(engine, dialect_name, table_name, schema)
+        avg_bytes = _column_avg_bytes_from_metadata(engine, dialect, table_name, schema)
     except Exception:
         avg_bytes = None
     if avg_bytes:
@@ -402,9 +416,33 @@ def estimate_table_partitions(
             heuristic_total or 1024.0,
             safety_coef=TABLE_BPR_SAFETY_COEF,
         )
+    return bytes_per_row_est
 
-    return _finalize_estimate(
-        dialect_name=dialect_name,
+
+def estimate_table_partitions(
+    *,
+    engine: Engine,
+    dialect: SQLDialect,
+    table_name: str,
+    schema: str | None,
+    selected_columns: Sequence[str],
+    columns_info: Sequence[dict[str, object]],
+    effective_rows_est: int,
+    min_rows_per_part: int,
+    target_partition_mem_mb: int,
+    partitioning_overhead_coef: float,
+    max_partitions: int,
+) -> AutoPartitionEstimate:
+    bytes_per_row_est = estimate_table_bytes_per_row(
+        engine=engine,
+        dialect=dialect,
+        table_name=table_name,
+        schema=schema,
+        selected_columns=selected_columns,
+        columns_info=columns_info,
+    )
+    return finalize_partition_estimate(
+        dialect_name=dialect.name.lower(),
         bytes_per_row_est=bytes_per_row_est,
         effective_rows_est=effective_rows_est,
         min_rows_per_part=min_rows_per_part,
@@ -414,20 +452,20 @@ def estimate_table_partitions(
     )
 
 
-def estimate_query_partitions(
+def estimate_query_bytes_per_row(
     *,
     engine: Engine,
     dialect: SQLDialect,
     cte_prefix_sql: str,
     relation_sql: str,
     selected_sql_columns: Sequence[str],
-    effective_rows_est: int,
     output_column_type_repr: dict[str, str],
-    min_rows_per_part: int,
-    target_partition_mem_mb: int,
-    partitioning_overhead_coef: float,
-    max_partitions: int,
-) -> AutoPartitionEstimate:
+    query_df: Callable[[str], pd.DataFrame] | None = None,
+) -> int:
+    """Estimated in-memory bytes per row of the selected query result columns.
+
+    ``query_df`` runs the sample query instead of ``read_sql_df`` (e.g. in a read-only session).
+    """
     bytes_per_row_est: int | None = None
     if selected_sql_columns:
         try:
@@ -438,6 +476,7 @@ def estimate_query_partitions(
                 relation_sql=relation_sql,
                 selected_sql_columns=selected_sql_columns,
                 sample_rows=SMART_BPR_SAMPLE_ROWS,
+                query_df=query_df,
             )
         except Exception:
             sample_df = pd.DataFrame()
@@ -454,8 +493,32 @@ def estimate_query_partitions(
             heuristic_total or 1024.0,
             safety_coef=QUERY_BPR_SAFETY_COEF,
         )
+    return bytes_per_row_est
 
-    return _finalize_estimate(
+
+def estimate_query_partitions(
+    *,
+    engine: Engine,
+    dialect: SQLDialect,
+    cte_prefix_sql: str,
+    relation_sql: str,
+    selected_sql_columns: Sequence[str],
+    effective_rows_est: int,
+    output_column_type_repr: dict[str, str],
+    min_rows_per_part: int,
+    target_partition_mem_mb: int,
+    partitioning_overhead_coef: float,
+    max_partitions: int,
+) -> AutoPartitionEstimate:
+    bytes_per_row_est = estimate_query_bytes_per_row(
+        engine=engine,
+        dialect=dialect,
+        cte_prefix_sql=cte_prefix_sql,
+        relation_sql=relation_sql,
+        selected_sql_columns=selected_sql_columns,
+        output_column_type_repr=output_column_type_repr,
+    )
+    return finalize_partition_estimate(
         dialect_name=dialect.name.lower(),
         bytes_per_row_est=bytes_per_row_est,
         effective_rows_est=effective_rows_est,

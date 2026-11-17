@@ -10,7 +10,7 @@ Write typed Parquet files or datasets to storage. Prefer it over CSV when schema
 
 Connect an S3, FTP/SFTP or SMB connection object's `connection` output to `connection`. Set `path` relative to its bucket/prefix, initial directory or share; do not repeat the root or pass credentials. Optional `connection_overrides` supports S3 bucket/prefix/verify and FTP/SFTP initial directory with a matching `type`; SMB overrides are unsupported.
 
-Connect `df`; set `path` and required `mode`: `create`, `overwrite`, `append`. Defaults: `compression="snappy"`, `write_index=false`, `compatibility_mode="new"`. Optional `parquet_types` defines Arrow type contracts. `row_cap` limits rows per file; `partition_on` selects Hive keys; `filename_template` supports `<partition_index>`, `<increment>`, `<uuid>`.
+Connect `df`; set `path` and required `mode`: `create`, `overwrite`, `append`. Defaults: `compression="snappy"`, `write_index=false`, `compatibility_mode="new"`. Optional `parquet_types` defines Arrow type contracts. `sync_column_descriptions` defaults to `true`: Data Catalog descriptions of the input columns are stored in the Arrow field metadata (`description`) and in DVT schema metadata of the written files (new mode only). `row_cap` limits rows per file; `partition_on` selects Hive keys; `filename_template` supports `<partition_index>`, `<increment>`, `<uuid>`.
 
 ## Outputs
 
@@ -18,7 +18,7 @@ Writes physical Parquet output without a DataFrame result port. New mode uses a 
 
 ## Behavior and limitations
 
-Simple layout is chosen without row_cap, partition keys, template or append. Any of those selects advanced layout. Create rejects an existing target; overwrite replaces its contents; append requires an existing compatible dataset. Independent writers to one dataset must be serialized. Overwrite of a detected input-source path is rejected. Legacy mode follows the older Dask dataset layout and append-missing fallback; do not switch compatibility mode without inspecting existing storage.
+Simple layout is chosen without row_cap, partition keys, template or append. Any of those selects advanced layout. Create rejects an existing target; overwrite replaces its contents; append requires an existing compatible dataset. Independent writers to one dataset must be serialized. Overwrite of a detected input-source path is rejected. Legacy mode follows the older Dask dataset layout and append-missing fallback; do not switch compatibility mode without inspecting existing storage. Legacy mode does not store column descriptions. Descriptions do not affect append compatibility checks, so a dataset written before descriptions existed accepts new parts with them.
 
 ## Examples
 

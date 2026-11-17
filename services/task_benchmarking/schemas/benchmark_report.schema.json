@@ -7,8 +7,31 @@
     "schema_version",
     "run_id",
     "mode",
-    "pipeline_path",
     "status"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "matrix"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "cases"
+        ]
+      },
+      "else": {
+        "required": [
+          "pipeline_path"
+        ]
+      }
+    }
   ],
   "properties": {
     "schema_version": {
@@ -40,7 +63,7 @@
       ]
     },
     "report": {
-      "type": "object"
+      "$ref": "#/$defs/taskReport"
     },
     "repeat": {
       "type": "integer",
@@ -88,7 +111,7 @@
             "type": "integer"
           },
           "report": {
-            "type": "object"
+            "$ref": "#/$defs/taskReport"
           }
         },
         "additionalProperties": true
@@ -96,7 +119,231 @@
     },
     "validation": {
       "type": "object"
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "case",
+          "pipeline",
+          "status",
+          "report_json"
+        ],
+        "properties": {
+          "case": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pipeline": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pipeline_format": {
+            "type": "string"
+          },
+          "overrides": {
+            "type": "object"
+          },
+          "node_overrides": {
+            "type": "object"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ]
+          },
+          "report_json": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$defs": {
+    "nullableBytes": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "taskReport": {
+      "type": "object",
+      "required": [
+        "task_id",
+        "project_id",
+        "status",
+        "duration_s",
+        "rows_total",
+        "cpu_user_s",
+        "cpu_system_s",
+        "cgroup_memory_peak_bytes",
+        "overall",
+        "nodes",
+        "metadata_metrics"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "duration_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rows_total": {
+          "description": "Sum of the rows metric over sink (OUTPUT_NODE) nodes; null when none reported rows.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cpu_user_s": {
+          "description": "User CPU time of the benchmark process between task start and end.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cpu_system_s": {
+          "description": "System CPU time of the benchmark process between task start and end.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cgroup_memory_peak_bytes": {
+          "description": "Container cgroup peak memory (v2 memory.peak or v1 max_usage_in_bytes); null when unreadable.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "overall": {
+          "type": "object",
+          "properties": {
+            "rss_start_bytes": {
+              "$ref": "#/$defs/nullableBytes"
+            },
+            "rss_end_bytes": {
+              "$ref": "#/$defs/nullableBytes"
+            },
+            "rss_peak_bytes": {
+              "$ref": "#/$defs/nullableBytes"
+            },
+            "rss_delta_bytes": {
+              "$ref": "#/$defs/nullableBytes"
+            }
+          },
+          "additionalProperties": true
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nodeReport"
+          }
+        },
+        "metadata_metrics": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "nodeReport": {
+      "type": "object",
+      "required": [
+        "node_id",
+        "node_name",
+        "status",
+        "duration_s",
+        "rows_per_s",
+        "metrics"
+      ],
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "node_name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "success",
+            "error",
+            "skipped",
+            "not_executed"
+          ]
+        },
+        "duration_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rows_per_s": {
+          "description": "metrics.rows divided by duration_s; null without both.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rss_start_bytes": {
+          "$ref": "#/$defs/nullableBytes"
+        },
+        "rss_end_bytes": {
+          "$ref": "#/$defs/nullableBytes"
+        },
+        "rss_peak_bytes": {
+          "$ref": "#/$defs/nullableBytes"
+        },
+        "rss_delta_bytes": {
+          "$ref": "#/$defs/nullableBytes"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metrics": {
+          "description": "Node-reported metrics (rows, mode, num_workers, pandas_bytes, table_action, ...).",
+          "type": "object",
+          "properties": {
+            "rows": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  }
 }

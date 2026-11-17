@@ -2048,7 +2048,7 @@
                 "chunksize": {
                     "display_name": "chunksize",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Строк в одном INSERT; пусто = значение по умолчанию для БД (ClickHouse 100000, остальные 1000)."
                 },
                 "upsert_config": {
                     "display_name": "настройка_upsert",
@@ -2135,7 +2135,17 @@
                 "chunksize": {
                     "display_name": "chunksize",
                     "display_type": "INT",
-                    "description": null
+                    "description": "Устарел и не используется: размер пакета выбирается автоматически; чтобы задать его, используйте rows_per_batch."
+                },
+                "rows_per_batch": {
+                    "display_name": "rows_per_batch",
+                    "display_type": "INT",
+                    "description": "Строк в одном пакете (INSERT в ClickHouse, CSV-буфер PostgreSQL COPY, вызов executemany в SQL Server и MySQL, остальные INSERT); пусто = автоматический размер по ширине строки (1000 строк для остальных INSERT)."
+                },
+                "async_insert": {
+                    "display_name": "async_insert",
+                    "display_type": "BOOLEAN",
+                    "description": "Только ClickHouse: использовать серверные асинхронные вставки (другие БД игнорируют параметр)."
                 },
                 "upsert_config": {
                     "display_name": "настройка_upsert",
@@ -3232,6 +3242,11 @@
                     "display_name": "макс_строк_на_партицию",
                     "display_type": "INT",
                     "description": null
+                },
+                "max_concurrent_queries": {
+                    "display_name": "макс_параллельных_запросов",
+                    "display_type": "INT",
+                    "description": "Число одновременно выполняемых запросов партиций этой ноды; если не задано, используется значение по умолчанию."
                 }
             },
             "output_definitions": {
@@ -3485,7 +3500,12 @@
                 "max_rows_per_partition": {
                     "display_name": "макс_строк_на_партицию",
                     "display_type": "INT",
-                    "description": "Предел строк одного сегмента; превышение завершает чтение ошибкой."
+                    "description": "Предел строк одного сегмента; большие пользовательские группы делятся по hash ключа, иначе превышение завершает чтение ошибкой."
+                },
+                "max_concurrent_queries": {
+                    "display_name": "макс_параллельных_запросов",
+                    "display_type": "INT",
+                    "description": "Число одновременно выполняемых запросов партиций этой ноды; если не задано, используется значение по умолчанию."
                 }
             },
             "output_definitions": {

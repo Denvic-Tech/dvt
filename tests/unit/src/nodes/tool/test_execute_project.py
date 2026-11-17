@@ -12,6 +12,7 @@ from src.node_dsl import IO, NodeValidationError
 from src.node_dsl.variables import VariableOutput
 from src.nodes.tool.execute_project import node as execute_project_module
 from src.nodes.tool.execute_project import ExecuteProject
+from src.schemas.internal.project_variables import ProjectVariables
 from src.pipeline.execution_mode import PipelineExecutionMode
 
 
@@ -388,3 +389,103 @@ async def test_execute_project_metadata_mode_does_not_compute_dataframe():
     await node.process()
 
     assert node.signal_out is True
+
+
+def _install_enqueue_stub(monkeypatch) -> list[dict]:
+    enqueue_calls: list[dict] = []
+
+    async def fake_enqueue_project_task_for_node(**kwargs):
+        enqueue_calls.append(kwargs)
+        return SimpleNamespace(task_id=f"child-task-{len(enqueue_calls)}")
+
+    monkeypatch.setattr(
+        execute_project_module,
+        "enqueue_project_task_for_node",
+        fake_enqueue_project_task_for_node,
+    )
+    return enqueue_calls
+
+
+_PARENT_PROJECT_VARIABLES = ProjectVariables(
+    variables={
+        "region": {"type": IO.STRING, "value": "north", "is_list_type": False},
+        "limit": {"type": IO.INT, "value": 10, "is_list_type": False},
+        "tags": {"type": IO.STRING, "value": ["a", "b"], "is_list_type": True},
+    }
+)
+
+
+@pytest.mark.asyncio
+async def test_execute_project_forwards_parent_project_variables_by_default(monkeypatch):
+    enqueue_calls = _install_enqueue_stub(monkeypatch)
+
+    node = ExecuteProject(
+        user_id="user-1",
+        project_id="parent-project-1",
+        task_id="parent-task-1",
+        node_id="node-1",
+        target_project_id="child-project-1",
+        project_variables=_PARENT_PROJECT_VARIABLES,
+        input_variables={
+            "limit": VariableOutput(name="limit", type=IO.INT, value=99),
+            "extra": VariableOutput(name="extra", type=IO.STRING, value="linked"),
+        },
+    )
+
+    await node.process()
+
+    assert len(enqueue_calls) == 1
+    assert enqueue_calls[0]["variables"] == {
+        "region": VariableOutput(name="region", type=IO.STRING, value="north"),
+        "limit": VariableOutput(name="limit", type=IO.INT, value=99),
+        "tags": VariableOutput(
+            name="tags", type=IO.STRING, value=["a", "b"], is_list_type=True
+        ),
+        "extra": VariableOutput(name="extra", type=IO.STRING, value="linked"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_execute_project_skips_parent_project_variables_when_policy_skip(monkeypatch):
+    enqueue_calls = _install_enqueue_stub(monkeypatch)
+
+    node = ExecuteProject(
+        user_id="user-1",
+        project_id="parent-project-1",
+        task_id="parent-task-1",
+        node_id="node-1",
+        target_project_id="child-project-1",
+        project_variables=_PARENT_PROJECT_VARIABLES,
+        project_variables_policy="skip",
+        input_variables={
+            "extra": VariableOutput(name="extra", type=IO.STRING, value="linked"),
+        },
+    )
+
+    await node.process()
+
+    assert enqueue_calls[0]["variables"] == {
+        "extra": VariableOutput(name="extra", type=IO.STRING, value="linked"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_execute_project_without_project_variables_forwards_only_inputs(monkeypatch):
+    enqueue_calls = _install_enqueue_stub(monkeypatch)
+
+    node = ExecuteProject(
+        user_id="user-1",
+        project_id="parent-project-1",
+        task_id="parent-task-1",
+        node_id="node-1",
+        target_project_id="child-project-1",
+        input_variables={
+            "extra": VariableOutput(name="extra", type=IO.STRING, value="linked"),
+        },
+    )
+
+    await node.process()
+
+    assert enqueue_calls[0]["variables"] == {
+        "extra": VariableOutput(name="extra", type=IO.STRING, value="linked"),
+    }

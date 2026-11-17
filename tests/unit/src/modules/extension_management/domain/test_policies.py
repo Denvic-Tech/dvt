@@ -1,4 +1,8 @@
+from dataclasses import replace
+
 import pytest
+
+from src.modules.extension_management.domain.catalog import CatalogRelease, RuntimeTarget
 
 from src.modules.extension_management.domain.policies import (
     extension_readiness_reasons,
@@ -29,20 +33,21 @@ def test_is_dvt_version_compatible_supports_prerelease_runtime() -> None:
     )
 
 
-def test_filter_compatible_versions_respects_prod_channel() -> None:
+def test_filter_compatible_versions_checks_runtime_and_keeps_rc() -> None:
+    target = RuntimeTarget("linux", "x86_64", "3.13", "CPython")
+    stable = CatalogRelease("1.5.0", "stable", ">=1.0.0", target, 1, "a" * 64, "https://example")
+    rc = replace(stable, version="2.0.0rc1", channel="rc")
     versions = [
-        {"version": "2.0.0rc1", "dvt_version": ">=1.0.0"},
-        {"version": "1.5.0", "dvt_version": ">=1.0.0,<2.0.0"},
-        {"version": "1.4.0", "dvt_version": ">=2.0.0"},
+        stable,
+        replace(stable, version="3.0.0", dvt_version=">=2.0.0"),
+        replace(stable, version="4.0.0", target=replace(target, os="windows")),
+        replace(stable, version="5.0.0", dvt_version="not-a-specifier"),
+        rc,
     ]
 
-    result = filter_compatible_versions(
-        versions,
-        current_dvt_version="1.22.0",
-        channel="prod",
-    )
+    result = filter_compatible_versions(versions, current_dvt_version="1.22.0", target=target)
 
-    assert [item["version"] for item in result] == ["1.5.0"]
+    assert result == [rc, stable]
 
 
 def test_readiness_reasons_are_composable() -> None:

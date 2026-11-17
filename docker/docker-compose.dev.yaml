@@ -5,6 +5,15 @@ x-default-logging: &default-logging
       max-size: "${DVT_DOCKER_LOG_MAX_SIZE:-100m}"
       max-file: "${DVT_DOCKER_LOG_MAX_FILE:-5}"
 
+x-gateway-dev-build: &gateway-dev-build
+  context: .
+  dockerfile: services/gateway/docker/dev.Dockerfile
+  additional_contexts:
+    dvt_deps_image: "service:deps"
+    dvt_dev_builder_image: "service:dev-builder"
+    dvt_base_image: "service:base"
+    dvt_base_odbc_image: "service:base-odbc"
+
 services:
   postgres:
     <<: *default-logging
@@ -18,6 +27,11 @@ services:
       - "15433:5432"
     volumes:
       - ${PG_DATA_VOLUME_PATH:-pg-data}:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\"" ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
     restart: unless-stopped
     networks:
       - dvt-net
@@ -98,8 +112,8 @@ services:
       GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
       GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
     depends_on:
-      postgres:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
     restart: unless-stopped
@@ -150,6 +164,8 @@ services:
       CELERY_VISIBILITY_TIMEOUT_SEC: ${DVT_CELERY_VISIBILITY_TIMEOUT_SEC:-28800}
 
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
       orchestrator:
@@ -175,8 +191,8 @@ services:
     ports:
       - "8002:8000"
     depends_on:
-      postgres:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
     restart: unless-stopped
@@ -239,17 +255,32 @@ services:
     networks:
       - dvt-net
 
+  migrate:
+    <<: *default-logging
+    image: dvt/gateway-dev:latest
+    build: *gateway-dev-build
+    command: [ "python3", "-m", "services.gateway.migrate" ]
+    env_file: .env
+    environment:
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      EXTENSIONS_DATA_DIR: ./extensions
+    volumes:
+      - ${EXTENSIONS_VOLUME_PATH:-./extensions}:/app/extensions
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - dvt-net
+
   gateway:
     <<: *default-logging
     image: dvt/gateway-dev:latest
-    build:
-      context: .
-      dockerfile: services/gateway/docker/dev.Dockerfile
-      additional_contexts:
-        dvt_deps_image: "service:deps"
-        dvt_dev_builder_image: "service:dev-builder"
-        dvt_base_image: "service:base"
-        dvt_base_odbc_image: "service:base-odbc"
+    build: *gateway-dev-build
     container_name: dvt-gateway
     ports:
       - "8001:8000"
@@ -309,8 +340,8 @@ services:
       start_period: 60s
     
     depends_on:
-      postgres:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
 
@@ -331,7 +362,7 @@ services:
     environment:
       DVT_ENVIRONMENT: dev
       DVT_PUBLIC_URL: ${DVT_PUBLIC_URL:-http://localhost}
-      DVT_AI_MCP_GATEWAY_URL: http://gateway:${DVT_GATEWAY_PORT:-8000}
+      DVT_AI_MCP_GATEWAY_URL: http://gateway:${DVT_GATEWAY_INTERNAL_PORT:-8000}
       DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
       DVT_AI_MCP_HOST: 0.0.0.0
       DVT_AI_MCP_PORT: 8000
@@ -339,7 +370,7 @@ services:
       gateway:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()" ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=4).read()" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -407,7 +438,6 @@ volumes:
   pg-data:
   redisinsight-data:
   valkey-data:
-  minio-data:
 
 networks:
   dvt-net:

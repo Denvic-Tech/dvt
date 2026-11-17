@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from src.enums import ExtensionDepsStatus
 from src.logger import logger
+from src.modules.extension_management.domain.catalog import CatalogRelease, stable_upgrade
 from src.modules.extension_management.domain.entities import ExtensionCreate
 from src.modules.extension_management.domain.policies import (
     canonical_extension_name,
@@ -48,7 +50,7 @@ class ExtensionDBManager:
         return extension
 
     async def upsert_extension(
-        self, data: ExtensionCreate, manifest: ExtensionManifest | None = None
+        self, data: ExtensionCreate, manifest: ExtensionManifest | None = None, *, commit: bool = True
     ) -> ExtensionRecord:
         logger.debug(
             f"Upserting extension record name='{data.name}' repository_url='{data.repository_url}'"
@@ -136,6 +138,9 @@ class ExtensionDBManager:
             _apply_update(extension, upd_data)
 
         merged_extension = await self.session.merge(extension)
+        if not commit:
+            await self.session.flush()
+            return merged_extension
         try:
             await self.session.commit()
             await self.session.refresh(merged_extension)
@@ -168,6 +173,7 @@ class ExtensionDBManager:
         *,
         aliases: tuple[str, ...] = (),
         available_versions: list[str] | None = None,
+        commit: bool = True,
     ) -> ExtensionRecord:
         """Atomically merge records that resolve to one canonical package identity."""
         canonical = canonical_extension_name(manifest.name if manifest else data.name)
@@ -201,12 +207,14 @@ class ExtensionDBManager:
                     repository_url=data.repository_url,
                 ),
                 manifest,
+                commit=commit,
             )
             if available_versions is not None:
                 created.available_versions = list(available_versions)
                 self.session.add(created)
-                await self.session.commit()
-                await self.session.refresh(created)
+                if commit:
+                    await self.session.commit()
+                    await self.session.refresh(created)
             return created
 
         def rank(item: ExtensionRecord) -> tuple[int, int, int, int]:
@@ -261,6 +269,7 @@ class ExtensionDBManager:
             )
         elif catalog is not None and catalog is not survivor and catalog.available_versions:
             survivor.available_versions = list(catalog.available_versions)
+            survivor.catalog_releases = catalog.catalog_releases
             survivor.last_version = catalog.last_version or survivor.last_version
 
         if survivor.manifest_json:
@@ -311,9 +320,35 @@ class ExtensionDBManager:
         # Delete a canonical catalog duplicate before renaming the surviving row.
         await self.session.flush()
         survivor.name = canonical
-        await self.session.commit()
-        await self.session.refresh(survivor)
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(survivor)
+        else:
+            await self.session.flush()
         return survivor
+
+    async def apply_catalog_versions(
+        self, snapshots: dict[str, tuple[list[CatalogRelease], str | None]]
+    ) -> None:
+        statement = (
+            sa.select(ExtensionRecord)
+            .order_by(ExtensionRecord.name)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        records = (await self.session.execute(statement)).scalars().all()
+        for record in records:
+            releases, stable = snapshots.get(record.name, ([], None))
+            versions = [release.version for release in releases]
+            metadata = [asdict(release) for release in releases]
+            if record.catalog_releases != metadata:
+                record.catalog_releases = metadata
+            latest = stable_upgrade(stable, record.current_version) or record.current_version
+            if list(record.available_versions or []) != versions:
+                record.available_versions = versions
+            if record.last_version != latest:
+                record.last_version = latest
+        await self.session.commit()
 
     async def set_enabled(self, name: str, enabled: bool) -> ExtensionRecord:
         logger.debug(f"Setting extension '{name}' enabled={enabled}")

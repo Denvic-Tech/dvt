@@ -30,6 +30,7 @@ COPY locales /app/locales
 COPY alembic.ini /app/alembic.ini
 COPY migrations /app/migrations
 
+LABEL tech.denvic.task-admission="1"
 ENV SERVICE_NAME=gateway
 
-CMD bash -c "python3 -m services.gateway.migrate && python3 -m uvicorn --host ${GATEWAY_HOST} --port ${GATEWAY_PORT} services.gateway.main:app"
+CMD ["sh", "-c", "exec python3 -m uvicorn --host \"${GATEWAY_HOST}\" --port \"${GATEWAY_PORT}\" services.gateway.main:app"]

@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pandas as pd
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import text
 
+from core.db.read_v3.dask import frame_from_executor
 from core.db.read_v3.datetime_precision import ReadV3DateTimePrecision
 from core.db.read_v3.embedded_query import normalize_mssql_query_for_embedding
 from core.db.read_v3.dialects.mssql import MssqlDialect
 from core.db.read_v3.dialects.oracle import OracleDialect
-from core.db.read_v3.errors import ReadV3ExecutionError
+from core.db.read_v3.errors import ReadV3ConfigError, ReadV3ExecutionError
 from core.db.read_v3.executors.sql import SQLReadExecutor
 from core.db.read_v3.models import (
     PartitionStrategy,
@@ -90,7 +93,10 @@ def test_executor_raises_when_segment_exceeds_max_rows(tmp_path) -> None:
     )
     executor = resolve_executor(engine)
 
-    with pytest.raises(ReadV3ExecutionError, match="Segment exceeded max_rows_per_partition"):
+    with pytest.raises(
+        ReadV3ExecutionError,
+        match=r"Segment 'range_0' exceeded max_rows_per_partition=5 \(rows_read=6\)",
+    ):
         executor.load_partition(plan, plan.segments[0])
 
 
@@ -951,3 +957,194 @@ def test_dtype_for_index_skips_string_dtype_for_raw_mssql_partition_helper() -> 
     )
 
     assert SQLReadExecutor._dtype_for_index(plan) is None
+
+
+def _probe_concurrent_queries(monkeypatch, executor, *, parties: int) -> dict[str, int]:
+    """Count partition queries inside the runner; the barrier needs `parties` of them at once."""
+    lock = threading.Lock()
+    barrier = threading.Barrier(parties, timeout=10)
+    state = {"active": 0, "peak": 0}
+    real_query_df = executor.sql_runner.query_df
+
+    def _probe(sql: str) -> pd.DataFrame:
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        try:
+            barrier.wait()
+            return real_query_df(sql)
+        finally:
+            with lock:
+                state["active"] -= 1
+
+    monkeypatch.setattr(executor.sql_runner, "query_df", _probe)
+    return state
+
+
+def _eight_segment_plan(tmp_path) -> tuple[sa.Engine, ReadV3Plan]:
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'concurrency.sqlite'}")
+    _seed(engine, rows=32)
+    plan = resolve_planner(mode="table").build_plan(
+        engine=engine,
+        table_name="read_v3_exec_test",
+        columns=["id", "category"],
+        partition_col="id",
+        npartitions=8,
+        max_rows_per_partition=100,
+        **STRICT_PARTITIONING_KWARGS,
+    )
+    assert len(plan.segments) == 8
+    return engine, plan
+
+
+@pytest.mark.parametrize("limit", [1, 2, 4])
+def test_load_partition_limits_concurrent_queries_regardless_of_thread_pool(
+    monkeypatch, tmp_path, limit
+) -> None:
+    engine, plan = _eight_segment_plan(tmp_path)
+    executor = resolve_executor(engine, max_concurrent_queries=limit)
+    meta = executor.build_meta(plan)
+    state = _probe_concurrent_queries(monkeypatch, executor, parties=limit)
+
+    df = frame_from_executor(executor, plan, meta=meta).compute(
+        scheduler="threads", num_workers=8
+    )
+
+    assert len(df) == 32
+    assert state["peak"] == limit
+
+
+def test_load_partition_without_limit_uses_the_whole_thread_pool(monkeypatch, tmp_path) -> None:
+    engine, plan = _eight_segment_plan(tmp_path)
+    executor = resolve_executor(engine)
+    meta = executor.build_meta(plan)
+    state = _probe_concurrent_queries(monkeypatch, executor, parties=8)
+
+    df = frame_from_executor(executor, plan, meta=meta).compute(
+        scheduler="threads", num_workers=8
+    )
+
+    assert len(df) == 32
+    assert state["peak"] == 8
+
+
+def test_query_limit_is_a_no_op_for_the_sync_scheduler(tmp_path) -> None:
+    engine, plan = _eight_segment_plan(tmp_path)
+    executor = resolve_executor(engine, max_concurrent_queries=1)
+
+    df = frame_from_executor(executor, plan).compute(scheduler="sync")
+
+    assert sorted(df["id"].tolist()) == list(range(1, 33))
+
+
+def test_executor_rejects_non_positive_query_limit() -> None:
+    with pytest.raises(ReadV3ConfigError, match="max_concurrent_queries"):
+        SQLReadExecutor(sa.create_engine("sqlite://"), max_concurrent_queries=0)
+
+
+def _decimal_range_plan(
+    *,
+    output_columns: list[str],
+    index_column_name: str,
+    type_repr: str = "Decimal(18, 4)",
+    divisions: tuple = (Decimal("190.6666"), Decimal("381.3333"), Decimal("572.0000")),
+) -> ReadV3Plan:
+    segments = [
+        ReadSegment(
+            label=f"range_{idx}",
+            predicate_sql="1=1",
+            order_by_sql="ORDER BY k ASC",
+            division=SegmentDivision(
+                start=divisions[idx],
+                end=divisions[idx + 1],
+                include_end=idx == len(divisions) - 2,
+            ),
+            strategy=PartitionStrategy.RANGE,
+        )
+        for idx in range(len(divisions) - 1)
+    ]
+    return ReadV3Plan(
+        mode=ReadMode.TABLE,
+        dialect="clickhouse",
+        cte_prefix_sql=None,
+        relation_sql="FROM t",
+        select_exprs=["id", "k"],
+        output_columns=output_columns,
+        partition_key_name="k",
+        partition_key_kind=ValueKind.NUMERIC,
+        strategy=PartitionStrategy.RANGE,
+        segments=segments,
+        divisions=divisions,
+        max_rows_per_partition=100,
+        partition_key_type_repr=type_repr,
+        index_column_name=index_column_name,
+        output_column_kinds={"id": ValueKind.NUMERIC, "k": ValueKind.NUMERIC},
+        output_column_type_repr={"id": "Int64", "k": type_repr},
+    )
+
+
+@pytest.mark.parametrize(
+    ("output_columns", "index_column_name", "key_column"),
+    [
+        (["id", "k"], "k", "k"),
+        (["id"], "__dvt_partition_key", "__dvt_partition_key"),
+    ],
+    ids=["key_in_output", "helper_key"],
+)
+def test_decimal_range_key_index_keeps_exact_values(
+    monkeypatch, output_columns, index_column_name, key_column
+) -> None:
+    executor = SQLReadExecutor(sa.create_engine("sqlite:///:memory:"))
+    plan = _decimal_range_plan(output_columns=output_columns, index_column_name=index_column_name)
+    # float(Decimal("190.6666")) == 190.66659999999999 < Decimal("190.6666"): a float64 index
+    # would put the segment's first row below its own start.
+    keys = [Decimal("190.6666"), Decimal("200.0001"), Decimal("381.3332")]
+    payload = pd.DataFrame({"id": [1, 2, 3], key_column: pd.Series(keys, dtype="object")})
+    monkeypatch.setattr(executor, "_read_sql_bounded", lambda *_args, **_kwargs: payload.copy())
+
+    df = executor.load_partition(plan, plan.segments[0])
+
+    assert df.index.tolist() == keys
+    assert all(type(value) is Decimal for value in df.index)
+    assert list(df.columns) == output_columns
+    if "k" in output_columns:
+        assert str(df["k"].dtype) == "float64"
+        assert df["k"].tolist() == [float(value) for value in keys]
+    assert executor._dtype_for_index(plan) is None
+
+
+def test_decimal_range_key_bounds_compare_exactly() -> None:
+    plan = _decimal_range_plan(output_columns=["id", "k"], index_column_name="k")
+    segment = plan.segments[0]
+
+    def _frame(*keys: Decimal) -> pd.DataFrame:
+        return pd.DataFrame({"id": range(len(keys))}, index=pd.Index(list(keys), dtype=object))
+
+    SQLReadExecutor._validate_index_bounds(_frame(Decimal("190.6666"), Decimal("381.3332")), segment)
+    with pytest.raises(ReadV3ExecutionError, match="upper bound violation"):
+        SQLReadExecutor._validate_index_bounds(_frame(Decimal("381.3333")), segment)
+    with pytest.raises(ReadV3ExecutionError, match="lower bound violation"):
+        SQLReadExecutor._validate_index_bounds(_frame(Decimal("190.6665")), segment)
+    # The float64 key cast that used to be the index fails the segment's own first row.
+    with pytest.raises(ReadV3ExecutionError, match="lower bound violation"):
+        SQLReadExecutor._validate_index_bounds(
+            pd.DataFrame({"id": [0]}, index=pd.Index([float(Decimal("190.6666"))])), segment
+        )
+
+
+@pytest.mark.parametrize(
+    ("type_repr", "divisions", "expected"),
+    [
+        # Integer decimals keep the Int64 index; float keys keep the float64 index.
+        ("Decimal(18, 0)", (Decimal("1"), Decimal("5"), Decimal("9")), "Int64"),
+        ("Float64", (0.5, 1.25, 2.0), "float64"),
+        ("Int64", (1, 5, 9), "Int64"),
+    ],
+)
+def test_index_dtype_unchanged_for_non_fractional_decimal_keys(type_repr, divisions, expected):
+    plan = _decimal_range_plan(
+        output_columns=["id", "k"], index_column_name="k", type_repr=type_repr, divisions=divisions
+    )
+
+    assert SQLReadExecutor._uses_exact_decimal_index(plan) is False
+    assert SQLReadExecutor._dtype_for_index(plan) == expected

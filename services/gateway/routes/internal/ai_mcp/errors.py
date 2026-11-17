@@ -32,5 +32,6 @@ def denied(resource: str) -> AIMCPHTTPError:
         "project": "PROJECT_NOT_FOUND_OR_DENIED",
         "connection": "CONNECTION_NOT_FOUND_OR_DENIED",
         "task": "TASK_NOT_FOUND_OR_DENIED",
+        "dataset": "DATASET_NOT_FOUND_OR_DENIED",
     }[resource]
     return AIMCPHTTPError(404, code, f"{resource.capitalize()} was not found or is not accessible.")

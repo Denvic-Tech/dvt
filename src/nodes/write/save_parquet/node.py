@@ -1,3 +1,4 @@
+import asyncio
 import posixpath as ppath
 import re
 from collections.abc import Callable
@@ -17,6 +18,7 @@ from core.parquet.write import ParquetWriteRequest, write_dataframe
 from src.node_dsl import BaseNode, InputField
 from src.node_dsl.runtime.integrations.file_connection.filesystem import FileConnectionRuntime
 from src.node_dsl.runtime.integrations.file_connection.mixin import FileConnectionInputMixin
+from src.nodes.write._shared.catalog_descriptions import load_catalog_descriptions
 from src.nodes.write._shared.target_path import normalize_relative_target_path
 
 
@@ -143,6 +145,16 @@ class SaveParquet(FileConnectionInputMixin, BaseNode):
         allow_expressions=False,
     )
 
+    sync_column_descriptions: bool = InputField(
+        default=True,
+        description="Store Data Catalog column descriptions in Parquet field metadata.",
+        agent_description=(
+            "When true, descriptions of the input DataFrame columns known to the Data Catalog are "
+            "written into Arrow field metadata ('description') and into the DVT schema metadata of "
+            "the Parquet files on every run (compatibility_mode='new' only). Readers such as "
+            "LoadParquet, pandas and Spark see them; an empty description leaves the field as is."
+        ),
+    )
     parquet_types: dict[str, str] | None = InputField(
         agent_description=(
             "Optionally map existing DataFrame columns to explicit Arrow types, such as int64, "
@@ -396,6 +408,7 @@ class SaveParquet(FileConnectionInputMixin, BaseNode):
             compression=self.compression,
             write_index=self.write_index,
             parquet_types=self.parquet_types,
+            column_descriptions=getattr(self, "_column_descriptions", None) or None,
         )
 
     def _new_target_path(self, request: ParquetWriteRequest) -> str:
@@ -426,7 +439,18 @@ class SaveParquet(FileConnectionInputMixin, BaseNode):
             f"files={result.files_written})."
         )
 
-    def process(self):
+    async def process(self):
+        descriptions: dict[str, str] = {}
+        if self.sync_column_descriptions:
+            descriptions = await load_catalog_descriptions(
+                project_id=self._project_id, node_id=self._node_id, port="df"
+            )
+        self._column_descriptions = descriptions
         if self.compatibility_mode == "legacy":
-            return self._process_legacy()
-        return self._process_new()
+            if descriptions:
+                logger.info(
+                    "Legacy Parquet layout does not store column descriptions; "
+                    "switch compatibility_mode to 'new' to export them."
+                )
+            return await asyncio.to_thread(self._process_legacy)
+        return await asyncio.to_thread(self._process_new)

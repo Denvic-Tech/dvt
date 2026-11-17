@@ -88,6 +88,8 @@ class CatalogTablePreview:
     columns: tuple[CatalogTablePreviewColumn, ...]
     rows: tuple[tuple[CatalogPreviewValue, ...], ...]
     truncated: bool = False
+    row_count: int | None = None
+    row_count_exact: bool = False
 
 
 @dataclass(frozen=True, slots=True)

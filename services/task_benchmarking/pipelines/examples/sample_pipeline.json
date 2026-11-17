@@ -1,20 +1,40 @@
 {
-  "allocate": {
-    "name": "AllocateListNode",
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
     "inputs": {
-      "count": {
+      "rows": {
         "__dvt_type": "const",
         "value": 200000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 4
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
       }
     }
   },
-  "sum": {
-    "name": "SumListNode",
+  "materialize": {
+    "name": "BenchmarkMaterialize",
     "inputs": {
-      "values": {
+      "df": {
         "__dvt_type": "link",
-        "node_id": "allocate",
-        "output_name": "items"
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 4
       }
     }
   }

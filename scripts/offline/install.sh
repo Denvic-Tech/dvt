@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# DVT offline install entrypoint. Distributor substitutes the archive version.
+# Use the trusted host CLI with the complete signed archive supplied via --bundle.
 set -euo pipefail
-DVT_ARCHIVE_VERSION='{version}'
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/offline-runtime.sh"
-offline_main install "$@"
+exec "${DVT_OFFLINE_PYTHON:-python3}" -m services.installation_manager.application.offline_bundles install "$@"

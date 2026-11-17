@@ -16,7 +16,7 @@ Connect `df`; set `mapping` to an object of old-name → new-name pairs. Its def
 
 ## Behavior and limitations
 
-Null mapping passes through the original DataFrame. A matching index name is renamed too, preserving the physical index. Mapping an absent column does not create it. Duplicate destination names are not resolved automatically.
+Null mapping passes through the original DataFrame. A matching business index name is renamed too. A DBV3 physical index keeps its internal role and its binding follows the renamed column. Mapping an absent column does not create it. Duplicate destination names are not resolved automatically.
 
 ## Examples
 

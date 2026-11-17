@@ -1,0 +1,114 @@
+{
+  "connection": {
+    "name": "BenchmarkSqlConnection",
+    "inputs": {
+      "connection_type": {
+        "__dvt_type": "const",
+        "value": "mssql"
+      },
+      "host": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_HOST:-localhost}"
+      },
+      "port": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_PORT:-11433}"
+      },
+      "database": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_DB:-benchdb}"
+      },
+      "user": {
+        "__dvt_type": "const",
+        "value": "sa"
+      },
+      "password": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_MSSQL_PASSWORD:-Str0ngP@ss!}"
+      }
+    }
+  },
+  "ensure_table": {
+    "name": "BenchmarkEnsureTable",
+    "inputs": {
+      "connection": {
+        "__dvt_type": "link",
+        "node_id": "connection",
+        "output_name": "connection"
+      },
+      "table_name": {
+        "__dvt_type": "const",
+        "value": "bench_write_wide"
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      },
+      "on_exists": {
+        "__dvt_type": "const",
+        "value": "recreate"
+      }
+    }
+  },
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "write": {
+    "name": "WriteDataFrameToDBV4",
+    "inputs": {
+      "connection": {
+        "__dvt_type": "link",
+        "node_id": "connection",
+        "output_name": "connection"
+      },
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "table_name": {
+        "__dvt_type": "const",
+        "value": "bench_write_wide"
+      },
+      "write_mode": {
+        "__dvt_type": "const",
+        "value": "append"
+      },
+      "chunksize": {
+        "__dvt_type": "const",
+        "value": 1000
+      },
+      "rows_per_batch": {
+        "__dvt_type": "const",
+        "value": null
+      },
+      "sync_column_descriptions": {
+        "__dvt_type": "const",
+        "value": false
+      },
+      "signal_in": {
+        "__dvt_type": "link",
+        "node_id": "ensure_table",
+        "output_name": "signal_out"
+      }
+    }
+  }
+}

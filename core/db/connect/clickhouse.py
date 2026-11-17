@@ -321,20 +321,70 @@ def _bool_from_query(value: Any) -> bool:
     return str(value).lower() in {"1", "true", "yes", "on"}
 
 
+class ClickHouseHttpInterfaceError(ValueError):
+    """The connection cannot be served by the ClickHouse HTTP interface of clickhouse_connect."""
+
+
+_DEFAULT_HTTP_PORT = 8123
+_DEFAULT_HTTPS_PORT = 8443
+_DEFAULT_NATIVE_PORT = 9000
+_DEFAULT_NATIVE_SECURE_PORT = 9440
+
+
+def _client_port(
+    *,
+    host: str,
+    port: int | None,
+    interface: str,
+    secure: bool,
+    native_driver: bool,
+    without_driver: bool,
+) -> int:
+    """HTTP(S) port of the client; clickhouse_connect has no native protocol client."""
+    if port is None:
+        return _DEFAULT_HTTPS_PORT if secure else _DEFAULT_HTTP_PORT
+    native_port = _DEFAULT_NATIVE_SECURE_PORT if secure else _DEFAULT_NATIVE_PORT
+    if port == native_port and (native_driver or without_driver):
+        http_port = _DEFAULT_HTTPS_PORT if interface == "https" else _DEFAULT_HTTP_PORT
+        logger.warning(
+            "ClickHouse connection to %s uses the native port %s; clickhouse_connect speaks "
+            "only HTTP(S), connecting to the default HTTP port %s instead",
+            host,
+            port,
+            http_port,
+        )
+        return http_port
+    if native_driver:
+        raise ClickHouseHttpInterfaceError(
+            f"ClickHouse connection to {host} uses the native driver on port {port}. "
+            "ReadTableFromDBV3, ReadQueryFromDBV3, ExecuteSQL queries, WriteDataFrameToDBV3/V4 "
+            "and the partitioning advice use the ClickHouse HTTP interface: set the connection "
+            "driver to http and "
+            f"the port to the server HTTP port (default {_DEFAULT_HTTP_PORT}, "
+            f"{_DEFAULT_HTTPS_PORT} for HTTPS)."
+        )
+    return port
+
+
 def build_clickhouse_client_kwargs(engine: Engine) -> dict[str, Any]:
     url = engine.url
     driver = (url.drivername or "").lower()
-    interface = url.query.get("protocol") if url.query else None
-    if not interface:
-        interface = "native" if "native" in driver else "http"
     secure = _bool_from_query(url.query.get("secure")) if url.query else False
+    protocol = str(url.query.get("protocol") or "").lower() if url.query else ""
+    interface = protocol if protocol in {"http", "https"} else ("https" if secure else "http")
+    host = url.host or "localhost"
 
-    port = url.port
-    if port is None:
-        port = 9000 if interface == "native" else (8443 if secure else 8123)
+    port = _client_port(
+        host=host,
+        port=url.port,
+        interface=interface,
+        secure=secure,
+        native_driver="native" in driver,
+        without_driver="+" not in driver,
+    )
 
     client_kwargs: dict[str, Any] = {
-        "host": url.host or "localhost",
+        "host": host,
         "port": port,
         "username": url.username or "default",
         "password": url.password or "",

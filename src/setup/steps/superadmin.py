@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from usrak.core.security import hash_password
 
@@ -15,13 +15,16 @@ from src.setup.exceptions import SetupConflictError, SetupValidationError
 
 
 class SuperadminSetupPayload(BaseModel):
-    email: str = Field(
+    email: EmailStr = Field(
         ...,
-        description="Адрес электронная почты",
+        max_length=255,
+        description="Адрес электронной почты",
         json_schema_extra={"setup_label": "Email", "setup_type": "email"},
     )
     password: str = Field(
         ...,
+        min_length=8,
+        max_length=255,
         description="Пароль",
         json_schema_extra={
             "setup_label": "Password",
@@ -63,13 +66,14 @@ class SuperadminSetupStep(BaseSetupStep):
             raise SetupValidationError("Организация должна существовать для супер-пользователя.")
 
         payload = cls.validate_model(SuperadminSetupPayload, values)
-        existing_user = await setup_api.get_user_by_email(session, payload.email)
+        email = payload.email.lower()
+        existing_user = await setup_api.get_user_by_email(session, email)
         if existing_user is not None:
             raise SetupConflictError("Пользователь с таким email уже существует.")
 
         user = UserRecord(
-            email=payload.email,
-            user_name=payload.email,
+            email=email,
+            user_name=email,
             hashed_password=hash_password(payload.password),
             auth_provider="email",
             is_verified=True,

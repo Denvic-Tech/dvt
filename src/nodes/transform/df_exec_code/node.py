@@ -67,5 +67,5 @@ class DataFrameExecCode(DFOutputBaseNode):
         if not isinstance(result, dd.DataFrame):
             raise ValueError(f"Result variable '{output_var_name}' is not a dask DataFrame (type: {type(result)}).")
 
-        self.output = result
+        self.output = result.copy()
         logger.info(f"Custom code execution finished. Output DataFrame shape: {self.output.shape}")

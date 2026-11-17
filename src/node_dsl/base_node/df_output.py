@@ -11,6 +11,7 @@ import pandas as pd
 
 from core.hashing import get_hash
 from core.types import DataFrameMetadata, DataType
+from core.utils.dataframe_index import carry_physical_index, get_physical_index
 
 from src import enums, utils
 from src.logger import logger
@@ -395,7 +396,9 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
         if mode == PipelineExecutionMode.METADATA_ONLY:
             await utils.async_run_callable(self.process_metadata, offload_sync=False)
         else:
-            self.process()
+            # Sync process() of a DF node (read planning, DB round trips) must not run on the
+            # worker event loop: its heartbeat sender shares that loop.
+            await utils.async_run_callable(self.process)
 
         if mode == PipelineExecutionMode.METADATA_ONLY:
             await hooks_registry.run_async(
@@ -474,6 +477,7 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
                                 if ddf_output_meta.ddf.known_divisions
                                 else None
                             ),
+                            physical_index=get_physical_index(ddf_output_meta.ddf),
                         )
                         writer = DaskPartitionCacheWriter(
                             cache=cache,
@@ -519,4 +523,8 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
                     partition_dispatch_workers=1,
                     partition_dispatch_queue_size=partition_dispatch_queue_size,
                 )
-                setattr(self, ddf_output_meta.attr_name, output)
+                setattr(
+                    self,
+                    ddf_output_meta.attr_name,
+                    carry_physical_index(ddf_output_meta.ddf, output),
+                )

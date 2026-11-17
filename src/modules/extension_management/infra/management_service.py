@@ -3,10 +3,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from packaging.version import Version
+
 from src.logger import logger
+from src.modules.extension_management.domain.catalog import CatalogRelease, stable_upgrade
 from src.modules.extension_management.domain.entities import ExtensionCreate
 from src.modules.extension_management.domain.policies import (
-    canonical_extension_name,
     extension_identity_set,
     filter_compatible_versions,
     normalize_extension_identity,
@@ -15,6 +17,11 @@ from src.modules.extension_management.domain.policies import (
 from src.modules.extension_management.domain.value_objects import (
     ExtensionManifest,
     ExtensionPackagePreview,
+)
+from src.modules.extension_management.infra.catalog import (
+    CatalogPayload,
+    ExtensionPayload,
+    runtime_target,
 )
 from src.modules.extension_management.infra.db_models import ExtensionRecord
 from src.modules.extension_management.infra.errors import stage_error
@@ -136,114 +143,119 @@ class ExtensionManager:
         logger.debug(
             "Syncing available extensions from distributor '{}'", config.EXTENSIONS.DISTRIBUTOR_URL
         )
-        payload = await self.distributor_client.list_extensions(
-            dvt_version=config.APP.VERSION or None, dvt_channel=config.APP.CHANNEL
-        )
-
-        extensions = payload.get("extensions") if isinstance(payload, dict) else None
-        if not isinstance(extensions, list):
-            logger.error(f"Extensions distributor returned unexpected payload: {payload}")
-            return await self.list_extensions()
+        catalog = CatalogPayload.model_validate(await self.distributor_client.list_extensions())
+        snapshots: dict[str, tuple[list[CatalogRelease], str | None]] = {}
+        for item in catalog.extensions:
+            if item.name in snapshots:
+                raise ValueError("Distributor catalog contains a duplicate extension")
+            releases = [version.to_domain() for version in item.versions]
+            stable = self._latest_stable(self._filter_compatible_versions(releases))
+            snapshots[item.name] = (releases, stable)
 
         synced: list[ExtensionRecord] = []
-        for item in extensions:
-            if not isinstance(item, dict):
-                continue
+        try:
+            for item in catalog.extensions:
+                manifest = ExtensionManifest(
+                    name=item.name,
+                    package_name=item.name,
+                    version=item.versions[0].version,
+                    display_name=item.display_name,
+                    description=item.description,
+                )
+                extension = await self.db_manager.reconcile_extension_identity(
+                    ExtensionCreate(
+                        name=item.name,
+                        display_name=item.display_name,
+                        description=item.description,
+                    ),
+                    manifest,
+                    commit=False,
+                )
+                synced.append(extension)
 
-            raw_name = item.get("name")
-            if not isinstance(raw_name, str) or not raw_name.strip():
-                continue
-            canonical_name = canonical_extension_name(raw_name)
-            raw_versions = item.get("versions")
-            version_strings = [
-                value
-                for value in (raw_versions if isinstance(raw_versions, list) else [])
-                if isinstance(value, str)
-            ]
-            raw_aliases = item.get("legacy_aliases")
-            aliases = tuple(
-                value
-                for value in (raw_aliases if isinstance(raw_aliases, list) else [])
-                if isinstance(value, str) and value.strip()
-            )
-            manifest = ExtensionManifest(
-                name=canonical_name,
-                package_name=canonical_name,
-                legacy_names=aliases,
-                version=version_strings[0] if version_strings else "",
-                display_name=item.get("display_name") or canonical_name,
-                description=item.get("description") or "",
-                repository_url=item.get("repository_url"),
-            )
-            extension = await self.db_manager.reconcile_extension_identity(
-                ExtensionCreate(
-                    name=canonical_name,
-                    display_name=manifest.display_name,
-                    description=manifest.description,
-                    repository_url=manifest.repository_url,
-                ),
-                manifest,
-                aliases=aliases,
-                available_versions=version_strings,
-            )
-            synced.append(extension)
-
+            await self.db_manager.apply_catalog_versions(snapshots)
+        except Exception:
+            await self.db_manager.session.rollback()
+            raise
         return synced
 
     @staticmethod
-    def _filter_compatible_versions(versions: list[dict] | None) -> list[dict]:
+    def _filter_compatible_versions(versions: list[CatalogRelease]) -> list[CatalogRelease]:
         return filter_compatible_versions(
-            versions or [],
+            versions,
             current_dvt_version=config.APP.VERSION or None,
-            channel=getattr(config.APP, "CHANNEL", "dev") or "dev",
+            target=runtime_target(),
         )
 
-    async def install_extension(self, name: str, version: str | None = None) -> ExtensionRecord:
+    @staticmethod
+    def _latest_stable(compatible: list[CatalogRelease]) -> str | None:
+        return next((release.version for release in compatible if release.channel == "stable"), None)
+
+    async def _compatible_catalog_releases(self, extension: ExtensionRecord) -> list[CatalogRelease]:
+        name = self._canonical_extension_identity(extension) or extension.name
+        payload = await self.distributor_client.list_extension_versions(name)
+        if payload is None:
+            return []
+        item = ExtensionPayload.model_validate(payload)
+        if item.name != name:
+            raise ValueError(f"Distributor returned the wrong extension for '{name}'")
+        return self._filter_compatible_versions([version.to_domain() for version in item.versions])
+
+    async def install_extension(
+        self,
+        name: str,
+        version: str | None = None,
+        *,
+        allow_downgrade: bool = False,
+        allow_reinstall: bool = False,
+    ) -> ExtensionRecord:
         extension = await self.get_extension_or_raise(name)
-        distributor_name = self._distributor_extension_name(extension)
-
-        versions_payload = await self.distributor_client.list_extension_versions(
-            distributor_name,
-            dvt_version=config.APP.VERSION or None,
-            dvt_channel=config.APP.CHANNEL,
-        )
-        all_versions: list[dict] = (
-            versions_payload.get("versions") if isinstance(versions_payload, dict) else []
-        )
-        if not all_versions:
-            raise ValueError(f"No versions found for extension '{name}'")
-
-        compatible = self._filter_compatible_versions(all_versions)
+        compatible = await self._compatible_catalog_releases(extension)
         if not compatible:
-            raise ValueError(
-                f"No compatible version of '{name}' found for DVT {config.APP.VERSION}"
-            )
+            raise ValueError(f"No compatible version of '{name}' found for DVT {config.APP.VERSION}")
 
-        if version:
-            target = next((v for v in compatible if v.get("version") == version), None)
-            if target is None:
+        stable = self._latest_stable(compatible)
+        if version is None and stable is None:
+            raise ValueError(f"No compatible stable version of '{name}'; select an RC explicitly")
+        if version is None and extension.is_installed:
+            stable = stable_upgrade(stable, extension.current_version)
+            if stable is None:
+                return extension
+        requested = Version(version if version is not None else stable)
+        target = next(
+            (release for release in compatible if Version(release.version) == requested), None
+        )
+        if target is None:
+            raise ValueError(
+                f"Version '{version}' of '{name}' is not compatible with DVT {config.APP.VERSION}"
+            )
+        current = extension.current_version if extension.is_installed else None
+        operation = self._package_operation(current, target.version)
+        self._require_install_confirmation(operation, allow_downgrade, allow_reinstall)
+        return await self._install_catalog_release(extension, target, stable)
+
+    async def _install_catalog_release(
+        self, extension: ExtensionRecord, target: CatalogRelease, stable: str | None
+    ) -> ExtensionRecord:
+        staged = await self.install_manager.stage_from_url(
+            target.download_url, expected_size=target.size_bytes, expected_sha256=target.sha256
+        )
+        try:
+            expected_identity = self._canonical_extension_identity(extension)
+            if normalize_extension_identity(staged.manifest.name) != expected_identity:
                 raise ValueError(
-                    f"Version '{version}' of '{name}' is not compatible with DVT {config.APP.VERSION}"
+                    f"Downloaded package declares extension '{staged.manifest.name}', "
+                    f"expected '{expected_identity}'"
                 )
-        else:
-            target = compatible[0]
-
-        download_url = target.get("download_url")
-        if not download_url:
-            raise ValueError(f"No download_url for '{name}' v{target.get('version')}")
-
-        staged = await self.install_manager.stage_from_url(download_url)
-        expected_identity = self._canonical_extension_identity(extension)
-        if normalize_extension_identity(staged.manifest.name) != expected_identity:
+            if Version(staged.manifest.version) != Version(target.version):
+                raise ValueError(f"Downloaded package does not declare version '{target.version}'")
+        except ValueError:
             self.install_manager.rollback_staged_package(staged)
-            raise ValueError(
-                f"Downloaded package declares extension '{staged.manifest.name}', "
-                f"expected '{expected_identity}'"
-            )
+            raise
         return await self._install_staged_package(
             extension,
             staged,
-            latest_version=compatible[0].get("version"),
+            latest_version=stable_upgrade(stable, target.version),
             offline_only=False,
         )
 
@@ -312,10 +324,7 @@ class ExtensionManager:
             extension.current_version if extension and extension.is_installed else None
         )
         operation = self._package_operation(current_version, manifest.version)
-        if operation == "downgrade" and not allow_downgrade:
-            raise ValueError("Downgrade requires explicit confirmation")
-        if operation == "reinstall" and not allow_reinstall:
-            raise ValueError("Reinstall requires explicit confirmation")
+        self._require_install_confirmation(operation, allow_downgrade, allow_reinstall)
 
         if extension is None:
             extension = await self.db_manager.reconcile_extension_identity(
@@ -408,6 +417,15 @@ class ExtensionManager:
             return result
 
     @staticmethod
+    def _require_install_confirmation(
+        operation: str, allow_downgrade: bool, allow_reinstall: bool
+    ) -> None:
+        if operation == "downgrade" and not allow_downgrade:
+            raise ValueError("Downgrade requires explicit confirmation")
+        if operation == "reinstall" and not allow_reinstall:
+            raise ValueError("Reinstall requires explicit confirmation")
+
+    @staticmethod
     def _package_operation(current_version: str | None, package_version: str) -> str:
         return resolve_package_operation(current_version, package_version).value
 
@@ -481,68 +499,54 @@ class ExtensionManager:
         logger.debug(f"Extension '{name}' uninstalled")
         return extension
 
-    async def reload_extension(self, name: str) -> ExtensionRecord:
-        logger.debug(f"Reloading (upgrading) extension '{name}'")
-
+    async def reload_extension(self, name: str, *, local_only: bool = False) -> ExtensionRecord:
         extension = await self.get_extension_or_raise(name)
-        distributor_name = self._distributor_extension_name(extension)
+        if not extension.is_installed:
+            if local_only:
+                raise ValueError(f"Extension '{name}' is not installed")
+            return await self.install_extension(name)
 
-        versions_payload = await self.distributor_client.list_extension_versions(
-            distributor_name,
-            dvt_version=config.APP.VERSION or None,
-            dvt_channel=config.APP.CHANNEL,
-        )
-        all_versions: list[dict] = (
-            versions_payload.get("versions") if isinstance(versions_payload, dict) else []
-        )
-        compatible = self._filter_compatible_versions(all_versions)
-        if not compatible:
-            raise ValueError(
-                f"No compatible version of '{name}' found for DVT {config.APP.VERSION}"
+        if not local_only:
+            compatible = await self._compatible_catalog_releases(extension)
+            stable = self._latest_stable(compatible)
+            remote_version = stable_upgrade(stable, extension.current_version)
+            if remote_version is not None:
+                target = next(release for release in compatible if release.version == remote_version)
+                return await self._install_catalog_release(extension, target, stable)
+
+        logger.debug(f"Reloading '{name}' from the installed package")
+
+        if not extension.install_path:
+            raise ValueError(f"Extension '{name}' has no install path")
+        install_root = Path(extension.install_path)
+        manifest = load_manifest(install_root, extension_name=extension.name)
+
+        if manifest is None:
+            raise ValueError(f"Manifest not found in '{install_root}'")
+
+        try:
+            await asyncio.to_thread(self.migration_manager.upgrade, manifest)
+        except Exception as exc:
+            await self.db_manager.set_runtime_error(
+                extension, stage_error("Extension migration failed", exc)
             )
+            await self._deactivate_extension_runtime(extension.name)
+            raise RuntimeError(stage_error("Extension migration failed", exc)) from exc
 
-        latest = compatible[0]
-        remote_version = latest.get("version")
-        if not remote_version:
-            raise RuntimeError("Failed to determine latest version from distributor")
+        await self._refresh_runtime(strict_names=frozenset({extension.name}))
 
-        current_version = extension.current_version
+        if not local_only:
+            extension.last_version = extension.current_version
+        extension.manifest_json = manifest.model_dump(mode="json")
+        extension.updated_at = datetime.now(UTC)
 
-        if current_version == remote_version:
-            logger.debug(f"No new version for '{name}', reloading runtime only")
+        session = self.db_manager.session
+        session.add(extension)
+        await session.commit()
+        await session.refresh(extension)
 
-            if not extension.install_path:
-                raise ValueError(f"Extension '{name}' has no install path")
-            install_root = Path(extension.install_path)
-            manifest = load_manifest(install_root, extension_name=extension.name)
+        return extension
 
-            if manifest is None:
-                raise ValueError(f"Manifest not found in '{install_root}'")
-
-            try:
-                await asyncio.to_thread(self.migration_manager.upgrade, manifest)
-            except Exception as exc:
-                await self.db_manager.set_runtime_error(
-                    extension, stage_error("Extension migration failed", exc)
-                )
-                await self._deactivate_extension_runtime(extension.name)
-                raise RuntimeError(stage_error("Extension migration failed", exc)) from exc
-
-            await self._refresh_runtime(strict_names=frozenset({extension.name}))
-
-            extension.manifest_json = manifest.model_dump(mode="json")
-            extension.updated_at = datetime.now(UTC)
-
-            session = self.db_manager.session
-            session.add(extension)
-            await session.commit()
-            await session.refresh(extension)
-
-            return extension
-
-        logger.debug(f"Updating extension '{name}' from {current_version} -> {remote_version}")
-
-        return await self.install_extension(name)
 
     async def sync_installed_extensions(self) -> list[ExtensionRecord]:
         logger.debug(f"Syncing installed extensions from '{config.EXTENSIONS.EXTENSIONS_DATA_DIR}'")
@@ -778,11 +782,6 @@ class ExtensionManager:
         return normalize_extension_identity(
             manifest_json.get("package_name") or manifest_json.get("name") or extension.name
         )
-
-    @classmethod
-    def _distributor_extension_name(cls, extension: ExtensionRecord) -> str:
-        """Return the canonical package identity expected by the distributor."""
-        return cls._canonical_extension_identity(extension) or extension.name
 
     async def _load_manifest_from_repository(self, repository_url: str) -> ExtensionManifest | None:
         return await load_manifest_from_repository(repository_url)

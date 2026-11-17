@@ -16,6 +16,11 @@ services:
       POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
     volumes:
       - ${DVT_LIB_DIR:-/var/lib/dvt}/data/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\"" ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
     restart: unless-stopped
     networks:
       - dvt-net
@@ -41,6 +46,29 @@ services:
       retries: 10
       start_period: 20s
     restart: unless-stopped
+    networks:
+      - dvt-net
+
+  migrate:
+    <<: *default-logging
+    image: cr.distribution.denvic.tech/dvt/gateway:${DVT_VERSION:-latest}
+    command: [ "python3", "-m", "services.gateway.migrate" ]
+    environment:
+      ENVIRONMENT: prod
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      FERNET_KEY: ${DVT_FERNET_KEY:?DVT_FERNET_KEY is required}
+      EXTENSIONS_DATA_DIR: ./extensions
+    volumes:
+      - ${DVT_LIB_DIR:-/var/lib/dvt}/installation:/app/installation
+      - ${DVT_LIB_DIR:-/var/lib/dvt}/extensions:/app/extensions
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
     networks:
       - dvt-net
 
@@ -71,8 +99,8 @@ services:
 
       FERNET_KEY: ${DVT_FERNET_KEY:?DVT_FERNET_KEY is required}
     depends_on:
-      postgres:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
     restart: unless-stopped
@@ -118,7 +146,11 @@ services:
     volumes:
       - ${DVT_LIB_DIR:-/var/lib/dvt}/installation:/app/installation
       - ${DVT_LIB_DIR:-/var/lib/dvt}/extensions:/app/extensions
+    deploy:
+      replicas: ${DVT_TASK_WORKERS_COUNT:-1}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
       orchestrator:
@@ -156,8 +188,8 @@ services:
       PROJECT_SCHEDULER_HOST: 0.0.0.0
       PROJECT_SCHEDULER_PORT: 8000
     depends_on:
-      postgres:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
     restart: unless-stopped
@@ -179,10 +211,10 @@ services:
       DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
       COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
     ports:
-      - "${DVT_INSTALLATION_MANAGER_EXTERNAL_PORT:-8888}:8000"
+      - "${DVT_INSTALLATION_MANAGER_BIND_ADDRESS:-0.0.0.0}:${DVT_INSTALLATION_MANAGER_EXTERNAL_PORT:-8888}:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${DVT_LIB_DIR:-/var/lib/dvt}:/dvt-lib
+      - ${DVT_LIB_DIR:-/var/lib/dvt}:${DVT_INSTALLATION_MANAGER_DATA_TARGET:-/dvt-lib}
     healthcheck:
       test: [ "CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()\"" ]
       interval: 5s
@@ -190,8 +222,6 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
-    networks:
-      - dvt-net
 
   gateway:
     <<: *default-logging
@@ -245,8 +275,8 @@ services:
       EXTENSIONS_DATA_DIR: ./extensions
 
       DVT_ENABLE_AI_ANALYSIS: ${DVT_ENABLE_AI_ANALYSIS:-false}
-      DVT_AI_SERVICE_URL: ${DVT_AI_SERVICE_URL}
-      DVT_AI_SERVICE_API_KEY: ${DVT_AI_SERVICE_API_KEY}
+      DVT_AI_SERVICE_URL: ${DVT_AI_SERVICE_URL:-}
+      DVT_AI_SERVICE_API_KEY: ${DVT_AI_SERVICE_API_KEY:-}
       DVT_AI_MCP_ENABLED: ${DVT_AI_MCP_ENABLED:-false}
       DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
     healthcheck:
@@ -259,8 +289,8 @@ services:
       - ${DVT_LIB_DIR:-/var/lib/dvt}/installation:/app/installation
       - ${DVT_LIB_DIR:-/var/lib/dvt}/extensions:/app/extensions
     depends_on:
-      postgres:
-        condition: service_started
+      migrate:
+        condition: service_completed_successfully
       valkey:
         condition: service_healthy
     restart: unless-stopped
@@ -275,7 +305,7 @@ services:
     environment:
       DVT_ENVIRONMENT: prod
       DVT_PUBLIC_URL: ${DVT_PUBLIC_URL:-http://localhost}
-      DVT_AI_MCP_GATEWAY_URL: http://gateway:${DVT_GATEWAY_PORT:-8000}
+      DVT_AI_MCP_GATEWAY_URL: http://gateway:${DVT_GATEWAY_INTERNAL_PORT:-8000}
       DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
       DVT_AI_MCP_HOST: 0.0.0.0
       DVT_AI_MCP_PORT: 8000
@@ -283,7 +313,7 @@ services:
       gateway:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()" ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=4).read()" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -335,4 +365,5 @@ services:
 
 networks:
   dvt-net:
-    external: true
+    name: ${DVT_NETWORK_NAME:-dvt-net}
+    external: ${DVT_NETWORK_EXTERNAL:-true}

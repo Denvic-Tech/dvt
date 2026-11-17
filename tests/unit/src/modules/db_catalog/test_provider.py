@@ -132,3 +132,40 @@ async def test_refresh_only_authorizes_and_increments_epoch():
     assert source.calls == 0
     assert cache.epoch == 1
     assert result.catalog_version == "revision-1:1"
+
+
+@pytest.mark.asyncio
+async def test_bypass_cache_reads_source_and_replaces_cached_entry():
+    provider, source, cache, _events = _provider()
+    actor = CatalogActor("user", "org", "user")
+    request = CatalogRequest(operation=CatalogOperation.TABLE, table_name="orders")
+
+    warm = await provider.execute(connection_id="conn", actor=actor, request=request)
+    bypass = await provider.execute(
+        connection_id="conn", actor=actor, request=request, bypass_cache=True
+    )
+    after = await provider.execute(connection_id="conn", actor=actor, request=request)
+
+    assert source.calls == 2, "обход кэша идёт в источник даже при тёплом кэше"
+    assert warm.cache_status.value == "miss"
+    assert bypass.cache_status.value == "bypass"
+    assert after.cache_status.value == "hit"
+    assert cache.entry.loaded_at == bypass.loaded_at, "свежая запись заменила кэш под тем же ключом"
+    assert cache.locked is False
+
+
+@pytest.mark.asyncio
+async def test_bypass_cache_does_not_wait_for_or_release_foreign_lock():
+    provider, source, cache, _events = _provider()
+    cache.locked = True  # lock держит другой запрос
+
+    response = await provider.execute(
+        connection_id="conn",
+        actor=CatalogActor("user", "org", "user"),
+        request=CatalogRequest(operation=CatalogOperation.DATABASES),
+        bypass_cache=True,
+    )
+
+    assert response.cache_status.value == "bypass"
+    assert source.calls == 1
+    assert cache.locked is True, "чужой lock не освобождается"

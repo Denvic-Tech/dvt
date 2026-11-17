@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: docker.io/library/busybox@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    command: ["sleep", "600"]
+    environment:
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:?required}
+    volumes:
+      - ${DVT_LIB_DIR}/data/pgdata:/var/lib/postgresql/data
+  valkey:
+    image: docker.io/library/busybox@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    command: ["sleep", "600"]
+    volumes:
+      - ${DVT_LIB_DIR}/data/valkeydata:/data
+  gateway:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["sleep", "600"]
+    environment:
+      DVT_AI_MCP_ENABLED: ${DVT_AI_MCP_ENABLED}
+      DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
+  migrate:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["true"]
+  installation_manager:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["sleep", "600"]
+    ports:
+      - "${DVT_INSTALLATION_MANAGER_BIND_ADDRESS}:${DVT_INSTALLATION_MANAGER_EXTERNAL_PORT}:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DVT_LIB_DIR}:/dvt-lib
+  orchestrator:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["sleep", "600"]
+  task-worker:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["sleep", "600"]
+    scale: ${DVT_TASK_WORKERS_COUNT:-1}
+  project-scheduler:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["sleep", "600"]
+  ui:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["sleep", "600"]
+  proxy:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    command: ["httpd", "-f", "-p", "80"]
+    ports:
+      - "127.0.0.1:${DVT_EXTERNAL_PORT}:80"
+  dvt-ai-mcp:
+    image: docker.io/library/busybox@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    profiles: ["ai-mcp"]
+    command: ["sleep", "600"]
+    environment:
+      DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}

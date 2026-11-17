@@ -2,6 +2,15 @@
 
 from dataclasses import dataclass
 
+from src.modules.data_catalog.domain.exceptions import (
+    DatasetAccessDeniedError,
+    DatasetFieldNotFoundError,
+    DatasetNotFoundError,
+    FieldRenameNotApplicableError,
+    InvalidFieldReferenceError,
+    LineageColumnNotFoundError,
+    LineageNodePortNotFoundError,
+)
 from src.modules.db_catalog.domain.exceptions import (
     CatalogCacheUnavailableError,
     CatalogConnectionUnavailableError,
@@ -36,6 +45,24 @@ _ERROR_RESPONSES = (
         422,
         "GRAPH_VALIDATION_FAILED",
         "Catalog request arguments are invalid.",
+    ),
+    (
+        (DatasetNotFoundError, DatasetAccessDeniedError),
+        404,
+        "DATASET_NOT_FOUND_OR_DENIED",
+        "Dataset was not found or is not accessible.",
+    ),
+    (
+        (LineageNodePortNotFoundError, LineageColumnNotFoundError),
+        404,
+        "LINEAGE_TARGET_NOT_FOUND",
+        "Lineage for the node, port or column was not found.",
+    ),
+    (
+        (DatasetFieldNotFoundError, InvalidFieldReferenceError, FieldRenameNotApplicableError),
+        422,
+        "INVALID_ARGUMENTS",
+        "Dataset field reference or rename is not applicable.",
     ),
     (
         (

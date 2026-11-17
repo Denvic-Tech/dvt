@@ -1,0 +1,77 @@
+{
+  "connection": {
+    "name": "BenchmarkSqlConnection",
+    "inputs": {
+      "connection_type": {
+        "__dvt_type": "const",
+        "value": "clickhouse"
+      },
+      "host": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_CH_HOST:-localhost}"
+      },
+      "port": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_CH_PORT:-8124}"
+      },
+      "database": {
+        "__dvt_type": "const",
+        "value": "testdb"
+      },
+      "user": {
+        "__dvt_type": "const",
+        "value": "testuser"
+      },
+      "password": {
+        "__dvt_type": "const",
+        "value": "${DVT_BENCH_CH_PASSWORD:-testpassword}"
+      }
+    }
+  },
+  "read": {
+    "name": "ReadTableFromDBV3",
+    "inputs": {
+      "connection": {
+        "__dvt_type": "link",
+        "node_id": "connection",
+        "output_name": "connection"
+      },
+      "table_name": {
+        "__dvt_type": "const",
+        "value": "bench_wide_5m"
+      },
+      "partition_col": {
+        "__dvt_type": "const",
+        "value": "id"
+      },
+      "partition_grouping": {
+        "__dvt_type": "const",
+        "value": {
+          "mode": "range"
+        }
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 64
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "read",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "full_pandas"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

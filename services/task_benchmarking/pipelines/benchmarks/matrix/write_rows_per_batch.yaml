@@ -1,0 +1,30 @@
+# WriteDataFrameToDBV4 rows_per_batch sweep on the PostgreSQL 1M-row append benchmark
+# (rows per COPY CSV buffer; null: automatic size by row width).
+# Run from the repository root (case paths are relative to it):
+#   python -m services.task_benchmarking.main \
+#     --pipeline services/task_benchmarking/pipelines/benchmarks/write/postgres/append_1m.json \
+#     --matrix services/task_benchmarking/pipelines/benchmarks/matrix/write_rows_per_batch.yaml
+pipelines:
+  - path: services/task_benchmarking/pipelines/benchmarks/write/postgres/append_1m.json
+    name: pg-append-1m
+cases:
+  - name: pg-append-1m_rows-per-batch-auto
+    pipeline_name: pg-append-1m
+    node_overrides:
+      write:
+        rows_per_batch: null
+  - name: pg-append-1m_rows-per-batch-1000
+    pipeline_name: pg-append-1m
+    node_overrides:
+      write:
+        rows_per_batch: 1000
+  - name: pg-append-1m_rows-per-batch-20000
+    pipeline_name: pg-append-1m
+    node_overrides:
+      write:
+        rows_per_batch: 20000
+  - name: pg-append-1m_rows-per-batch-100000
+    pipeline_name: pg-append-1m
+    node_overrides:
+      write:
+        rows_per_batch: 100000

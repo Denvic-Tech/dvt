@@ -7,6 +7,12 @@ from src.models import (
     AIAnalysisRequestRecord,
     LogRecord,
 )
+from src.modules.data_catalog.infra.db_models import (
+    DatasetLinkRecord,
+    NodeColumnAnnotationRecord,
+    NodePortObservationRecord,
+    ProjectCatalogProjectionRecord,
+)
 from src.modules.pipeline_graph.infra.db_models import (
     GraphEdgeRecord,
     GraphNodeRecord,
@@ -47,6 +53,16 @@ async def delete_projects_permanently(
         sa.delete(GraphEdgeRecord).where(GraphEdgeRecord.project_id.in_(normalized_project_ids))
     )
     await session.execute(
+        sa.delete(NodeColumnAnnotationRecord).where(
+            NodeColumnAnnotationRecord.project_id.in_(normalized_project_ids)
+        )
+    )
+    await session.execute(
+        sa.delete(NodePortObservationRecord).where(
+            NodePortObservationRecord.project_id.in_(normalized_project_ids)
+        )
+    )
+    await session.execute(
         sa.delete(GraphNodeRecord).where(GraphNodeRecord.project_id.in_(normalized_project_ids))
     )
     await session.execute(
@@ -55,6 +71,16 @@ async def delete_projects_permanently(
     await session.execute(
         sa.delete(ProjectScheduleRecord).where(
             ProjectScheduleRecord.project_id.in_(normalized_project_ids)
+        )
+    )
+    await session.execute(
+        sa.delete(DatasetLinkRecord).where(
+            DatasetLinkRecord.project_id.in_(normalized_project_ids)
+        )
+    )
+    await session.execute(
+        sa.delete(ProjectCatalogProjectionRecord).where(
+            ProjectCatalogProjectionRecord.project_id.in_(normalized_project_ids)
         )
     )
     await session.execute(

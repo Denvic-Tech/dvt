@@ -427,3 +427,27 @@ body {
     color: #a5b4fc;
   }
 }
+
+.operator-form { display: grid; gap: 14px; }
+.operator-form input:not([type=checkbox]), .operator-form select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--divider);
+  color: var(--text);
+  background: var(--input-bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+}
+.operator-form summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+.operator-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; }
+.operator-facts dt { color: var(--text-dim); }
+.operator-facts dd { overflow-wrap: anywhere; }
+.operator-actions, .operator-history { display: flex; flex-wrap: wrap; gap: 8px; }
+.operator-history { list-style: none; }
+.operator-history button { overflow-wrap: anywhere; }
+.operator-form a { color: var(--primary-dark); }
+@media (max-width: 600px) {
+  .operator-facts { display: block; }
+  .operator-facts dd { margin-bottom: 8px; }
+}

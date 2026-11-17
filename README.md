@@ -80,30 +80,16 @@ Deploy DVT on your own infrastructure with Docker and Docker Compose.
 
 ### Run DVT with the installer
 
-The easiest way to start a self-hosted DVT instance is through the included web installer.
-
-**Requirements:**
-
-- Linux host
-- Docker
-- Docker Compose
-
-Clone the repository and start the installer:
+On a supported DVT host, run:
 
 ```bash
-git clone --recurse-submodules https://github.com/Denvic-Tech/dvt.git
-cd dvt
-chmod +x install.sh
-./install.sh
+bash <(sudo curl -fsSL https://raw.distribution.denvic.tech/dvt/install.sh)
 ```
 
-By default, the installer starts on:
-
-```text
-http://localhost:8888
-```
-
-The installation directory defaults to `/var/lib/dvt`. Both the directory and installer port can be changed through installer arguments.
+The command requires a ready stable release in the signed catalog. It opens
+the HTTPS installer on loopback, prints how to connect through SSH, and asks
+before installing Docker if required. The separate legacy entry is documented
+in the [installation and upgrade guide](services/installation_manager/customer_installation.md).
 
 ### Start the development stack
 

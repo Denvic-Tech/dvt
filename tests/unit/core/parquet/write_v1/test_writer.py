@@ -17,7 +17,11 @@ from dask.dataframe.dask_expr._operation_callbacks import PublicOperationCallbac
 from core.parquet.write import ParquetLayout, ParquetWriteRequest, write_dataframe
 from core.parquet.write.filesystem import ParquetFilesystem
 from core.parquet.write.naming import FilenameTemplate
-from core.parquet.write.schema import read_file_dataset_schema
+from core.parquet.write.schema import (
+    column_descriptions_from_schema,
+    read_file_dataset_schema,
+    stored_dataset_schema_from_arrow,
+)
 from core.types import FsCtx
 
 from src.node_dsl.base_node.df_output import (
@@ -413,7 +417,7 @@ def test_simple_preserves_source_partition_order_in_rows_and_row_groups():
         assert [
                    parquet_file.read_row_group(index).column("id").to_pylist()
                    for index in range(parquet_file.num_row_groups)
-               ] == [list(range(0, 10)), list(range(10, 20)), list(range(20, 30))]
+               ] == [list(range(10)), list(range(10, 20)), list(range(20, 30))]
         assert parquet_file.read().column("id").to_pylist() == list(range(30))
 
 
@@ -1190,3 +1194,37 @@ def test_advanced_high_cardinality_partitioning_streams_many_physical_files():
 
     assert result.files_written == rows
     assert result.rows_written == rows
+
+
+def test_column_descriptions_land_in_field_and_schema_metadata_for_both_layouts():
+    fs = fsspec.filesystem("memory")
+    fs.store.clear()
+    ddf = dd.from_pandas(
+        pd.DataFrame({"id": [1, 2], "amount": [1.5, 2.5], "region": ["a", "b"]}), npartitions=1
+    )
+    descriptions = {"amount": "Сумма заказа", "region": "Регион продажи", "ghost": "Нет такой колонки"}
+
+    write_dataframe(
+        ddf,
+        _memory_ctx(fs, "desc/orders.parquet"),
+        ParquetWriteRequest(path="desc/orders.parquet", mode="create", column_descriptions=descriptions),
+    )
+    with fs.open("/bucket/desc/orders.parquet", "rb") as handle:
+        simple = pq.read_schema(handle)
+    assert simple.field("amount").metadata[b"description"] == "Сумма заказа".encode()
+    assert simple.field("id").metadata is None or b"description" not in simple.field("id").metadata
+    assert column_descriptions_from_schema(simple) == {"amount": "Сумма заказа", "region": "Регион продажи"}
+
+    write_dataframe(
+        ddf,
+        _memory_ctx(fs, "desc/partitioned"),
+        ParquetWriteRequest(
+            path="desc/partitioned", mode="create", partition_on=["region"], column_descriptions=descriptions
+        ),
+    )
+    files = sorted(path for path in fs.find("/bucket/desc/partitioned") if path.endswith(".parquet"))
+    with fs.open(files[0], "rb") as handle:
+        physical = pq.read_schema(handle)
+    assert physical.field("amount").metadata[b"description"] == "Сумма заказа".encode()
+    logical = stored_dataset_schema_from_arrow(physical).logical
+    assert column_descriptions_from_schema(logical) == {"amount": "Сумма заказа", "region": "Регион продажи"}, "partition columns keep their description in the logical schema"

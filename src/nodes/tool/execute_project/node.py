@@ -202,6 +202,16 @@ class ExecuteProject(SignalOutputBaseNode):
         default="include",
         description="How to handle system input variables: error | skip | include",
     )
+    project_variables_policy: Literal["include", "skip"] = InputField(
+        agent_description=(
+            "Choose include to forward the parent project's global variables to the child as "
+            "base values, overriding the child's stored variables with the same names. Linked "
+            "input_variables and variables_df rows take precedence over them. Use skip to keep "
+            "the child isolated from the parent's global variables."
+        ),
+        default="include",
+        description="How to handle parent project global variables: include | skip",
+    )
 
     def _validate_dataframe_mode(self) -> None:
         if self.variables_df is not None and not self.wait_for_completion:
@@ -238,8 +248,26 @@ class ExecuteProject(SignalOutputBaseNode):
 
         return columns
 
+    def _build_project_variable_outputs(self) -> dict[str, VariableOutput]:
+        if self.project_variables_policy == "skip":
+            return {}
+
+        project_variables = self.project_variables
+        definitions = getattr(project_variables, "variables", None) or {}
+        return {
+            variable_name: VariableOutput(
+                name=variable_name,
+                type=definition.type,
+                value=definition.value,
+                var_type="user",
+                is_list_type=bool(definition.is_list_type),
+            )
+            for variable_name, definition in definitions.items()
+        }
+
     async def _build_iteration_variables(self) -> list[dict[str, Any]]:
-        base_variables = dict(self.input_variables or {})
+        base_variables: dict[str, Any] = self._build_project_variable_outputs()
+        base_variables.update(self.input_variables or {})
         if self.variables_df is None:
             return [base_variables]
 

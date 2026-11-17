@@ -16,7 +16,7 @@ Connect `df`; set `conditions` to a `condition` or nested `and` / `or` groups wi
 
 ## Behavior and limitations
 
-Comparisons support `==`, `!=`, `>`, `<`, `>=`, `<=`; membership uses `isin` / `notin`. Text operations `contains`, `startswith`, `endswith` are case-insensitive; contains is literal, not regex. Text/list operators require a literal or expression on the right. Literals are converted to the column type. Unresolved mask values become false. Metadata-only mode validates structure/column references but passes input through both outputs; it does not evaluate the filter.
+Comparisons support `==`, `!=`, `>`, `<`, `>=`, `<=`; membership uses `isin` / `notin`. Text operations `contains`, `startswith`, `endswith` are case-insensitive; contains is literal, not regex. Text/list operators require a literal or expression on the right. Literals are converted to the column type. Unresolved mask values become false. Metadata-only mode validates structure/column references but passes input through both outputs; it does not evaluate the filter. A named operand uses the ordinary column if the index shares its name. An index-only business field is also supported.
 
 ## Examples
 

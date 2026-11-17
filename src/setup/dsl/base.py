@@ -121,7 +121,12 @@ class BaseSetupStep(abc.ABC):
         try:
             return model_cls.model_validate(dict(values))
         except ValidationError as exc:
-            raise SetupValidationError(cls.format_validation_error(exc)) from exc
+            fields = {
+                str(error["loc"][0]): error["msg"]
+                for error in exc.errors(include_input=False)
+                if error["loc"]
+            }
+            raise SetupValidationError(cls.format_validation_error(exc), fields=fields) from exc
 
     @classmethod
     def ensure_allowed_keys(cls, values: Mapping[str, Any], *, allowed_keys: Sequence[str]) -> None:

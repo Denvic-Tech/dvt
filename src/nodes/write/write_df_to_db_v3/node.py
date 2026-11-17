@@ -23,8 +23,10 @@ from src.modules.pipeline_cache import create_sa_engine_fingerprint
 from src.node_dsl import BaseNode, InputField
 from src.node_dsl.connection_types import SqlConnectionRecord
 from src.node_dsl.runtime.connections import resolve_sql_connection_url, resolve_sql_engine
-
-import config
+from src.nodes.write._shared.write_workers import (
+    resolve_write_chunksize,
+    resolve_write_workers,
+)
 
 
 class WriteDataFrameToDBV3SystemVariables(BaseModel):
@@ -107,10 +109,13 @@ class WriteDataFrameToDBV3(BaseNode):
     chunksize: Optional[int] = InputField(
         agent_description=(
             "Choose a positive insertion batch size within the declared limits based on row width "
-            "and driver/database limits; keep the default when no evidence supports tuning. This "
-            "does not control source SQL read partitions or make the entire write one transaction."
+            "and driver/database limits; leave it empty for the database default (ClickHouse "
+            "100000 rows per INSERT, other databases 1000) when no evidence supports tuning. "
+            "Memory per chunk grows with it. This does not control source SQL read partitions or "
+            "make the entire write one transaction."
         ),
-        default=1000, min_value=1, max_value=1_000_000,
+        description="Rows per INSERT; empty = database default (ClickHouse 100000, others 1000).",
+        default=None, min_value=1, max_value=1_000_000,
     )
     upsert_config: Optional[UpsertConfig] = InputField(
         agent_description=(
@@ -150,13 +155,6 @@ class WriteDataFrameToDBV3(BaseNode):
         meta_cache_key = create_sa_engine_fingerprint(engine)
         await self.metadata_store.remove(meta_cache_key)
 
-    def _get_write_workers(self) -> int:
-        requested_workers = (
-            getattr(self.project_settings, "workers_count", None)
-            or config.OTHER.BULK_INSERT_NUM_WORKERS
-        )
-        return max(1, min(requested_workers, config.OTHER.SQL_BULK_INSERT_MAX_WORKERS))
-
     @staticmethod
     def _coerce_model(value, model_cls):
         if value is None or isinstance(value, model_cls):
@@ -165,7 +163,7 @@ class WriteDataFrameToDBV3(BaseNode):
             return model_cls.model_validate(value)
         return model_cls(value)
 
-    def _build_request(self) -> WriteRequest:
+    def _build_request(self, engine: Engine) -> WriteRequest:
         try:
             return WriteRequest(
                 mode=self._coerce_model(self.write_mode, WriteMode),
@@ -174,8 +172,8 @@ class WriteDataFrameToDBV3(BaseNode):
                     schema_name=self.schema_name,
                     database_name=self.database_name,
                 ),
-                chunksize=self.chunksize,
-                write_workers=self._get_write_workers(),
+                chunksize=resolve_write_chunksize(self.chunksize, engine),
+                write_workers=resolve_write_workers(self.project_settings, engine),
                 upsert=self._coerce_model(self.upsert_config, UpsertConfig),
                 on_extra_df_columns=self._coerce_model(self.on_extra_df_columns, ExtraColumnsMode),
                 on_missing_df_columns=self._coerce_model(
@@ -189,7 +187,7 @@ class WriteDataFrameToDBV3(BaseNode):
     def _run_blocking_write_sync(self) -> tuple[WriteResult, Engine, bool]:
         engine, owned_by_node = self._get_execution_engine()
         try:
-            request = self._build_request()
+            request = self._build_request(engine)
             result = write_dataframe(self.df, engine, request)
             logger.info(
                 f"write_v3 completed: mode={result.mode} target={result.target_name} "

@@ -24,6 +24,16 @@ from src.modules.pipeline_cache import create_sa_engine_fingerprint
 from src.node_dsl import BaseNode, InputField
 from src.node_dsl.connection_types import SqlConnectionRecord
 from src.node_dsl.runtime.connections import resolve_sql_connection_url, resolve_sql_engine
+from src.nodes.write._shared.catalog_descriptions import (
+    load_catalog_descriptions,
+    map_descriptions_to_targets,
+)
+from src.nodes.write._shared.column_comments_sync import sync_table_column_comments
+from src.nodes.write._shared.write_workers import (
+    resolve_bulk_write_workers,
+    resolve_rows_per_batch,
+    resolve_write_workers,
+)
 
 import config
 
@@ -109,11 +119,43 @@ class WriteDataFrameToDBV4(BaseNode):
             "not a promise that the database can insert a valid row."
         ),
     )
+    # Kept declared for saved pipelines and the node form, which reads its bounds; never used.
     chunksize: int | None = InputField(
-        default=1000, min_value=1, max_value=1_000_000,
+        default=None, min_value=1, max_value=1_000_000, is_hidden=True,
+        description=(
+            "Deprecated and ignored: the batch size is chosen automatically; use rows_per_batch "
+            "to fix it."
+        ),
         agent_description=(
-            "Keep the default unless row width, source volume and driver limits justify tuning. "
-            "A chunk size does not make the whole write one atomic transaction."
+            "Deprecated and ignored at runtime; saved pipelines may still carry a value (often "
+            "1000) that has no effect. Do not set it. Use rows_per_batch to fix the batch size."
+        ),
+    )
+    rows_per_batch: int | None = InputField(
+        default=None, min_value=1, max_value=1_000_000,
+        description=(
+            "Rows per batch (ClickHouse INSERT, PostgreSQL COPY CSV buffer, SQL Server and MySQL "
+            "executemany call, other INSERTs); empty = automatic size by row width (1000 rows for "
+            "other INSERTs)."
+        ),
+        agent_description=(
+            "Leave empty: the writer sizes each batch from the estimated row width of every "
+            "partition (bulk paths of ClickHouse, PostgreSQL, SQL Server and MySQL; 1000 rows on "
+            "plain INSERTs). Set it only to pin a measured batch size; it is used exactly on every "
+            "path, except that SQL Server lowers it so one call buffers at most 64 MB. Larger "
+            "batches need more memory, and a batch size never makes the write one atomic "
+            "transaction."
+        ),
+    )
+    async_insert: bool = InputField(
+        default=False, is_hidden=True,
+        description="ClickHouse only: use server-side async inserts (ignored by other databases).",
+        agent_description=(
+            "ClickHouse only; other databases ignore it. Enable only for many small, frequent "
+            "writes: append inserts then go through the server async_insert buffer and each "
+            "INSERT waits for its flush (wait_for_async_insert=1), which is much slower for large "
+            "writes. truncate and upsert never use it. With it off, data is visible when the node "
+            "finishes."
         ),
     )
     upsert_config: UpsertConfig | None = InputField(
@@ -122,6 +164,17 @@ class WriteDataFrameToDBV4(BaseNode):
             "Supply only with write_mode=upsert. Use the exact target key_column from the nested "
             "schema. Verify key meaning and input duplicates: this operation does not deduplicate "
             "the input and needs temporary-table permissions and dialect support."
+        ),
+    )
+    sync_column_descriptions: bool = InputField(
+        default=True,
+        description="Sync target column comments with Data Catalog descriptions on every run.",
+        agent_description=(
+            "When true, after each successful write the node compares Data Catalog descriptions of "
+            "the input DataFrame columns with the target table column comments and updates only the "
+            "differences. The catalog wins where it has text; an empty catalog description never "
+            "clears an existing comment. Dialects without column comments are skipped; a failed "
+            "comment update is logged and does not fail the write."
         ),
     )
     column_mapping: list[WriteColumnMapping] | None = InputField(
@@ -162,13 +215,6 @@ class WriteDataFrameToDBV4(BaseNode):
         meta_cache_key = create_sa_engine_fingerprint(engine)
         await self.metadata_store.remove(meta_cache_key)
 
-    def _get_write_workers(self) -> int:
-        requested_workers = (
-            getattr(self.project_settings, "workers_count", None)
-            or config.OTHER.BULK_INSERT_NUM_WORKERS
-        )
-        return max(1, min(requested_workers, config.OTHER.SQL_BULK_INSERT_MAX_WORKERS))
-
     @staticmethod
     def _coerce_model(value, model_cls):
         if value is None or isinstance(value, model_cls):
@@ -177,7 +223,7 @@ class WriteDataFrameToDBV4(BaseNode):
             return model_cls.model_validate(value)
         return model_cls(value)
 
-    def _build_request(self) -> WriteRequest:
+    def _build_request(self, engine: Engine) -> WriteRequest:
         try:
             return WriteRequest(
                 mode=self._coerce_model(self.write_mode, WriteMode),
@@ -186,8 +232,13 @@ class WriteDataFrameToDBV4(BaseNode):
                     schema_name=self.schema_name,
                     database_name=self.database_name,
                 ),
-                chunksize=self.chunksize,
-                write_workers=self._get_write_workers(),
+                rows_per_batch=resolve_rows_per_batch(self.rows_per_batch),
+                write_workers=resolve_write_workers(self.project_settings, engine),
+                bulk_write_workers=resolve_bulk_write_workers(self.project_settings, engine),
+                async_insert=self.async_insert,
+                pg_copy=config.OTHER.DB_PG_COPY,
+                mssql_fast_executemany=config.OTHER.DB_MSSQL_FAST_EXECUTEMANY,
+                mysql_bulk_insert=config.OTHER.DB_MYSQL_BULK_INSERT,
                 upsert=self._coerce_model(self.upsert_config, UpsertConfig),
                 on_extra_df_columns=self._coerce_model(self.on_extra_df_columns, ExtraColumnsMode),
                 on_missing_df_columns=self._coerce_model(
@@ -202,7 +253,7 @@ class WriteDataFrameToDBV4(BaseNode):
     def _run_blocking_write_sync(self) -> tuple[WriteResult, Engine, bool]:
         engine, owned_by_node = self._get_execution_engine()
         try:
-            request = self._build_request()
+            request = self._build_request(engine)
             result = write_dataframe(self.df, engine, request)
             logger.info(
                 f"write_v4 completed: mode={result.mode} target={result.target_name} "
@@ -214,13 +265,52 @@ class WriteDataFrameToDBV4(BaseNode):
                 engine.dispose()
             raise
 
+    async def _load_target_descriptions(self) -> dict[str, str]:
+        """Описания каталога для колонок DataFrame, переведённые в имена целевых колонок."""
+        if not self.sync_column_descriptions:
+            return {}
+        descriptions = await load_catalog_descriptions(
+            project_id=self._project_id, node_id=self._node_id, port="df"
+        )
+        if not descriptions:
+            return {}
+        mapping = {
+            item.source_name: item.target_name
+            for item in (self._coerce_model(raw, WriteColumnMapping) for raw in self.column_mapping or [])
+            if item.target_name
+        }
+        return map_descriptions_to_targets(descriptions, mapping)
+
+    def _sync_column_comments(self, engine: Engine, descriptions: dict[str, str]) -> int:
+        """Блокирующая синхронизация комментариев; ошибка не валит запись."""
+        try:
+            updated = sync_table_column_comments(
+                engine,
+                table_name=self.table_name,
+                schema_name=self.schema_name,
+                database_name=self.database_name,
+                descriptions=descriptions,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"write_v4: column comments were not synced for {self.table_name}: {exc}"
+            )
+            return 0
+        if updated:
+            logger.info(f"write_v4: synced {updated} column comment(s) for {self.table_name}")
+        return updated
+
     async def process(self) -> None:
         self.df = self._drop_internal_columns(self.df)
+        descriptions = await self._load_target_descriptions()
         engine: Engine | None = None
         owned_by_node = False
         try:
             result, engine, owned_by_node = await asyncio.to_thread(self._run_blocking_write_sync)
-            if str(result.mode) in ("append", "truncate", "upsert"):
+            synced = 0
+            if descriptions:
+                synced = await asyncio.to_thread(self._sync_column_comments, engine, descriptions)
+            if str(result.mode) in ("append", "truncate", "upsert") or synced:
                 await self._invalidate_connection_meta_cache(engine)
             self.emit_system_variables(
                 WriteDataFrameToDBV4SystemVariables(

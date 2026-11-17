@@ -38,6 +38,7 @@ class SetupStep(BaseModel):
 
 class SetupStatus(BaseModel):
     initialized: bool = Field(..., description="Is DVT fully initialized?")
+    pairing_required: bool = False
     steps: list[SetupStep] = Field(
         default_factory=list,
         description="Ordered statuses of all setup steps.",

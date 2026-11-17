@@ -1,5 +1,9 @@
 import pandas as pd
+import pytest
 from dask import dataframe as dd
+
+from core.types.dataframe_index import PhysicalDataFrameIndex
+from core.utils.dataframe_index import set_physical_index
 
 from src.nodes.transform.df_join import DataFrameJoin
 from src.nodes.transform.df_rename_columns import DataFrameRenameColumns
@@ -249,15 +253,20 @@ def _expr_contains_shuffle(expr) -> bool:
     return False
 
 
-def _build_indexed_join_frame(value_column: str) -> dd.DataFrame:
-    pdf = pd.DataFrame({"k": range(100), value_column: range(100)})
-    pdf.index = pd.Index(pdf["k"], name="k")
-    return dd.from_pandas(pdf, npartitions=5, sort=True)
+def _build_indexed_join_frame(value_column: str, keys=(1, 2, 2, 3)) -> dd.DataFrame:
+    pdf = pd.DataFrame({value_column: range(len(keys)), "k": keys})
+    name = "__dvt_partition_key"
+    pdf = pdf.set_index("k", drop=False).rename_axis(name)
+    return set_physical_index(
+        dd.from_pandas(pdf, npartitions=2),
+        PhysicalDataFrameIndex(name=name, strategy="range", source_column="k", bound_column="k"),
+    )
 
 
-def test_df_join_business_index_fast_path_keeps_known_divisions_without_shuffle():
+@pytest.mark.parametrize("how", ["inner", "left", "right", "outer"])
+def test_df_join_bound_index_keeps_column_merge_schema_without_shuffle(how):
     left = _build_indexed_join_frame("left_value")
-    right = _build_indexed_join_frame("right_value")
+    right = _build_indexed_join_frame("right_value", keys=(2, 2, 3, 4))
 
     node = DataFrameJoin(
         user_id="user",
@@ -268,13 +277,19 @@ def test_df_join_business_index_fast_path_keeps_known_divisions_without_shuffle(
         right=right,
         left_on=["k"],
         right_on=["k"],
-        how="inner",
+        how=how,
     )
     node.process()
 
     assert node.output.known_divisions is True
-    assert _expr_contains_shuffle(node.output.expr) is False
-    assert len(node.output.compute()) == 100
+    assert _expr_contains_shuffle(node.output.optimize(fuse=False).expr) is False
+    expected = left.compute().merge(right.compute(), on="k", how=how)
+    actual = node.output.compute()
+    order = ["k", "left_value", "right_value"]
+    pd.testing.assert_frame_equal(
+        actual.sort_values(order).reset_index(drop=True),
+        expected.sort_values(order).reset_index(drop=True),
+    )
 
 
 def test_df_join_renamed_business_index_fast_path_keeps_no_shuffle():
@@ -309,4 +324,58 @@ def test_df_join_renamed_business_index_fast_path_keeps_no_shuffle():
 
     assert node.output.known_divisions is True
     assert _expr_contains_shuffle(node.output.expr) is False
-    assert len(node.output.compute()) == 100
+    assert len(node.output.compute()) == 6
+
+
+@pytest.mark.parametrize(
+    ("left_keys", "right_keys", "how", "expected"),
+    [
+        (["YearKey"], ["year"], "inner", [11, 12]),
+        (["email"], ["email"], "left", [11, 12]),
+        (["YearKey", "email"], ["year", "email"], "inner", [11, 12]),
+        (None, None, "cross", [11, 11, 12, 12]),
+    ],
+)
+def test_df_join_handles_legacy_column_and_index_name_collision(
+    left_keys, right_keys, how, expected
+):
+    left = pd.DataFrame(
+        {"YearKey": [11, 12], "email": ["a", "b"]},
+        index=pd.Index([1, 2], name="YearKey"),
+    )
+    right = pd.DataFrame({"year": [11, 12], "email": ["a", "b"]})
+    node = DataFrameJoin(
+        user_id="user", project_id="project", task_id="task", node_id="legacy-join",
+        left=dd.from_pandas(left, npartitions=2),
+        right=dd.from_pandas(right, npartitions=2),
+        left_on=left_keys, right_on=right_keys, how=how,
+    )
+    node.process()
+    assert sorted(node.output.compute()["YearKey"]) == expected
+
+
+def test_df_join_can_use_a_key_present_only_in_the_business_index():
+    left = pd.DataFrame({"k": [1, 2], "label": ["a", "b"]}).set_index("k")
+    right = pd.DataFrame({"code": [2, 3], "value": [20, 30]})
+    node = DataFrameJoin(
+        user_id="user", project_id="project", task_id="task", node_id="index-only-join",
+        left=dd.from_pandas(left, npartitions=2),
+        right=dd.from_pandas(right, npartitions=2),
+        left_on=["k"], right_on=["code"], how="inner",
+    )
+    node.process()
+    assert node.output.compute()[["label", "value"]].to_dict("records") == [
+        {"label": "b", "value": 20}
+    ]
+
+
+def test_df_join_with_omitted_keys_does_not_join_by_physical_index():
+    left = _build_indexed_join_frame("left_value", keys=(1, 2))
+    right = _build_indexed_join_frame("right_value", keys=(2, 3))
+    right = right.assign(k=right.k + 10)
+    node = DataFrameJoin(
+        user_id="user", project_id="project", task_id="task", node_id="implicit-key-join",
+        left=left, right=right, how="inner",
+    )
+    node.process()
+    assert node.output.compute().empty

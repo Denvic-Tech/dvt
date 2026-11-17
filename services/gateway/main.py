@@ -10,14 +10,17 @@ import sys
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
+from src.db import async_engine
 from src.exception_registry.handlers import exception_handler
 from src.logger import logger
 from src.modules.extension_management.infra.runtime.gateway_runtime import (
     get_extension_gateway_runtime,
 )
+from src.utils.deployment_migrations import MigrationContext
 from src.utils.openapi import rebuild_openapi
 from src.version import get_version_from_pyproject
 
@@ -73,7 +76,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["retry-after", "cool-down", "X-Language"],
+    expose_headers=[
+        "retry-after",
+        "cool-down",
+        "X-Language",
+        # Project export (.dvtpkg): file name and post-export warnings.
+        "Content-Disposition",
+        "X-DVT-Export-Warnings",
+    ],
 )
 
 Instrumentator().instrument(app).expose(app, tags=["Metrics"])
@@ -105,8 +115,26 @@ async def core_openapi():
     return _core_openapi_schema
 
 
+@app.api_route('/api/health', methods=['GET', 'HEAD'], include_in_schema=False)
 @app.api_route('/health', methods=['GET', 'HEAD'], include_in_schema=False)
-async def health():
+async def health(request: Request):
+    if operation := request.headers.get("X-DVT-Deployment"):
+        deployment = MigrationContext.read()
+        if deployment is None or operation != str(deployment.operation_id):
+            return JSONResponse({"status": "unavailable"}, status_code=503)
+
+        def verify(connection):
+            from alembic.migration import MigrationContext as AlembicContext
+
+            if AlembicContext.configure(connection).get_current_heads() != (deployment.target,):
+                raise RuntimeError("The running database revision changed")
+            deployment.assert_ready(connection, deployment.target)
+
+        try:
+            async with async_engine.connect() as connection:
+                await connection.run_sync(verify)
+        except (RuntimeError, SQLAlchemyError):
+            return JSONResponse({"status": "unavailable"}, status_code=503)
     return {"status": "ok"}
 
 

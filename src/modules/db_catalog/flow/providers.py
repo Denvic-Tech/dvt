@@ -36,11 +36,27 @@ class CatalogProvider:
         connection_id: str,
         actor: CatalogActor,
         request: CatalogRequest,
+        bypass_cache: bool = False,
     ) -> CatalogResponse:
+        """Отдаёт каталог из кэша или источника.
+
+        bypass_cache=True читает из источника, минуя кэш и ожидание single-flight, и кладёт
+        свежий результат под текущий ключ, чтобы последующие обычные чтения его увидели.
+        """
         connection = await self._connection_access.get_authorized(connection_id, actor)
         validate_request(connection, request)
         epoch = await self._cache.get_epoch(connection.id, connection.revision)
         key = build_cache_key(connection, request, epoch)
+
+        if bypass_cache:
+            token = await self._cache.try_acquire(key, self._lock_ttl_seconds)
+            try:
+                entry = await self._load(connection, request, key, epoch)
+            finally:
+                if token is not None:
+                    await self._cache.release(key, token)
+            return self._response(entry, CatalogCacheStatus.BYPASS, connection.dialect)
+
         cached = await self._cache.get(key)
         if cached is not None:
             return self._response(cached, CatalogCacheStatus.HIT, connection.dialect)
@@ -53,19 +69,23 @@ class CatalogProvider:
             token = await self._cache.try_acquire(key, self._lock_ttl_seconds)
 
         try:
-            result = await self._source.fetch(connection, request)
-            loaded_at = datetime.now(UTC)
-            entry = CatalogCacheEntry(
-                result=result,
-                catalog_version=f"{connection.revision}:{epoch}",
-                loaded_at=loaded_at,
-                expires_at=loaded_at + timedelta(seconds=self._cache_ttl_seconds),
-            )
-            await self._cache.set(key, entry, self._cache_ttl_seconds)
+            entry = await self._load(connection, request, key, epoch)
             return self._response(entry, CatalogCacheStatus.MISS, connection.dialect)
         finally:
             if token is not None:
                 await self._cache.release(key, token)
+
+    async def _load(self, connection, request: CatalogRequest, key: str, epoch: int) -> CatalogCacheEntry:
+        result = await self._source.fetch(connection, request)
+        loaded_at = datetime.now(UTC)
+        entry = CatalogCacheEntry(
+            result=result,
+            catalog_version=f"{connection.revision}:{epoch}",
+            loaded_at=loaded_at,
+            expires_at=loaded_at + timedelta(seconds=self._cache_ttl_seconds),
+        )
+        await self._cache.set(key, entry, self._cache_ttl_seconds)
+        return entry
 
     async def refresh(
         self,

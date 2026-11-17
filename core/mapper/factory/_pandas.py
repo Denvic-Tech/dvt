@@ -270,6 +270,9 @@ def get_sqla_type(column: pd.Series, dialect: Any, use_jsonb_pg: bool = True) ->
             return CH_TYPES.Float64 if not nullable else CH_TYPES.Nullable(CH_TYPES.Float64)
         if dialect.name == "oracle":
             return oracle_dialect.BINARY_DOUBLE()
+        if dialect.name in ("mysql", "mariadb"):
+            # MySQL FLOAT is single precision (about 7 digits); pandas floats are float64.
+            return mysql_dialect.DOUBLE()
         return td.FloatWithNA() if nullable else Float
 
     # 9) bool

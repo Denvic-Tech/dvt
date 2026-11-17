@@ -10,3 +10,6 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+
+# Keep the exact bytes of the pinned release manifest fixture.
+tests/data/installation_manager/verified_staging/manifest.json -text

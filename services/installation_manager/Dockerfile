@@ -31,7 +31,7 @@ RUN apt-get update \
     > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin docker-buildx-plugin \
-    && apt-get purge -y curl gnupg \
+    && apt-get purge -y gnupg \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
@@ -42,6 +42,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 COPY core /app/core
+COPY pyproject.toml /app/pyproject.toml
 COPY services/__init__.py /app/services/__init__.py
 COPY services/installation_manager /app/services/installation_manager
 RUN rm -rf /app/services/installation_manager/frontend

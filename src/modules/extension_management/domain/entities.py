@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from src.modules.extension_management.domain.catalog import CatalogVersion
 from src.modules.extension_management.domain.types import ExtensionDependencyStatus
 
 
@@ -23,6 +24,8 @@ class Extension:
     manifest_json: dict[str, Any] = field(default_factory=dict)
     state_json: dict[str, Any] = field(default_factory=dict)
     available_versions: list[str] = field(default_factory=list)
+    catalog_versions: list[CatalogVersion] = field(default_factory=list)
+    recommended_version: str | None = None
     error_message: str | None = None
     installed_at: datetime | None = None
     created_at: datetime | None = None

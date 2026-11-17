@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shutil
 import stat
 import subprocess
@@ -26,6 +27,7 @@ from src.modules.extension_management.infra.packages.artifact import (
 from src.modules.extension_management.infra.packages.deletion_queue import add_pending_deletion
 from src.modules.extension_management.infra.packages.dependencies import (
     build_extension_pip_install_command,
+    extension_pip_environment,
 )
 from src.modules.extension_management.infra.runtime.loader import load_manifest
 
@@ -96,11 +98,22 @@ class ExtensionsInstallManager:
     def rollback_staged_package(staged: StagedExtensionPackage) -> None:
         discard_staged_extension_package(staged.package_id)
 
-    async def stage_from_url(self, repository_url: str) -> StagedExtensionPackage:
+    async def stage_from_url(
+        self,
+        repository_url: str,
+        *,
+        expected_size: int | None = None,
+        expected_sha256: str | None = None,
+    ) -> StagedExtensionPackage:
         logger.debug("Downloading extension package from '{}'", repository_url)
         archive_name = Path(urlsplit(repository_url).path).name or "extension.zip"
         if Path(archive_name).suffix.lower() not in {".zip", ".dvtx"}:
             archive_name = f"{archive_name}.zip"
+
+        size_limit = config.EXTENSIONS.PACKAGE_MAX_SIZE_BYTES
+        if expected_size is not None and expected_size > size_limit:
+            raise ValueError("Extension package is too large")
+        digest = hashlib.sha256() if expected_sha256 is not None else None
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(archive_name).suffix) as tmp:
             tmp_path = Path(tmp.name)
@@ -111,17 +124,25 @@ class ExtensionsInstallManager:
             ) as client, client.stream("GET", repository_url) as resp:
                 resp.raise_for_status()
                 content_length = resp.headers.get("Content-Length")
-                if (
-                    content_length
-                    and int(content_length) > config.EXTENSIONS.PACKAGE_MAX_SIZE_BYTES
-                ):
+                if content_length and int(content_length) > size_limit:
                     raise ValueError("Extension package is too large")
+                if content_length and expected_size is not None and int(content_length) != expected_size:
+                    raise ValueError("Extension package size does not match release metadata")
                 with tmp_path.open("wb") as output:
                     async for chunk in resp.aiter_bytes():
                         downloaded += len(chunk)
-                        if downloaded > config.EXTENSIONS.PACKAGE_MAX_SIZE_BYTES:
+                        if downloaded > size_limit:
                             raise ValueError("Extension package is too large")
+                        if expected_size is not None and downloaded > expected_size:
+                            raise ValueError("Extension package size does not match release metadata")
+                        if digest is not None:
+                            digest.update(chunk)
                         output.write(chunk)
+
+            if expected_size is not None and downloaded != expected_size:
+                raise ValueError("Extension package size does not match release metadata")
+            if digest is not None and digest.hexdigest() != expected_sha256:
+                raise ValueError("Extension package SHA-256 does not match release metadata")
 
             with tmp_path.open("rb") as fileobj:
                 return await asyncio.to_thread(
@@ -181,7 +202,8 @@ class ExtensionsInstallManager:
             install_root=install_root,
             offline_only=offline_only,
         )
-        await self._run_command(command)
+        options = {"env": environment} if (environment := extension_pip_environment()) else {}
+        await self._run_command(command, **options)
         logger.debug("Successfully installed extension dependencies")
 
     def activate_staged_package(
@@ -303,7 +325,7 @@ class ExtensionsInstallManager:
         target.chmod(target.stat().st_mode | stat.S_IWRITE)
         function(path)
 
-    async def _run_command(self, command: list[str]) -> None:
+    async def _run_command(self, command: list[str], *, env: dict[str, str] | None = None) -> None:
         logger.debug(f"Running extension command: {' '.join(command)}")
         completed = await asyncio.to_thread(
             subprocess.run,
@@ -311,6 +333,7 @@ class ExtensionsInstallManager:
             check=False,
             capture_output=True,
             text=True,
+            env=env,
         )
         logger.debug(
             "Extension command finished rc={} stdout='{}' stderr='{}'",

@@ -173,12 +173,17 @@ async def get_projects(
         Literal["asc", "desc"],
         Query(description="Направление серверной сортировки"),
     ] = "desc",
+    limit: Annotated[
+        int | None,
+        Query(ge=1, description="Максимальное количество проектов; null означает без ограничения"),
+    ] = None,
 ) -> list[ProjectReadSchema]:
     return await project_impl.get_projects_route_impl(
         session=session,
         user=user,
         sort_by=sort_by,
         sort_order=sort_order,
+        limit=limit,
     )
 
 

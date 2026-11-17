@@ -7,6 +7,7 @@ import pytest
 
 from src import enums
 from src.infra import task_node_runtime
+from src.modules.task_execution.domain.entities import NestedTaskParent
 from src.modules.task_execution.domain.types import TaskExecutionStatus, TaskSource
 from src.node_dsl.variables import VariableOutput, make_unresolved_value
 from src.pipeline.execution_mode import PipelineExecutionMode
@@ -126,6 +127,7 @@ async def test_enqueue_project_task_for_node_loads_user_and_project(monkeypatch)
             "batch_size": ProjectVariableBase(type="INT", value=100),
         },
         "source": TaskSource.NODE,
+        "nested_parent": NestedTaskParent("parent-task-1", "worker-1"),
         "user": actor_user,
         "session": ANY,
     }]

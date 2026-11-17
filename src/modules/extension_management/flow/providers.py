@@ -66,8 +66,18 @@ class ExtensionManagementProvider:
     async def sync_installed_extensions(self) -> list[Extension]:
         return await self._sync_installed.execute()
 
-    async def install_extension(self, name: str, version: str | None = None) -> Extension:
-        return await self._install.execute(name, version=version)
+    async def install_extension(
+        self,
+        name: str,
+        version: str | None = None,
+        *,
+        allow_downgrade: bool = False,
+        allow_reinstall: bool = False,
+    ) -> Extension:
+        return await self._install.execute(
+            name, version=version,
+            allow_downgrade=allow_downgrade, allow_reinstall=allow_reinstall,
+        )
 
     async def uninstall_extension(
         self, name: str, *, drop_extension_data: bool = False
@@ -76,8 +86,8 @@ class ExtensionManagementProvider:
             name, drop_extension_data=drop_extension_data
         )
 
-    async def reload_extension(self, name: str) -> Extension:
-        return await self._reload.execute(name)
+    async def reload_extension(self, name: str, *, local_only: bool = False) -> Extension:
+        return await self._reload.execute(name, local_only=local_only)
 
     async def set_enabled(self, name: str, enabled: bool) -> Extension:
         return await self._set_enabled.execute(name, enabled=enabled)

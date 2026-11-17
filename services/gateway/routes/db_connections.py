@@ -6,6 +6,7 @@ from src.modules.user.infra.repositories import SQLAlchemyUserRepository
 import config
 
 from .impl.db_catalog import router as db_catalog_router
+from .impl.partitioning_advice import router as partitioning_advice_router
 
 main_db_connections_ext = build_db_connection_extension(
     engine=async_engine,
@@ -15,3 +16,4 @@ main_db_connections_ext = build_db_connection_extension(
 )
 router = main_db_connections_ext.build_router(prefix="/db-connections", tags=["DB Connections"])
 router.include_router(db_catalog_router)
+router.include_router(partitioning_advice_router)

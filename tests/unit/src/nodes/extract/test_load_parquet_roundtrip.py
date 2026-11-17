@@ -156,3 +156,24 @@ def test_save_new_load_round_trip_preserves_unnamed_index_with_reserved_column(m
     assert actual["__index_level_0__"].tolist() == [10, 20]
     assert actual.index.tolist() == [5, 6]
     assert actual.index.name is None
+
+
+def test_infer_metadata_exposes_stored_column_descriptions_as_comments(monkeypatch):
+    fs = fsspec.filesystem("memory")
+    fs.store.clear()
+    ddf = dd.from_pandas(pd.DataFrame({"id": [1, 2], "amount": [1.5, 2.5]}), npartitions=1)
+    write_dataframe(
+        ddf,
+        _memory_context(fs, "described.parquet"),
+        ParquetWriteRequest(path="described.parquet", mode="create", column_descriptions={"amount": "Сумма"}),
+    )
+
+    node = LoadParquet(
+        user_id="user", project_id="project", task_id="task", node_id="load-parquet-node",
+        connection=object(), path="described.parquet", usecols=None,
+    )
+    monkeypatch.setattr(node, "_get_fs_context", lambda **_kwargs: _memory_context(fs, "described.parquet"))
+
+    metadata = node.infer_metadata()["output"]
+    comments = {column.name: column.comment for column in metadata.columns}
+    assert comments == {"id": None, "amount": "Сумма"}

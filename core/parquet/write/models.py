@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -26,6 +27,7 @@ class ParquetWriteRequest:
     write_index: bool = False
     parquet_types: dict[str, str] | None = None
     write_workers: int = 2
+    column_descriptions: Mapping[str, str] | None = None
 
     @property
     def normalized_mode(self) -> ParquetWriteMode:
