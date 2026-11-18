@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-SCHEMA_NAMES = ("wide_mixed", "numeric", "wide_text")
+SCHEMA_NAMES = ("wide_mixed", "numeric", "wide_text", "dim")
 DIALECTS = ("postgres", "clickhouse", "mssql", "mysql")
 
 # Explicit pyarrow storage keeps generated partitions and ``partition_meta`` identical even when
@@ -96,6 +96,15 @@ SCHEMA_COLUMNS: dict[str, tuple[ColumnSpec, ...]] = {
         _C("text_d",   "object",         False, "TEXT",             "String",
                                                 "NVARCHAR(MAX)", "TEXT"),
     ),
+    # Small lookup table for join benchmarks (one row per ``id``).
+    "dim": (
+        _C("id",         "int64",        False, "BIGINT",           "Int64",
+                                                "BIGINT",        "BIGINT"),
+        _C("dim_label",  STRING_DTYPE,   False, "VARCHAR(32)",      "String",
+                                                "NVARCHAR(32)",  "VARCHAR(32)"),
+        _C("dim_weight", "float64",      False, "DOUBLE PRECISION", "Float64",
+                                                "FLOAT",         "DOUBLE"),
+    ),
 }
 # fmt: on
 del _C
@@ -107,6 +116,13 @@ STR_HIGH_LENGTH = 16
 STR_TEXT_LENGTH = 64
 STR_NULL_LENGTH = 16
 WIDE_TEXT_LENGTH = 2_048
+DIM_LABEL_LENGTH = 12
+
+# Optional ``key`` column: ``id * KEY_MULTIPLIER % key_cardinality``. The multiplier is a prime
+# larger than any cardinality, so ``rows`` consecutive ids hit every key value
+# ``rows // key_cardinality`` or one more times, scattered over all partitions.
+KEY_COLUMN = "key"
+KEY_MULTIPLIER = 2_654_435_761
 
 # 2020-01-01T00:00:00 .. 2026-01-01T00:00:00 (exclusive), naive UTC.
 _TS_START_MS = 1_577_836_800_000
@@ -160,9 +176,16 @@ def partition_plan(rows: int, npartitions: int) -> list[PartitionSpec]:
     return specs
 
 
-def generate_partition(schema: str, spec: PartitionSpec, seed: int) -> pd.DataFrame:
-    """Build one partition; pure and deterministic for ``(schema, spec, seed)``."""
+def generate_partition(
+    schema: str, spec: PartitionSpec, seed: int, key_cardinality: int = 0
+) -> pd.DataFrame:
+    """Build one partition; pure and deterministic for its arguments.
+
+    ``key_cardinality > 0`` appends the int64 ``key`` column (see ``KEY_MULTIPLIER``); it draws
+    no random numbers, so the other columns do not change.
+    """
     _check_schema(schema)
+    _check_key_cardinality(key_cardinality)
     if spec.rows < 0 or spec.id_offset < 0:
         raise ValueError(f"invalid partition spec: {spec}")
     rng = np.random.default_rng((seed, spec.index))
@@ -172,16 +195,26 @@ def generate_partition(schema: str, spec: PartitionSpec, seed: int) -> pd.DataFr
         data = {"id": ids, "value": rng.standard_normal(n)}
     elif schema == "wide_text":
         data = _wide_text_columns(rng, n, ids)
+    elif schema == "dim":
+        data = {
+            "id": ids,
+            "dim_label": _fixed_width_strings(_random_ascii(rng, n, DIM_LABEL_LENGTH), n),
+            "dim_weight": rng.random(n),
+        }
     else:
         data = _wide_mixed_columns(rng, n, ids)
+    if key_cardinality:
+        data[KEY_COLUMN] = ids * KEY_MULTIPLIER % key_cardinality
     return pd.DataFrame(data, copy=False)
 
 
-def partition_meta(schema: str) -> pd.DataFrame:
+def partition_meta(schema: str, key_cardinality: int = 0) -> pd.DataFrame:
     """Empty frame with the exact dtypes and index type of ``generate_partition``."""
-    return pd.DataFrame(
-        {column.name: pd.Series([], dtype=column.dtype) for column in columns(schema)}
-    )
+    _check_key_cardinality(key_cardinality)
+    data = {column.name: pd.Series([], dtype=column.dtype) for column in columns(schema)}
+    if key_cardinality:
+        data[KEY_COLUMN] = pd.Series([], dtype="int64")
+    return pd.DataFrame(data)
 
 
 def quote_identifier(dialect: str, name: str) -> str:
@@ -325,6 +358,11 @@ def _column_type_sql(dialect: str, column: ColumnSpec) -> str:
 def _check_schema(schema: str) -> None:
     if schema not in SCHEMA_COLUMNS:
         raise ValueError(f"unknown schema {schema!r}; expected one of {SCHEMA_NAMES}")
+
+
+def _check_key_cardinality(key_cardinality: int) -> None:
+    if not 0 <= key_cardinality < KEY_MULTIPLIER:
+        raise ValueError(f"key_cardinality must be in [0, {KEY_MULTIPLIER}), got {key_cardinality}")
 
 
 def _check_dialect(dialect: str) -> None:

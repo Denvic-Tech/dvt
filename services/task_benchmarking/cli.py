@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -32,6 +32,7 @@ class BenchmarkOptions:
     compare_candidate_workdir: Optional[str]
     compare_candidate_pipeline: Optional[str]
     run_once: bool
+    node_sets: list[str] = field(default_factory=list)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,6 +138,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override node input max_rows_per_partition globally",
     )
     parser.add_argument(
+        "--set",
+        dest="node_sets",
+        action="append",
+        default=[],
+        metavar="NODE.INPUT=VALUE",
+        help=(
+            "Override one input of one node (repeatable); VALUE is parsed as JSON, otherwise "
+            "kept as a string. Applies only to inputs present in the pipeline file."
+        ),
+    )
+    parser.add_argument(
         "--matrix",
         default=None,
         help="Path to matrix config (JSON/YAML) for scenario runs",
@@ -200,4 +212,5 @@ def parse_args(argv: Optional[list[str]] = None) -> BenchmarkOptions:
         compare_candidate_workdir=args.compare_candidate_workdir,
         compare_candidate_pipeline=args.compare_candidate_pipeline,
         run_once=args._once,
+        node_sets=args.node_sets,
     )

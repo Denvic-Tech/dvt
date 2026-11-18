@@ -11,9 +11,9 @@ def generated_partitions(monkeypatch) -> list[int]:
     calls: list[int] = []
     generate_partition = synthetic.generate_partition
 
-    def _spy(schema: str, spec: synthetic.PartitionSpec, seed: int):
+    def _spy(schema: str, spec: synthetic.PartitionSpec, seed: int, key_cardinality: int = 0):
         calls.append(spec.index)
-        return generate_partition(schema, spec, seed)
+        return generate_partition(schema, spec, seed, key_cardinality)
 
     monkeypatch.setattr(synthetic, "generate_partition", _spy)
     return calls

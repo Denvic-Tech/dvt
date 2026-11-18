@@ -1,3 +1,5 @@
+from itertools import pairwise
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -66,6 +68,29 @@ def test_partition_dtypes_and_index_match_meta(schema: str) -> None:
     assert isinstance(frame.index, pd.RangeIndex)
     assert isinstance(meta.index, pd.RangeIndex)
     assert frame["id"].tolist() == list(range(500, 600))
+
+
+@pytest.mark.parametrize(("rows", "key_cardinality"), [(1_000, 100), (1_003, 10), (50, 100)])
+def test_key_column_spreads_rows_evenly_without_changing_other_columns(
+    rows: int, key_cardinality: int
+) -> None:
+    plan = synthetic.partition_plan(rows, 4)
+    keyed = pd.concat(
+        [synthetic.generate_partition("wide_mixed", spec, 42, key_cardinality) for spec in plan],
+        ignore_index=True,
+    )
+
+    pd.testing.assert_frame_equal(keyed.drop(columns="key"), _concat_plan("wide_mixed", rows, 4))
+    counts = keyed["key"].value_counts()
+    assert len(counts) == min(rows, key_cardinality)
+    assert counts.max() - counts.min() <= 1
+    assert keyed["key"].between(0, key_cardinality - 1).all()
+    # Every partition holds as many distinct keys as it can: keys are spread over partitions.
+    offsets = [spec.id_offset for spec in plan] + [rows]
+    for start, end in pairwise(offsets):
+        assert keyed["key"].iloc[start:end].nunique() == min(key_cardinality, end - start)
+    meta = synthetic.partition_meta("wide_mixed", key_cardinality)
+    pd.testing.assert_series_equal(keyed.dtypes, meta.dtypes)
 
 
 def test_wide_mixed_null_ratios_and_value_domains() -> None:

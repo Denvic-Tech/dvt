@@ -1,0 +1,233 @@
+{
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "c01_filter": {
+    "name": "DataFrameFilter",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "conditions": {
+        "__dvt_type": "const",
+        "value": {
+          "kind": "condition",
+          "left": {
+            "type": "column",
+            "column": "int_a"
+          },
+          "operator": "<",
+          "right": {
+            "type": "literal",
+            "value": 900000
+          }
+        }
+      }
+    }
+  },
+  "c02_rename": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c01_filter",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a": "f_a"
+        }
+      }
+    }
+  },
+  "c03_expr": {
+    "name": "DataFrameAddColumnByExpression",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c02_rename",
+        "output_name": "output"
+      },
+      "calculated_columns": {
+        "__dvt_type": "const",
+        "value": [
+          {
+            "name": "total",
+            "expression": "f_a * float_b + amount"
+          }
+        ]
+      }
+    }
+  },
+  "c04_cast": {
+    "name": "DataFrameCastColumnType",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c03_expr",
+        "output_name": "output"
+      },
+      "dtypes": {
+        "__dvt_type": "const",
+        "value": {
+          "int_a": "float64"
+        }
+      }
+    }
+  },
+  "c05_replace": {
+    "name": "DataFrameReplaceValues",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c04_cast",
+        "output_name": "output"
+      },
+      "column_to_replace": {
+        "__dvt_type": "const",
+        "value": "str_low"
+      },
+      "dictionary": {
+        "__dvt_type": "const",
+        "value": {
+          "group_00": "zero"
+        }
+      }
+    }
+  },
+  "c06_time_delta": {
+    "name": "AddTimeDeltaToDataFrame",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c05_replace",
+        "output_name": "output"
+      },
+      "column_with_time": {
+        "__dvt_type": "const",
+        "value": "ts_a"
+      },
+      "new_column_with_time": {
+        "__dvt_type": "const",
+        "value": "ts_plus_7d"
+      },
+      "days": {
+        "__dvt_type": "const",
+        "value": 7
+      }
+    }
+  },
+  "c07_exec_code": {
+    "name": "DataFrameExecCode",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c06_time_delta",
+        "output_name": "output"
+      },
+      "code": {
+        "__dvt_type": "const",
+        "value": "df_out = df_in.assign(amount_x2=df_in['amount'] * 2)"
+      }
+    }
+  },
+  "c08_query": {
+    "name": "DataFrameQuery",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c07_exec_code",
+        "output_name": "output"
+      },
+      "query": {
+        "__dvt_type": "const",
+        "value": "float_b >= 0"
+      }
+    }
+  },
+  "c09_select": {
+    "name": "DataFrameSelectColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c08_query",
+        "output_name": "output"
+      },
+      "columns": {
+        "__dvt_type": "const",
+        "value": [
+          "id",
+          "int_a",
+          "int_b",
+          "f_a",
+          "float_b",
+          "amount",
+          "str_low",
+          "str_high",
+          "str_null",
+          "bool_a",
+          "ts_a",
+          "date_a",
+          "total",
+          "ts_plus_7d",
+          "amount_x2"
+        ]
+      }
+    }
+  },
+  "c10_rename": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c09_select",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "f_a": "float_a"
+        }
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "c10_rename",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}
