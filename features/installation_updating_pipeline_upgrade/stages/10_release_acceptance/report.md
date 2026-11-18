@@ -549,3 +549,16 @@ Writer Registry используется только внешним tool, ус�
 новых signer/trust/policy вне Git, exact Alembic schema, единый bucket,
 scopes секретов и способ разрешить job token. Реализация DVT этим
 CI-изменением не редактировалась. Этап остаётся `PARTIAL`.
+
+
+**Исправление writable-состояния Buildx — 18 ноября.** Независимая
+проверка обнаружила отказ `mkdir <DOCKER_CONFIG>/buildx: permission denied`
+при запуске tool-контейнера под UID 1000 с read-only Registry config.
+В `package_dvt_release.py` для E2E и в `distribute_dvt_release.py` для
+publisher добавлен `BUILDX_CONFIG=/tmp/dvt-ci-buildx`. Auth-файл сохраняет
+read-only mount. Реальный Linux `docker buildx inspect` прошёл под
+UID/GID 1000 в обоих временных tool-образах с `network=none`.
+Состояние создано в отдельном writable-каталоге, под `DOCKER_CONFIG`
+новый каталог отсутствует, SHA-256 исходного config.json сохранился.
+Собственный volume тестового CLI удалён. Сценарий не выполнял Registry
+promotion или S3 publication.
