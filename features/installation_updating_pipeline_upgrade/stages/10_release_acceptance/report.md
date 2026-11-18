@@ -562,3 +562,54 @@ UID/GID 1000 в обоих временных tool-образах с `network=no
 новый каталог отсутствует, SHA-256 исходного config.json сохранился.
 Собственный volume тестового CLI удалён. Сценарий не выполнял Registry
 promotion или S3 publication.
+
+
+### Итерация 7 — правила подписанного выпуска в исходниках
+
+По решению пользователя нормальный CI больше не получает отдельный
+`DVT_RELEASE_POLICY_FILE`. Постоянные правила находятся в
+`[tool.dvt.release]` DVT `pyproject.toml`. Зафиксированы прежние
+Debian 13/Ubuntu 24.04, base/AI MCP профили, чистая установка и пустой
+`from_releases`. Минимум preparer явно остаётся
+`1.24.0-rc8` при смене RC или переходе к stable. Автоматически
+добавляемых маршрутов обновления нет.
+
+Генератор читает project version и настройки через `git show` exact
+HEAD, закрепляет backend/UI SHA и приводит версию RC к каноническому
+виду. Версии manager и executor совпадают с версией source. Ревизия
+вычисляется из Git tree того же commit. Разбор literal
+`revision/down_revision/depends_on/branch_labels` использует граф
+Alembic без исполнения модулей миграций и загрузки backend-зависимостей.
+Проверяются уникальность revisions, родители, циклы и единственный head.
+Нерекурсивная глубина одинакова для архивного и изолированного чтения.
+
+Срок манифеста по source сейчас 180 дней. Фактический `expires_at`
+ограничен концом сертификата. Просроченный, ещё не действующий или
+отозванный signer не создаёт выходной комплект. Большое положительное
+значение TTL безопасно ограничивается сертификатом до вычисления
+timedelta. Исторический CLI `--policy` сохраняет явный standalone путь
+для прежних callers и изолированных fixtures. Схема подписанного
+манифеста сохранена.
+
+CI включает подпись при наличии signer, использует общий public trust
+и получает правила из exact checkout. Policy-переменная, её mount и
+CLI-аргумент удалены из normal path. Image-only, scopes, S3 store и
+Distributor сохранены. Руководство первого RC создаёт только ключи
+вне Git и объясняет source-настройки. Рабочие ключи в ходе этой правки
+не создавались.
+
+| Проверка | Результат | Наблюдение |
+| --- | --- | --- |
+| DVT venv `tests/unit/scripts/release/test_release.py` | `PASS` | 48 тестов. Проверены default source policy, RC8/RC9/stable, неизменный минимум preparer, TTL/certificate cap, ошибки версии, срока, отзыва, head и metadata. Legacy policy и inventory cache продолжают проходить. |
+| Настоящий subprocess CLI для RC8, RC9 и stable | `PASS` | Три изолированных комплекта используют одну фиксированную TOML-policy и migration fixtures, без файла policy и Git commits. Версии, schema и подписи проверены после записи. Normal CLI отдельно проверен с Git snapshot adapter, включая несовпадающий dirty pyproject. |
+| Metadata graph fixtures | `PASS` | Merge, дубликаты, отсутствующий parent, цикл, динамическое выражение, синтаксическая ошибка и одинаковая nonrecursive глубина. Тесты не зависят от `.git`, реального текущего номера версии или будущих миграций репозитория. |
+| Реальный минимальный Linux tool image, без сети | `PASS` | Из текущего Git tree получен head `0070`. `db_connection`, `sqlmodel` и backend `config` не импортировались. |
+| CICD venv, два целевых CI test modules | `PASS` | 28 тестов. Signer-only intent и общий trust без signer сохраняют оба режима, остальные promotion/scopes проверки проходят. |
+| Ruff и `git diff --check` | `PASS` | Изменённые Python-файлы чисты. |
+| Полный новый signed pipeline и клиентская публикация | `NOT_RUN` | Проверка новой версии на публичной инфраструктуре не запускалась. Нужен согласованный version commit и tag. |
+
+Изменены DVT `pyproject.toml`, `scripts/release/build_manifest.py`,
+release tests и русский changelog через helper. В `dvt_cicd`
+изменены только package helper, его тест и два активных CI-руководства.
+Существующее незакоммиченное задание мастера сохранено.
+Этап остаётся `PARTIAL`.
