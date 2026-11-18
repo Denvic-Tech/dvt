@@ -1,0 +1,207 @@
+{
+  "data_a": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "data_a2": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 900000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 43
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "join_a": {
+    "name": "DataFrameJoin",
+    "inputs": {
+      "left": {
+        "__dvt_type": "link",
+        "node_id": "data_a",
+        "output_name": "output"
+      },
+      "right": {
+        "__dvt_type": "link",
+        "node_id": "data_a2",
+        "output_name": "output"
+      },
+      "left_on": {
+        "__dvt_type": "const",
+        "value": [
+          "id"
+        ]
+      },
+      "right_on": {
+        "__dvt_type": "const",
+        "value": [
+          "id"
+        ]
+      },
+      "how": {
+        "__dvt_type": "const",
+        "value": "inner"
+      }
+    }
+  },
+  "sink_a": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "join_a",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  },
+  "data_b": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 44
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "data_b2": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 900000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 45
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "join_b": {
+    "name": "DataFrameJoin",
+    "inputs": {
+      "left": {
+        "__dvt_type": "link",
+        "node_id": "data_b",
+        "output_name": "output"
+      },
+      "right": {
+        "__dvt_type": "link",
+        "node_id": "data_b2",
+        "output_name": "output"
+      },
+      "left_on": {
+        "__dvt_type": "const",
+        "value": [
+          "id"
+        ]
+      },
+      "right_on": {
+        "__dvt_type": "const",
+        "value": [
+          "id"
+        ]
+      },
+      "how": {
+        "__dvt_type": "const",
+        "value": "inner"
+      }
+    }
+  },
+  "sink_b": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "join_b",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  },
+  "sink_ab": {
+    "name": "BenchmarkMaterializeConcurrent",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "join_a",
+        "output_name": "output"
+      },
+      "df_b": {
+        "__dvt_type": "link",
+        "node_id": "join_b",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}
