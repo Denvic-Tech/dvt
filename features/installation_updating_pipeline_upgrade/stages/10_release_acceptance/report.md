@@ -467,3 +467,85 @@ Readiness, публичная блокировка и последователь
 `ee768e4f99b26899c7c8d346755ec83f66445bc1088cb11002305077acb0e8da`.
 Этап остаётся `PARTIAL`. Наблюдения прежних прогонов привязаны к своим
 исходным pin и не засчитываются как приёмка новой публичной цепочки.
+
+
+### Итерация 6 — автоматические RC/stable и подписанная доставка S3
+
+По согласованному пользователем изменению CI возвращён к автоматическому
+потоку `4db99fd`. Для обоих режимов Bake собирает кандидаты один раз,
+integration использует точные Linux amd64 leaf digest, promotion переносит
+те же manifests без пересборки. Ручные gate, VM evidence receipt и отдельная
+job загрузки assets удалены из активного CI. Остальные DEV, extension,
+backup и deployment jobs сохранены.
+
+**Режим выпуска образов.** При отсутствии signer и policy используется
+прежний Registry-путь. Публичные trust и asset origin сами по себе не
+включают подпись. RC автоматически получает version tags, stable
+обновляет `latest` после проверки всех version tags. Конфликт immutable
+version или расхождение built/tested roles/digest блокируют запись.
+Порядок строк и кавычки lock-файла не участвуют в сравнении.
+
+**Подписанная поставка.** Наличие signer или policy включает обязательную
+упаковку. Частичная либо неверная конфигурация останавливает этот путь.
+Build использует `dvt-release-build`, publish —
+`dvt-release-publish`, обе области с `action: prepare` и штатным runner
+`DVT`. Signer и policy доступны только build. Общий public trust
+согласуется с reader, S3 writer credentials выдаются только publish.
+Integration использует публичную копию trust из build artifact.
+
+Временное вычислительное окружение строится из exact candidate manager.
+Git, Skopeo и Python requirements устанавливаются автоматически, Alembic
+берётся из exact source pin. Source экспортируется по конкретному SHA с
+UI gitlink, рабочие `.env` и неотслеживаемые файлы в контейнер не
+передаются. Кэш подписанного manifest применяется только при поддержке
+CLI данным source, с повторной проверкой подписи, сроков и реальных
+digest. Источники без нового CLI пересчитывают inventory.
+
+После backend integration подписанный комплект проходит
+`python -m scripts.release.test_install_candidate` с одним exact manifest.
+Автоматическое E2E подтверждает чистую установку и первый вход, поэтому
+требует `schema.initial_install=true`. Оно не закрывает полную матрицу
+AT-01–AT-13 или все update-only переходы. Source прежнего RC без этого
+CLI остаётся пригоден для режима выпуска образов.
+
+В `release_images` assets записываются условно в единый bucket
+`dvt-releases` по digest. Затем точный publisher проверяет клиентскую
+доставку один раз, выполняет immutable version promotion и атомарно
+записывает готовый manifest. Stable обновляет `latest` после успешной
+готовности. Publisher автоматически получается по exact SHA
+`1833d5c5b4278292de2891444442083e89a7d1ec` из
+`$CI_SERVER_URL/extractor/denvic-distributor.git` через job token.
+Ручные checkout и venv Distributor не нужны. Общие
+`DVT_DISTRIBUTION_S3_*` настройки используются для assets и ready,
+reader получает отдельные права чтения.
+
+Явный `release-mode` передаётся из build в integration и release. Утрата
+manifest, trust или receipt в signed режиме вызывает отказ. Receipt
+передаётся отдельным artifact. Whitelist файлов исключает `.e2e-work`,
+закрытые ключи, source checkout и credentials. Publisher дополнительно
+сверяет packaged trust с независимой project policy. Его mounts
+ограничены scripts, assets, locks, public trust, Registry auth и socket.
+Writer Registry используется только внешним tool, устанавливаемый
+стек читает публичные refs анонимно. Для signed E2E штатный Docker runner
+должен разрешать один временный privileged DinD.
+
+| Проверка | Результат | Наблюдение |
+| --- | --- | --- |
+| CICD venv, `test_dvt_release_promotion.py` и `test_gitlab_configuration.py` | `PASS` | 28 тестов. Проверены семантические locks, подменённый/неполный комплект, immutable collision до записи, последний недоступный source, повтор stable, версия до latest, signed ready boundary, partial signing и несовпадение независимого trust. Bash job fixture подтвердил отсутствие latest при ошибке publisher. |
+| YAML multi-document parser, GitLab `!reference` и Bash syntax | `PASS` | Проверены root pipeline и обе изменённые jobs-группы. |
+| Ruff и `git diff --check` | `PASS` | Проверены изменённые helpers и тесты. Git сообщает только о политике LF/CRLF. |
+| Реальная сборка временного tool image | `PASS` | База — опубликованный manager leaf `sha256:3c20ba296fcc61a79ab4195004608b65b9a069c48ea58b7e7f0c66fe74f7c085`. Проверены Alembic, packaging, crypto, yaml, pydantic, imports release scripts, Git backend/UI и Skopeo 1.18.0, затем smoke без сети. |
+| Реальная проверка clean export | `PASS` | Локальный source `cafa82578131274b4b89c2a3ab676098b048705a`, UI совпал с exact gitlink. Рабочий `.env` отсутствует в экспорте. |
+| Registry platform inspection | `PASS` | Read-only Docker buildx прочитал реальный single-platform descriptor и config `linux/amd64`. Index path выбирает один Linux amd64 leaf и исключает attestations. |
+| Полный новый signed GitLab pipeline с production S3 writer | `NOT_RUN` | Внешняя публикация в рамках исправления не запускалась. Понадобятся новый DVT tag с E2E CLI, job-token allowlist и согласованные переменные scopes. |
+| Полная VM-матрица обновлённого exact manifest | `NOT_RUN` | Прежние результаты сохраняют привязку к своим pin. Полная матрица и SAC остаются открытыми. |
+
+Изменены `dvt_cicd/.gitlab-ci.yml`, jobs `02-build-test.yml` и
+`04-release-flow.yml`, helpers `promote_dvt_release.py`,
+`lock_dvt_candidates.py`, `package_dvt_release.py`,
+`distribute_dvt_release.py`, два целевых теста и руководства CI.
+Имеющийся `publish_dvt_assets.py` переиспользуется.
+`docs/DVT_RELEASE_GATE.md` содержит оба режима, первый RC с подготовкой
+новых signer/trust/policy вне Git, exact Alembic schema, единый bucket,
+scopes секретов и способ разрешить job token. Реализация DVT этим
+CI-изменением не редактировалась. Этап остаётся `PARTIAL`.

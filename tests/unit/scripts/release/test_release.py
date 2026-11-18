@@ -21,7 +21,10 @@ from services.installation_manager.domain.release_manifest import (
     strict_json,
 )
 from services.installation_manager.host_bootstrap import bootstrap_images
-from services.installation_manager.infrastructure.release_verification import KEY_CONTEXT
+from services.installation_manager.infrastructure.release_verification import (
+    KEY_CONTEXT,
+    MANIFEST_CONTEXT,
+)
 
 ROOT = Path(__file__).resolve().parents[4]
 FIXTURE = ROOT / "tests/data/installation_manager/verified_staging/manifest.json"
@@ -224,3 +227,129 @@ def test_inventory_keeps_predecessor_infrastructure_leaves(tmp_path, monkeypatch
     inventory = image_inventory.build_inventory(args, "auth")
     assert {role: inventory[role]["reference"] for role in infrastructure} == infrastructure
     assert inventory["migrate"] == inventory["gateway"]
+
+
+def _cached_inventory(package, tmp_path, monkeypatch):
+    release, images = package
+    references = tmp_path / "references.json"
+    references.write_bytes(canonical_json({role: image["reference"] for role, image in images.items()}))
+    args = SimpleNamespace(
+        references=references, infrastructure=None, scratch=tmp_path,
+        previous_manifest=release.output_dir / "manifest.json", trust=release.trust,
+    )
+    resolved, copied = [], []
+
+    def leaf(reference, _auth):
+        resolved.append(reference)
+        return reference
+
+    def measure(reference, _auth, _directory):
+        copied.append(reference)
+        return 123, 456, 7
+
+    monkeypatch.setattr(image_inventory, "leaf_reference", leaf)
+    monkeypatch.setattr(image_inventory, "measure", measure)
+    return args, resolved, copied
+
+
+def _resign_cache(package, change):
+    args, _ = package
+    path = args.output_dir / "manifest.json"
+    envelope = strict_json(path.read_bytes())
+    change(envelope["payload"])
+    key = strict_json(args.signer.read_bytes())["private_key"]
+    signer = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(key))
+    envelope["manifest_signature"] = signer.sign(
+        MANIFEST_CONTEXT + canonical_json(envelope["payload"])
+    ).hex()
+    path.write_bytes(canonical_json(envelope))
+
+
+def test_inventory_reuses_signed_leaf_budgets_across_repositories(package, tmp_path, monkeypatch):
+    args, resolved, copied = _cached_inventory(package, tmp_path, monkeypatch)
+    references = strict_json(args.references.read_bytes())
+    references["ui"] = "mirror.example.test/other-ui@sha256:" + "1" * 64
+    references["proxy"] = "mirror.example.test/proxy@sha256:" + "2" * 64
+    args.references.write_bytes(canonical_json(references))
+    inventory = image_inventory.build_inventory(args, "auth")
+    assert set(resolved) == set(references.values())
+    assert copied == [references["proxy"]]
+    assert inventory["ui"] == {
+        "reference": references["ui"],
+        "compressed_bytes": 1, "unpacked_bytes": 1, "unpacked_inodes": 1,
+    }
+    assert inventory["proxy"]["compressed_bytes"] == 123
+    assert inventory["migrate"] == inventory["gateway"]
+
+
+@pytest.mark.parametrize("problem", [
+    "no_cache", "missing", "missing_trust", "no_trust", "invalid_trust", "unknown_root",
+    "revoked", "expired", "tampered", "malformed", "oversize", "legacy_inventory",
+    "wrong_platform", "conflicting_budgets",
+])
+def test_inventory_remeasures_untrusted_or_unusable_cache(
+    package, tmp_path, monkeypatch, problem,
+):
+    args, resolved, copied = _cached_inventory(package, tmp_path, monkeypatch)
+    if problem == "no_cache":
+        args.previous_manifest = None
+    elif problem == "missing":
+        args.previous_manifest = tmp_path / "missing.json"
+    elif problem == "missing_trust":
+        args.trust = tmp_path / "missing-trust.json"
+    elif problem == "no_trust":
+        args.trust = None
+    elif problem in {"invalid_trust", "unknown_root", "revoked"}:
+        document = strict_json(args.trust.read_bytes())
+        if problem == "invalid_trust":
+            document = []
+        elif problem == "unknown_root":
+            document["roots"] = {"other": next(iter(document["roots"].values()))}
+        else:
+            signer = strict_json(args.previous_manifest.read_bytes())["signing_key"]["public_key"]
+            document["revoked_signers"] = [digest_of(bytes.fromhex(signer))]
+        args.trust.write_bytes(canonical_json(document))
+    elif problem == "expired":
+        _resign_cache(package, lambda value: value.update(
+            issued_at=f"{datetime.now(UTC).year - 1}-01-01T00:00:00Z",
+            expires_at=f"{datetime.now(UTC).year}-01-01T00:00:00Z",
+        ))
+    elif problem == "tampered":
+        content = strict_json(args.previous_manifest.read_bytes())
+        content["payload"]["platforms"]["linux/amd64"]["images"]["ui"]["unpacked_bytes"] = 999
+        args.previous_manifest.write_bytes(canonical_json(content))
+    elif problem == "malformed":
+        args.previous_manifest.write_bytes(b'{"broken":')
+    elif problem == "oversize":
+        args.previous_manifest.write_bytes(b" " * (image_inventory.MAX_MANIFEST_BYTES + 1))
+    elif problem == "legacy_inventory":
+        args.previous_manifest.write_bytes(canonical_json(package[1]))
+    elif problem == "wrong_platform":
+        def change(value):
+            value["platforms"] = {"linux/arm64": value["platforms"]["linux/amd64"]}
+        _resign_cache(package, change)
+    elif problem == "conflicting_budgets":
+        def change(value):
+            value["platforms"]["linux/amd64"]["images"]["ui"]["unpacked_bytes"] = 999
+        _resign_cache(package, change)
+    inventory = image_inventory.build_inventory(args, "auth")
+    # One digest shared by all repositories is measured once, including the first delivery.
+    assert len(copied) == 1
+    assert resolved
+    assert all(
+        (image["compressed_bytes"], image["unpacked_bytes"], image["unpacked_inodes"])
+        == (123, 456, 7)
+        for image in inventory.values()
+    )
+
+
+def test_cache_does_not_hide_current_registry_resolution_failure(package, tmp_path, monkeypatch):
+    args, _, copied = _cached_inventory(package, tmp_path, monkeypatch)
+
+    def fail(*_):
+        raise ValueError("Current Registry digest mismatch")
+
+    monkeypatch.setattr(image_inventory, "leaf_reference", fail)
+    with pytest.raises(ValueError, match="Current Registry"):
+        image_inventory.build_inventory(args, "auth")
+    assert copied == []

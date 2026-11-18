@@ -10,7 +10,18 @@ import tarfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from services.installation_manager.domain.release_manifest import ImageDescriptor, canonical_json
+from services.installation_manager.domain.operation_state import ReleasePin
+from services.installation_manager.domain.release_manifest import (
+    ImageDescriptor,
+    SignedRelease,
+    canonical_json,
+    digest_of,
+    strict_json,
+)
+from services.installation_manager.infrastructure.release_verification import (
+    MAX_MANIFEST_BYTES,
+    TrustPolicy,
+)
 
 from .build_manifest import COMPOSE, git, load_compose, source_repository, write_once
 
@@ -108,6 +119,56 @@ def measure(reference: str, auth: str, directory: Path) -> tuple[int, int, int]:
     return compressed, sum(size for size, _ in budgets), sum(count for _, count in budgets)
 
 
+def previous_budgets(
+    manifest_path: Path | None, trust_path: Path | None,
+) -> dict[str, tuple[int, int, int]]:
+    """Treat the optional CI cache as untrusted until its signed envelope is verified."""
+    if manifest_path is None:
+        return {}
+    try:
+        if trust_path is None:
+            raise ValueError("No trust policy")
+        with manifest_path.open("rb") as stream:
+            content = stream.read(MAX_MANIFEST_BYTES + 1)
+        if len(content) > MAX_MANIFEST_BYTES:
+            raise ValueError("Manifest too large")
+        with trust_path.open("rb") as stream:
+            policy = stream.read(MAX_MANIFEST_BYTES + 1)
+        if len(policy) > MAX_MANIFEST_BYTES:
+            raise ValueError("Trust policy too large")
+        document = strict_json(policy)
+        if (
+            not isinstance(document, dict) or set(document) != {"roots", "revoked_signers"}
+            or not isinstance(document["roots"], dict) or not document["roots"]
+            or any(
+                not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key)
+                for key in document["roots"].values()
+            )
+            or not isinstance(document["revoked_signers"], list)
+            or any(
+                not isinstance(key, str) or not DIGEST.fullmatch(key)
+                for key in document["revoked_signers"]
+            )
+        ):
+            raise ValueError("Invalid trust policy")
+        envelope = SignedRelease.model_validate(strict_json(content))
+        manifest = TrustPolicy.from_document(document).verify(
+            content, ReleasePin(envelope.payload.release_id, digest_of(content)),
+        )
+        platform = manifest.platforms.get("linux/amd64")
+        budgets = {}
+        for image in platform.images.values() if platform else ():
+            _, digest = split_ref(image.reference)
+            values = image.compressed_bytes, image.unpacked_bytes, image.unpacked_inodes
+            if budgets.setdefault(digest, values) != values:
+                raise ValueError("Conflicting signed budgets for one leaf")
+    except (OSError, KeyError, ValueError, TypeError, RuntimeError, RecursionError):
+        # Never expose certificate/input details or allow a damaged cache to block a release.
+        print("Previous image budgets unavailable or untrusted; measuring images", file=sys.stderr)
+        return {}
+    return budgets
+
+
 def build_inventory(args: argparse.Namespace, auth: str) -> dict[str, dict]:
     if args.references:
         if args.infrastructure:
@@ -148,14 +209,19 @@ def build_inventory(args: argparse.Namespace, auth: str) -> dict[str, dict]:
 
     inventory = {}
     measured = {}
+    budgets = previous_budgets(
+        getattr(args, "previous_manifest", None), getattr(args, "trust", None),
+    )
     for role, (reference, public_repository) in input_refs.items():
         if reference not in measured:
             leaf = leaf_reference(reference, auth)
             if args.infrastructure and role in INFRASTRUCTURE_ROLES and leaf != reference:
                 raise ValueError(f"Expected the exact predecessor image leaf for {role}")
             repository, digest = split_ref(leaf)
-            with TemporaryDirectory(prefix="dvt-layer-", dir=args.scratch) as directory:
-                compressed, unpacked, inodes = measure(leaf, auth, Path(directory))
+            if digest not in budgets:
+                with TemporaryDirectory(prefix="dvt-layer-", dir=args.scratch) as directory:
+                    budgets[digest] = measure(leaf, auth, Path(directory))
+            compressed, unpacked, inodes = budgets[digest]
             measured[reference] = ImageDescriptor(
                 reference=f"{public_repository or repository}@{digest}",
                 compressed_bytes=compressed,
@@ -172,6 +238,14 @@ def main() -> int:
     mode.add_argument("--metadata", type=Path, help="BuildKit bake --metadata-file output")
     mode.add_argument("--references", type=Path, help="Private test registry references per role")
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--previous-manifest", type=Path,
+        help="Optional cached signed release envelope; invalid or stale cache is remeasured",
+    )
+    parser.add_argument(
+        "--trust", type=Path,
+        help="Approved release trust policy, required to reuse --previous-manifest budgets",
+    )
     parser.add_argument("--source", default=Path(), type=Path)
     parser.add_argument("--auth-file", type=Path)
     parser.add_argument("--scratch", type=Path)
