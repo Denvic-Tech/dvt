@@ -70,3 +70,40 @@
 ## 8. Итерации исправлений
 
 - Пока нет.
+
+
+### Дополнение от 18 ноября 2026 года — автоматический install E2E gate
+
+Работа возобновлена по явному делегированию мастер-агента для проверки точного подписанного комплекта в CI. Добавлены `scripts/release/test_install_candidate.py` и адресные проверки `tests/unit/scripts/release/test_install_candidate.py`. Изменения CI и Distributor выполняются соответствующими владельцами.
+
+CLI для текущего подписанного output выполняется без operator evidence.
+
+~~~bash
+python -m scripts.release.test_install_candidate \
+  --manifest "$PACKAGE/manifest.json" --assets-dir "$PACKAGE" \
+  --trust /run/dvt_release_trust_file --pipeline-id "$CI_PIPELINE_ID" \
+  --output "$PACKAGE/e2e-receipt.json"
+~~~
+
+Для public Registry дополнительные параметры не требуются. `--registry-config` передаёт существующий inline read-only Docker config во вложенный daemon. Outer Docker client использует свою обычную настройку чтения Registry. `--dind-image` переопределяет закреплённый инфраструктурный образ, `--timeout` ограничивает controller.
+
+Проверка верифицирует подпись и точные байты упакованных Compose/bootstrap до Docker effects, создаёт уникальный privileged daemon с частной cgroup namespace, собственным Unix socket и named volume. Стандартный DinD runtime взят из `docker.io/library/docker@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c`. Linux amd64 leaf выбирается Docker. Базой disposable host служит фактический signed manager digest, поэтому наблюдаемый OS-release соответствует его Debian ОС. Хостовый socket и файловая система runner внутрь этого daemon не монтируются. Публикация портов runner не выполняется.
+
+Controller вызывает функцию точного packaged bootstrap с явными параметрами и contained execution, затем сохраняет закреплённый INSTALL, готовит его через `VerifiedStaging` и локально проверенные packaged assets. Detached executor применяет полный signed Compose и реальный мигратор. После успешного журнала controller проверяет полный активный набор digest и identity в applied marker, Proxy health/HTML, защищённую привязку первичной настройки, создание первого администратора, настоящий вход через `/api/auth/sign-in`, authenticated `/api/user/info` и публичную версию с PEP 440 сравнением.
+
+Receipt v1 содержит только `format_version`, `version`, `manifest_digest`, `result=passed` и `run_id=gitlab-pipeline-<ID>`. Выход записывается после успешной проверки и уборки. Проверка клиентской доставки с реальных URL принадлежит publisher. Установка и первый вход покрывают данный gate. Полная AT-матрица этим receipt не заявляется.
+
+| Проверка дополнения | Результат | Доказательство |
+| --- | --- | --- |
+| Адресный Windows pytest | `PASS` | 8 passed, 12 warnings. Дополнительно проверено следование фактическому SetupStatus с уже созданной и отсутствующей организацией. Проверены подмена каждого packaged asset до Docker effects, связь receipt с точным envelope и pipeline, отсутствие receipt при ошибках controller/result/cleanup и ограничения outer Docker mounts. |
+| Ruff check/format двух Python-файлов | `PASS` | Проверки завершились без ошибок. |
+| CLI help | `PASS` | Рабочий `python -m scripts.release.test_install_candidate --help`. |
+| Docker Desktop, normal CLI на подписанном тестовом public rc4 комплекте | `PASS` | Точный manifest `sha256:b805e95b6f23007508d7f05ae8be1dadd9c3df6138f69ce20226ef48b3c1cd53`, pipeline `700003`. Полная установка достигла SUCCEEDED. Proxy/health, protected setup, создание первого администратора, настоящий sign-in, authenticated user и публичная версия прошли. Receipt v1 выдан с `run_id=gitlab-pipeline-700003`, версия `1.24.0-rc4`, digest точного envelope. Exit code 0. Уникальные внешние daemon, volume и image tag удалены до записи receipt. |
+| Changelog helper | `PASS` | Добавлена отдельная русская запись через `append_changelog.py`. |
+
+Локальный smoke использует отдельный тестовый root и свежую подпись для публичных rc4 leaf digest и текущих packaged assets. Backend/UI SHA в этой фикстуре синтетические. Она проверяет механизм CI и сохраняется под игнорируемым `tmp/installation_updating_pipeline_upgrade/install-e2e-inputs`. Production signing keys, Registry publishing и пользовательские аккаунты в этот тест не входят.
+
+
+Начальные попытки завершались с `FAIL` и отсутствующим receipt. Отказ overlay на writable layer исправлен размещением внутреннего Docker root в собственном named volume. В публичном rc4 отсутствовал импортируемый новый TLS helper, поэтому controller использует helper точного packaged bootstrap. Для cgroup nesting подключена стандартная pinned DinD wrapper. Подтверждённый HTTP 409 после успешной установки вызвал безусловный повтор создания уже завершённой организации в тесте. Controller исправлен по returned SetupStatus, добавлены проверки обоих вариантов организации. Финальный `PASS` получен обычной CLI-командой после этих исправлений.
+
+Во всех запусках команда завершения удаляла только уникальные ресурсы текущей проверки. После финального запуска запросы `docker ps -a --filter label=dvt.install-e2e`, `docker volume ls --filter label=dvt.install-e2e` и список тегов `dvt-install-e2e-*` вернули пустой результат. Receipt находится в `tmp/installation_updating_pipeline_upgrade/install-e2e-inputs/receipt.json`.
