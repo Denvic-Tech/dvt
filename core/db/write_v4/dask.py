@@ -7,13 +7,6 @@ import dask.dataframe as dd
 import pandas as pd
 
 
-def _flatten_delayed_partitions(ddf: dd.DataFrame) -> list:
-    delayed = ddf.to_delayed()
-    if hasattr(delayed, "ravel"):
-        return list(delayed.ravel())
-    return list(delayed)
-
-
 @dataclass
 class _PartitionWriteCallable:
     handler: Callable
@@ -31,8 +24,9 @@ def process_partitions_bounded(
     *,
     max_workers: int,
 ) -> int:
-    delayed_parts = _flatten_delayed_partitions(ddf)
-    if not delayed_parts:
+    # Not ``to_delayed()``: it runs Dask's blockwise fusion pass, which is superlinear on DVT
+    # node graphs (a lifecycle tap after every node). ``compute()`` below does not fuse.
+    if ddf.npartitions == 0:
         return 0
 
     partition_writer = _PartitionWriteCallable(handler=handler)

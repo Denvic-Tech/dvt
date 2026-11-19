@@ -3771,6 +3771,24 @@
 ### 2026-11-18 18:02:30
 - Ресёрч выхода с форка dvt-dask (без изменений кода): отчёт `experiments/2026-11-18T18-00-00_dvt-dask-fork-exit-research.ru.md`. Инвентаризация форка против upstream-базы 0993aa9d3, использование API форка в DVT, атрибуция пяти дефектов (1–2 — баги upstream, исправлены в 2026.6.0), прототип колбэков нод на чистом upstream Dask 2026.3.0/2026.8.0, сравнение вариантов и этапы миграции.
 
+### 2026-11-18 20:22:35
+- Уход с форка dvt-dask, этапы 1-2: добавлен пакет core/dask_lifecycle - единственное место, где DVT получает события жизненного цикла выхода ноды из Dask (attach_lifecycle, lifecycle_scope, delayed_partitions, suppress_lifecycle_events). Две реализации: fork (адаптер к add_callbacks / PublicOperationCallbacks, поведение прежнее) и tap (сквозной шаг map_partitions на выходе ноды плюс стандартный dask.callbacks.Callback, без API форка). Выбор - config.DASK_LIFECYCLE.IMPLEMENTATION (env DASK_LIFECYCLE_IMPLEMENTATION), по умолчанию fork.
+- На шов переведены src/node_dsl/base_node/df_output.py, Kafka-чтение (src/modules/kafka_consumption/infra/dask_reader.py), core/parquet/write/dask.py, бенчмарк-нода BenchmarkMaterializeConcurrent и вызовы to_delayed в SaveExcel, SaveParquet и DataFrameGroupByAgg. Чтение npartitions / divisions при построении графа в df_output обёрнуто в suppress_lifecycle_events.
+- Тесты: tests/unit/core/dask_lifecycle (один набор сценариев на обе реализации), тест параллельной записи партиций в кэш, тест событий для отсортированного выхода ноды. Пакет dvt-dask в requirements не менялся.
+
+### 2026-11-18 21:26:05
+- Уход с форка dvt-dask, этап 3: во всех шести requirements пакет dvt-dask[complete]==2026.3.11 заменён на dask[dataframe]==2026.8.0; в requirements orchestrator и project_scheduler добавлен Jinja2==3.1.6 (раньше приходил транзитивно через extra complete).
+- Удалена реализация событий на API форка (core/dask_lifecycle/fork.py), настройка DASK_LIFECYCLE и выбор реализации; остался один механизм - сквозной шаг на выходе ноды плюс стандартный dask.callbacks.Callback. API пакета: OutputLifecycleHandlers, attach_lifecycle, delayed_partitions, suppress_lifecycle_events. При импорте пакета стадия оптимизатора tune выключается по умолчанию (как было на форке для графов нод).
+- Из core/parquet/write/dask.py убран мост к callbacks форка; тесты записи parquet и записи в БД V3 переведены на шов. Добавлены регрессионные тесты: join и group-by через продуктовые ноды на 128/129/130 партициях, события записи при нескольких запусках Dask, восстановление регистрации Callback.
+
+### 2026-11-19 15:27:22
+- Исправлено зависание записи в БД (WriteDataFrameToDB V3/V4) на больших графах после перехода на чистый dask: проверка пустого набора партиций в core/db/write_v3/dask.py и core/db/write_v4/dask.py вызывала ddf.to_delayed(), который запускает стадию слияния задач оптимизатора (fuse) со сверхлинейным временем на графах с джойнами и union; форк эту стадию для графов нод пропускал. Проверка заменена на ddf.npartitions == 0, сама запись не менялась.
+- Добавлены регрессионные тесты: запись V3 и V4 не запускает слияние задач и по-прежнему даёт события вышестоящих нод ровно один раз.
+
+### 2026-11-19 16:18:25
+- Исправлена нода SaveCSV после перехода на чистый dask: Dask to_csv запускал стадию слияния задач (fuse) на всём входном графе - на больших графах нода зависала, а события вышестоящих нод не приходили. Теперь to_csv получает DataFrame, пересобранный из несливаемых партиций (delayed_partitions); раскладка файлов и содержимое не изменились.
+- Добавлен tests/unit/src/nodes/write/test_save_csv.py: содержимое в однофайловом и многофайловом режимах, заголовок, индекс, разделитель, кодировка, пустой DataFrame, события вышестоящих нод ровно один раз, отсутствие слияния задач на графе нод.
+
 ### 2026-11-16 18:20:47
 - Добавлен журнал установки на хосте с постоянной identity, идемпотентным приёмом операции, типизированными чекпоинтами и межпроцессным владением исполнителя. Проверены конкурентный приём, смена владельца после завершения процесса и права на Linux.
 
