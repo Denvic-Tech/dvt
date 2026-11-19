@@ -5,15 +5,6 @@ x-default-logging: &default-logging
       max-size: "${DVT_DOCKER_LOG_MAX_SIZE:-100m}"
       max-file: "${DVT_DOCKER_LOG_MAX_FILE:-5}"
 
-x-gateway-dev-build: &gateway-dev-build
-  context: .
-  dockerfile: services/gateway/docker/dev.Dockerfile
-  additional_contexts:
-    dvt_deps_image: "service:deps"
-    dvt_dev_builder_image: "service:dev-builder"
-    dvt_base_image: "service:base"
-    dvt_base_odbc_image: "service:base-odbc"
-
 services:
   postgres:
     <<: *default-logging
@@ -258,7 +249,7 @@ services:
   migrate:
     <<: *default-logging
     image: dvt/gateway-dev:latest
-    build: *gateway-dev-build
+    pull_policy: never
     command: [ "python3", "-m", "services.gateway.migrate" ]
     env_file: .env
     environment:
@@ -280,7 +271,14 @@ services:
   gateway:
     <<: *default-logging
     image: dvt/gateway-dev:latest
-    build: *gateway-dev-build
+    build:
+      context: .
+      dockerfile: services/gateway/docker/dev.Dockerfile
+      additional_contexts:
+        dvt_deps_image: "service:deps"
+        dvt_dev_builder_image: "service:dev-builder"
+        dvt_base_image: "service:base"
+        dvt_base_odbc_image: "service:base-odbc"
     container_name: dvt-gateway
     ports:
       - "8001:8000"

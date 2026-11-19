@@ -97,7 +97,7 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
                 atomic_write(directory / name, contents)
         return
     store = _store(config)
-    if action == "candidate-inspect":
+    if action in {"candidate-inspect", "candidate-inspect-wizard"}:
         CandidateAuth(config)
         sys.stdout.write(f"{FORMAT_VERSION}\n")
         return

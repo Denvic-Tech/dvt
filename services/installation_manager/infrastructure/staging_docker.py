@@ -36,7 +36,7 @@ def _compose_value(value):
     return value
 
 
-def _canonical_reference(name: str) -> str:
+def canonical_image_reference(name: str) -> str:
     registry, _, _ = name.partition("/")
     if "/" not in name:
         return f"docker.io/library/{name}"
@@ -48,7 +48,7 @@ def _canonical_reference(name: str) -> str:
 
 
 def image_references(image: dict) -> set[str]:
-    return {_canonical_reference(name) for name in image.get("RepoDigests") or []}
+    return {canonical_image_reference(name) for name in image.get("RepoDigests") or []}
 
 
 @dataclass(frozen=True)
@@ -177,21 +177,23 @@ class StagingDocker:
         data = read_docker_json(result.stdout, "image inspection")
         return data[0]
 
-    def local_image(self, reference: str, platform: str, deadline: Deadline) -> bool:
+    def local_image(
+        self, reference: str, platform: str, deadline: Deadline, *, allow_index: bool = False,
+    ) -> bool:
         info = self.inspect_image(reference, deadline)
         if info is None:
             return False
         descriptor = info.get("Descriptor") or {}
-        if "index" in descriptor.get("mediaType", "") or "manifest.list" in descriptor.get(
-            "mediaType", ""
-        ):
+        media_type = descriptor.get("mediaType", "")
+        if not allow_index and ("index" in media_type or "manifest.list" in media_type):
             raise StagingError(
                 FailureReason.INVALID_PACKAGE,
                 "The image pin points at an index instead of a platform manifest",
                 "Publish the selected platform manifest digest",
             )
+        expected = canonical_image_reference(reference) if allow_index else reference
         if (
-            reference not in image_references(info)
+            expected not in image_references(info)
             or f"{info.get('Os')}/{info.get('Architecture')}" != platform
         ):
             raise StagingError(

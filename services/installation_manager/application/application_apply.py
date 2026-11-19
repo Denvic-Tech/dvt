@@ -76,7 +76,6 @@ from ..infrastructure.staging_compose import (
     validate_template,
 )
 from ..infrastructure.staging_docker import StagingDocker, _compose_value
-from ..infrastructure.staging_host import selected_profile
 from ..logger import logger
 from .recovery import MigrationState, classify_migration, save_observation
 
@@ -288,17 +287,9 @@ class ApplicationApply:
 
         values = load_config(self.store, operation.request.config_id)
         values.pop("DVT_ALLOW_PRERELEASE", None)
-        env, profiles = effective_config(
-            values,
-            identity,
-            operation.request,
-            release.version,
-            release.environment.base.max_task_workers,
-        )
-        if (
-            tuple(plan["profiles"]) != profiles
-            or int(env["DVT_TASK_WORKERS_COUNT"])
-            > selected_profile(release.environment, profiles).max_task_workers
+        env, profiles = effective_config(values, identity, operation.request, release.version)
+        if tuple(plan["profiles"]) != profiles or any(
+            profile not in release.environment.profiles for profile in profiles
         ):
             raise ApplyError(
                 FailureReason.COMPOSE, "The selected profile differs from the staging plan"
@@ -313,6 +304,21 @@ class ApplicationApply:
         full = docker.config(compose, identity.compose_project, ("*",), env, deadline)
         check_model(model, identity, distribution, env, active=True)
         check_model(full, identity, distribution, env, active=False)
+        if (
+            operation.request.kind is OperationKind.INSTALL
+            and operation.request.bundle_id is None
+            and (local_ui := self.config.get("local_ui_image"))
+        ):
+            model["services"]["ui"]["image"] = local_ui
+            full["services"]["ui"]["image"] = local_ui
+        if (
+            operation.request.kind is OperationKind.INSTALL and operation.request.bundle_id is None
+            and (local_manager := self.config.get("local_manager_image"))
+        ):
+            if local_manager != plan["observed_images"].get("installation_manager"):
+                raise ApplyError(FailureReason.INVALID_PACKAGE, "The local manager pin changed")
+            for runtime in (model, full):
+                runtime["services"]["installation_manager"]["image"] = local_manager
         if plan["services"] != {
             name: entry["image"] for name, entry in model["services"].items()
         } or plan["model_digest"] != digest_of(canonical_json(model)):
@@ -409,10 +415,21 @@ class ApplicationApply:
             raise ApplyError(
                 FailureReason.MANAGER_UNAVAILABLE, "The current manager differs from the source"
             )
+        # The replacement must keep serving the host aliases and pending browser session.
+        probe = (
+            "candidate-inspect-wizard" if self.config.get("manager_origins") else "candidate-inspect"
+        )
         for image in {source, target}:
-            if init_container({**self.config, "manager": image}, "candidate-inspect") != str(
-                FORMAT_VERSION
-            ):
+            try:
+                version = init_container({**self.config, "manager": image}, probe)
+            except subprocess.CalledProcessError as error:
+                if probe == "candidate-inspect-wizard" and image == target and source != target:
+                    raise ApplyError(
+                        FailureReason.INCOMPATIBLE_RELEASE,
+                        "The target manager cannot serve the installed wizard configuration",
+                    ) from error
+                raise
+            if version != str(FORMAT_VERSION):
                 raise ApplyError(
                     FailureReason.MANAGER_UNAVAILABLE, "A manager cannot read the active journal"
                 )
@@ -671,11 +688,13 @@ class ApplicationApply:
                     write_artifact(
                         directory / "database.compose.yaml", canonical_json(_compose_literal(full))
                     )
+                    self.store.log_message(operation_id, "Запуск PostgreSQL")
                     host.up("postgres", path=directory / "database.compose.yaml")
                 if saved is not None and pg is None and context is None:
                     # A reboot after the early journal entry has not authorized touching schema.
                     pg = self._confirm_source(operation, plan, saved)
                 pg = pg or host.wait_for_database()
+                self.store.log_message(operation_id, "PostgreSQL готов к подключению")
 
                 reason = FailureReason.INCOMPATIBLE_SCHEMA
                 marker = canonical_json(
@@ -807,6 +826,7 @@ class ApplicationApply:
                     reason = FailureReason.MANAGER_UNAVAILABLE
                     self._apply_manager_health(host, directory, managers, operation, owner)
                     reason = FailureReason.PROFILE_UNHEALTHY
+                    self.store.log_message(operation_id, f"Проверка сервисов и воркеров ({workers})")
                     if not host.wait_for_application(
                         pg, context_text, operation_id, origin, workers
                     ):

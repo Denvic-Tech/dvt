@@ -82,6 +82,8 @@ def prepare_online(config, store, operation):
         VerifiedStaging(
             store, trust, downloader, docker, paths, _preparer_version(),
             http_manager=config.get("manager_http") is True,
+            local_ui_image=config.get("local_ui_image"),
+            local_manager_image=config.get("local_manager_image"),
         ).prepare(
             operation.id, "", observed=source, applied=source.pin if source else None,
             bootstrap_image=manager.decode("ascii").strip(),
@@ -95,4 +97,4 @@ def is_online(store, operation) -> bool:
     if operation.request.bundle_id is not None or operation.request.config_id is None:
         return False
     marker = store.artifact_path(ArtifactKind.CONFIG, operation.request.config_id) / "operator.json"
-    return read_artifact(marker, 4096) is not None
+    return read_artifact(marker, 32 * 1024) is not None

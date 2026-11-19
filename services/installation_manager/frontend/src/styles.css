@@ -443,9 +443,7 @@ body {
 .operator-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; }
 .operator-facts dt { color: var(--text-dim); }
 .operator-facts dd { overflow-wrap: anywhere; }
-.operator-actions, .operator-history { display: flex; flex-wrap: wrap; gap: 8px; }
-.operator-history { list-style: none; }
-.operator-history button { overflow-wrap: anywhere; }
+.operator-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .operator-form a { color: var(--primary-dark); }
 @media (max-width: 600px) {
   .operator-facts { display: block; }

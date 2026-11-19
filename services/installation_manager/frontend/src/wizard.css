@@ -1,0 +1,271 @@
+
+/* Embedded Geist fonts, as used by services/ui.
+Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+http://scripts.sil.org/OFL
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+*/
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('./geist-subset-1.woff2') format('woff2');
+  unicode-range: U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116;
+}
+@font-face {
+  font-family: 'Geist Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('./geist-subset-2.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+/* Light palette, typography and control geometry from services/ui/src/shared/ui. */
+:root:has(.wizard-header) {
+  color-scheme: light;
+  font-family: "Geist Variable", "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1f2937;
+  background: #eef2f8;
+  --muted: #6b7280;
+  --line: rgba(148, 163, 184, .24);
+  --primary: #6366f1;
+  --strong: #4f46e5;
+  --focus: rgba(99, 102, 241, .45);
+  --shadow: 0 2px 8px rgba(15, 23, 42, .08);
+  --control-radius: 15px;
+}
+.wizard-main :is(button, input, select) { font: inherit; }
+.wizard-main :is(button, select, .switch, .primary) { cursor: pointer; }
+.wizard-main :is(button, a, input, select) { -webkit-tap-highlight-color: transparent; }
+.wizard-main :is(:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
+.wizard-header { background: white; border-bottom: 1px solid var(--line); }
+.bar { height: 68px; margin: auto; width: min(1200px, 100% - 64px); display: flex; align-items: center; gap: 20px; }
+.brand { display: inline-flex; gap: 12px; align-items: last baseline; }
+.brand img { width: 35px; height: 35px; display: block; }
+.wordmark { display: grid; line-height: 1; white-space: nowrap; }
+.wordmark span { color: #7c8794; font-size: 14px; letter-spacing: .01em; }
+.wordmark strong { color: #3535b8; font-size: 20px; font-weight: 700; }
+.context { padding-left: 20px; border-left: 1px solid var(--line); color: var(--muted); font-size: .94rem; }
+.wizard-main { max-width: 826px; width: calc(100% - 64px); margin: clamp(32px, 6vh, 66px) auto 48px; }
+.wizard-main.wide { max-width: 1200px; }
+.wizard-main :is(h1) { margin: 0 0 26px; font-size: clamp(1.75rem, 3.4vw, 2rem); line-height: 1.15; letter-spacing: -.03em; font-weight: 600; }
+.wizard-main :is(h2) { margin: 0; font-size: 1.08rem; font-weight: 650; letter-spacing: -.018em; }
+.wizard-card { background: white; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
+.row { display: grid; grid-template-columns: minmax(180px, .9fr) minmax(0, 1fr); gap: 24px; align-items: center; padding: 20px 28px; }
+.row + .row { border-top: 1px solid #e9edf2; }
+.row.address-row { align-items: start; }
+.address-row .caption { padding-top: 7px; }
+.caption, .name { font-weight: 600; font-size: .99rem; }
+.hint { color: var(--muted); margin: 5px 0 0; font-size: .875rem; line-height: 1.45; font-weight: 400; }
+#addresses { display: grid; gap: 8px; }
+.address { display: flex; gap: 6px; align-items: center; }
+.wizard-main :is(input:not([type=checkbox]), select) {
+  width: 100%; min-width: 0; height: 42px; border: 1px solid #dbe3f0; border-radius: var(--control-radius);
+  color: inherit; padding: 0 14px; background: #fff;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+.wizard-main :is(:is(input:not([type=checkbox]), select):hover) { border-color: #b8b9fa; }
+.wizard-main :is(:is(input:not([type=checkbox]), select):focus-visible) { border-color: var(--primary); outline: 0; box-shadow: 0 0 0 3px rgba(99,102,241,.1); }
+.wizard-main :is(select) { appearance: none; padding-right: 36px; }
+.select-wrap { position: relative; }
+.select-wrap .icon { position: absolute; right: 13px; top: 12px; pointer-events: none; }
+.icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+.icon-btn { display: inline-grid; place-items: center; flex: none; width: 36px; height: 38px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
+.icon-btn:hover { color: var(--strong); background: #eef2ff; }
+.add { display: inline-flex; gap: 6px; align-items: center; color: var(--strong); background: transparent; border: 0; border-radius: 4px; font-size: .875rem; font-weight: 600; padding: 5px 2px; margin-top: 5px; }
+.add:hover { text-decoration: underline; }
+.switch { position: relative; justify-self: start; display: inline-flex; }
+.switch input { position: absolute; width: 100%; height: 100%; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.track { width: 40px; height: 24px; border-radius: 20px; background: #7e8d9e; pointer-events: none; }
+.track::after { content: ""; display: block; width: 18px; height: 18px; margin: 3px; border-radius: 50%; background: white; }
+.switch input:checked + .track { background: var(--primary); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+.switch input:focus-visible + .track { outline: 3px solid var(--focus); outline-offset: 3px; }
+.actions { padding: 19px 28px; border-top: 1px solid var(--line); background: #fafbfd; display: flex; justify-content: flex-end; }
+.primary { border: 1px solid transparent; border-radius: var(--control-radius); padding: 11px 20px; min-height: 42px; font-size: .95rem; font-weight: 500; background: linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: var(--shadow); color: white; text-decoration: none; text-align: center; }
+.primary:hover { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 25px; }
+.celebration { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 5; }
+.celebration i { position: absolute; width: 7px; height: 12px; border-radius: 2px; }
+.celebration .spark { width: 3px; height: 13px; border-radius: 4px; }
+@media (prefers-reduced-motion: no-preference) {
+  #open-dvt:not([hidden]) { animation: reveal .6s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes reveal {
+0% { opacity: 0; scale: .82; }
+55% { opacity: 1; scale: 1.05; box-shadow: 0 0 0 6px #6366f126; }
+100% { scale: 1; box-shadow: var(--shadow); }
+  }
+}
+.heading h1 { margin: 0; }
+.columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(285px, 1fr); gap: 18px; align-items: start; }
+.panel-head { min-height: 64px; padding: 12px 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+.tools { display: flex; gap: 2px; margin-left: auto; }
+.terminal {
+  --scroll-thumb: #697b90;
+  height: clamp(320px, 53vh, 580px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scroll-thumb) transparent;
+  padding: 18px;
+  background: #182531;
+  color: #edf3f9;
+  font: .88rem/1.6 ui-monospace, Consolas, monospace;
+}
+.terminal:focus-visible { outline: 2px solid #a5b4fc; outline-offset: -2px; }
+@media (pointer: fine) and (forced-colors: none) {
+  .terminal { scrollbar-width: thin; }
+  @supports selector(::-webkit-scrollbar-thumb) {
+.terminal { scrollbar-width: auto; scrollbar-color: auto; }
+.terminal::-webkit-scrollbar { width: 16px; }
+.terminal::-webkit-scrollbar-track:vertical { margin-block: 12px; background: transparent; }
+.terminal::-webkit-scrollbar-button { display: none; }
+.terminal::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 4px solid transparent;
+  border-radius: 999px;
+  background: var(--scroll-thumb) padding-box;
+}
+.terminal::-webkit-scrollbar-thumb:hover { background-color: #9baec3; }
+.terminal::-webkit-scrollbar-thumb:active { background-color: #a5b4fc; }
+  }
+}
+.log-line { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; margin-bottom: 5px; overflow-wrap: anywhere; }
+.log-line time { color: #a4b6c7; }
+.wizard-stages { list-style: none; padding: 8px 20px; margin: 0; }
+.stage { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; }
+.stage + .stage { border-top: 1px solid #eef1f5; }
+.stage strong { font-size: .96rem; font-weight: 600; }
+.stage small { display: block; margin-top: 2px; color: var(--muted); font-size: .875rem; }
+.mark { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%; margin-top: 1px; border: 2px solid #bcc7d2; flex: none; }
+.active .mark { border-color: #c7d2fe; border-top-color: var(--primary); animation: spin .9s linear infinite; }
+.active small { color: var(--primary); }
+.done .mark { background: #15803d; border-color: #15803d; color: white; }
+.done .mark::before { content: "✓"; font: bold 12px/1 system-ui; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .active .mark { animation: none; } }
+.sr { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
+@media (max-width: 800px) { .columns { grid-template-columns: 1fr; } .terminal { height: 300px; } }
+@media (max-width: 590px) {
+  .bar, .wizard-main { width: calc(100% - 32px); }
+  .bar { min-height: 60px; height: auto; gap: 10px; } .context { padding-left: 10px; font-size: .875rem; }
+  .brand { gap: 7px; } .wordmark strong { font-size: 16px; } .brand img { width: 29px; height: 29px; }
+  .wizard-main { margin: 26px auto; } h1 { margin-bottom: 17px; }
+  .row { grid-template-columns: 1fr; gap: 9px; padding: 15px 18px; }
+  .row.address-row .caption { padding: 0; }
+  .switch-row { grid-template-columns: 1fr auto; }
+  .actions { padding: 16px 18px; } .actions .primary { width: 100%; }
+  .panel-head { padding: 10px 14px; } .terminal { padding: 14px 12px; }
+}
+
+.wizard-main .banner { margin: 0 0 16px; }
+.wizard-card .banner { margin: 16px; }
+.wizard-main .primary:disabled { opacity: .55; cursor: default; }
+.wizard-main .panel-head { flex-wrap: wrap; }
+.wizard-main .operator-form { padding: 20px; }
+.wizard-main .log-line { white-space: pre-wrap; }
+.wizard-main .log-message { grid-column: 1 / -1; }
+.wizard-main .failed .mark { border-color: #b91c1c; background: #b91c1c; color: white; }
+.wizard-main .failed .mark::before { content: "×"; font: bold 14px/1 system-ui; }
+
+body:has(.wizard-header) {
+  --paper: #fff;
+  --text: #1f2937;
+  --text-dim: #6b7280;
+  background: #eef2f8;
+}
+.wizard-main .banner-info { color: #1d4ed8; }
+.wizard-main .banner-error { color: #b91c1c; }
+.wizard-main > .operator-actions, .wizard-main > .wizard-card:not(:first-child) { margin-top: 16px; }
+.wizard-main .icon-btn:disabled { opacity: .45; cursor: default; }
+.wizard-main input[readonly] { background: #fafbfd; }

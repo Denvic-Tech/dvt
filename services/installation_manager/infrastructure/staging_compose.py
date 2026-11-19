@@ -31,7 +31,7 @@ from ..domain.release_manifest import (
 from ..domain.services import render_bool
 from .operator_wiring import operator_binds
 from .staging_commands import Deadline
-from .staging_docker import StagingDocker, image_references
+from .staging_docker import StagingDocker, canonical_image_reference, image_references
 from .staging_host import check_free_port, incompatible
 
 COMPOSE_LIMIT = 4 * 1024 * 1024
@@ -107,7 +107,6 @@ def effective_config(
     identity: InstanceIdentity,
     request: OperationRequest,
     release_version: str,
-    desired_workers: int,
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     environment = dict(values)
     public_origins = [
@@ -142,12 +141,10 @@ def effective_config(
     try:
         workers = request.task_workers_count or int(environment.get("DVT_TASK_WORKERS_COUNT", "1"))
         app_port = request.app_port or int(environment.get("DVT_EXTERNAL_PORT", "80"))
-        if not 1 <= workers <= desired_workers or not 1 <= app_port <= 65535:
+        if workers < 1 or not 1 <= app_port <= 65535:
             raise ValueError
     except ValueError:
-        raise compose_error(
-            "The selected port or worker count is outside the environment profile"
-        ) from None
+        raise compose_error("Invalid application port or worker count") from None
     if enabled and not environment.get(AI_SECRET, "").strip():
         raise compose_error("The enabled AI MCP profile requires a saved internal secret")
     environment.update(
@@ -544,7 +541,7 @@ def compare_project(
                 "Running project contents differ from the independently established source"
             )
         image = docker.inspect_image(container["Image"], deadline)
-        if image is None or expected_image not in image_references(image):
+        if image is None or canonical_image_reference(expected_image) not in image_references(image):
             raise incompatible(
                 "A running service image differs from the independently established source"
             )

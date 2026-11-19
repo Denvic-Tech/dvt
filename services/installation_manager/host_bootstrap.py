@@ -35,6 +35,7 @@ DOCKER_ENV = {
 UNIT_DIR = Path("/etc/systemd/system")
 CONTROL = ".bootstrap"
 STATE = ".installation-state"
+WIZARD_PROTOCOL = 1
 LAUNCH_DIGEST = "launch-bootstrap.sha256"
 HOST_OS_RELEASE = Path("/run/dvt-host-os")
 
@@ -220,6 +221,10 @@ def _launch(config, operation_id, action="candidate-executor"):
         "--name",
         name,
         "--label",
+        "com.docker.compose.project=",
+        "--label",
+        "com.docker.compose.service=",
+        "--label",
         f"dvt.executor.instance={config['instance']}",
         "--label",
         f"dvt.executor.operation={operation_id}",
@@ -397,11 +402,12 @@ def install_docker(allowed, interactive):
 
 def manager_compose(config, image):
     data = Path(config["data"])
+    mounts = (data,) if config.get("wizard_temporary") else (data, Path(SOCKET))
     return {
         "services": {
             "installation_manager": {
                 "image": image,
-                "restart": "unless-stopped",
+                "restart": "no" if config.get("wizard_temporary") else "unless-stopped",
                 "ports": [
                     {
                         "target": 8000,
@@ -413,7 +419,7 @@ def manager_compose(config, image):
                 "command": ["candidate-web", str(data)],
                 "volumes": [
                     {"type": "bind", "source": str(p), "target": str(p)}
-                    for p in (data, Path(SOCKET))
+                    for p in mounts
                 ],
             },
         },
@@ -426,7 +432,7 @@ def apply_manager(config, image, path):
     docker(
         "compose",
         "--project-name",
-        config["project"],
+        config.get("wizard_project", config["project"]),
         "--project-directory",
         config["data"],
         "--env-file",
@@ -465,6 +471,10 @@ def init_container(config, action):
         "--pull=never",
         "--network",
         "none",
+        "--label",
+        "com.docker.compose.project=",
+        "--label",
+        "com.docker.compose.service=",
         "--mount",
         mount(config["data"]),
         config["manager"],
@@ -589,6 +599,8 @@ def bootstrap_images(args, *, catalog):
 
 
 def manager_origin(config):
+    if config.get("manager_origins"):
+        return config["manager_origins"][0]
     if config.get("manager_http") is True:
         host = urlsplit(config["public_url"]).hostname
         authority = f"[{host}]" if ":" in host else host
@@ -627,13 +639,74 @@ def print_managed_access(data, port):
     print("  " + ":".join(fingerprint[i:i + 2] for i in range(0, len(fingerprint), 2)).upper())
 
 
+def wizard_intent(directory):
+    path = directory / CONTROL / "install-intent.json"
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+        raise ValueError("Invalid installation intent file")
+    content = path.read_bytes()
+    value = json.loads(content)
+    key = value["key"]
+    request = value["request"]
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", key) or request["kind"] != "install":
+        raise ValueError("Invalid installation intent")
+    return key, request, content
+
+
+def wizard_bind(host):
+    if host and ":" in host:
+        try:
+            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as listener:
+                listener.bind(("::", 0))
+        except OSError:
+            pass
+        else:
+            return "::"
+    return "0.0.0.0"
+
+
+def wizard_origins(public_url, host, port, address):
+    hosts = (host, "localhost", urlsplit(public_url).hostname)
+    origins = []
+    for value in hosts:
+        if not value:
+            continue
+        hostname = value.strip("[]")
+        with contextlib.suppress(ValueError):
+            if ipaddress.ip_address(hostname).version != ipaddress.ip_address(address).version:
+                continue
+        authority = f"[{hostname}]" if ":" in hostname else hostname
+        origin = f"http://{authority}:{port}"
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
 def bootstrap(args):
     from uuid import uuid4
 
     data = safe_path(args.dir)
+    wizard_default = getattr(args, "wizard_default", None)
+    wizard_source = getattr(args, "wizard_source", None)
+    wizard_config = None
+    if wizard_source:
+        wizard_source = safe_path(wizard_source)
+        wizard_config = load_host(wizard_source)
+        key, request, intent = wizard_intent(wizard_source)
+        if (
+            not wizard_config.get("wizard_temporary")
+            or key != args.wizard_key
+            or request["install_dir"] != str(data)
+        ):
+            raise ValueError("Installation intent changed before handoff")
+        public_urls = request["public_urls"]
+        args.public_url = public_urls[0]
     config_path = data / CONTROL / "host.json"
     prior = load_host(data) if config_path.exists() else None
     contained = getattr(args, "contained", False)
+    local_images = getattr(args, "local_images", False)
+    local_ui_image = getattr(args, "local_ui_image", None)
+    if local_ui_image and not (local_images and contained):
+        raise ValueError("Use the contained local-image bootstrap to select a local UI")
     catalog_file = getattr(args, "release_catalog_config", None)
     os_release = HOST_OS_RELEASE if contained else Path("/etc/os-release")
     catalog = _catalog_config(catalog_file, os_release) if catalog_file else None
@@ -778,11 +851,27 @@ def bootstrap(args):
             raise ValueError("Expected a public DVT HTTP(S) origin")
         _ = url.port
         address = manager_bind(url.hostname) if managed else "127.0.0.1"
-        check_port(address, port)
+        if wizard_config:
+            address = wizard_config["address"]
+            port = wizard_config["port"]
+        if wizard_default:
+            address = wizard_bind(args.wizard_host)
+            if args.wizard_auto_port:
+                family = socket.AF_INET6 if address == "::" else socket.AF_INET
+                with socket.socket(family, socket.SOCK_STREAM) as listener:
+                    try:
+                        listener.bind((address, port))
+                    except OSError:
+                        listener.bind((address, 0))
+                        port = listener.getsockname()[1]
+        if local_images and managed and address == "127.0.0.1":
+            # Docker Desktop forwards to the disposable host's bridge interface.
+            address = "0.0.0.0"
+        if not wizard_source:
+            check_port(address, port)
         tls = {} if managed else {
             name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")
         }
-        local_images = getattr(args, "local_images", False)
         if local_images or contained:
             if not docker_ready():
                 raise ValueError("Prepare Docker on the host before bootstrap")
@@ -817,11 +906,13 @@ def bootstrap(args):
             raise ValueError("Choose separate data, temporary and backup directories")
         for img in dict.fromkeys([manager, candidate_image, executor]):
             check_image(img, pull=not local_images)
+        if local_ui_image:
+            check_image(local_ui_image)
         data.mkdir(mode=0o700, parents=True, exist_ok=True)
         control = data / CONTROL
         config = {
             "version": 1,
-            "instance": str(uuid4()),
+            "instance": wizard_config["instance"] if wizard_config else str(uuid4()),
             "data": str(data),
             "project": project,
             "address": address,
@@ -837,6 +928,19 @@ def bootstrap(args):
         }
         if managed:
             config["manager_http"] = True
+        if wizard_default:
+            config.update(
+                wizard_temporary=True,
+                wizard_project=args.wizard_project,
+                default_install_dir=wizard_default,
+                manager_origins=wizard_origins(public_url, args.wizard_host, port, address),
+            )
+        if wizard_config:
+            config.update(manager_origins=wizard_config["manager_origins"], public_urls=public_urls)
+        if local_images and wizard_config:
+            config["local_manager_image"] = manager
+        if local_ui_image:
+            config["local_ui_image"] = local_ui_image
         if catalog is not None:
             config["release_catalog"] = catalog
         with tempfile.TemporaryDirectory(prefix=".bootstrap-partial-", dir=data) as folder:
@@ -850,6 +954,23 @@ def bootstrap(args):
                 atomic_write(staging / LAUNCH_DIGEST, launch_digest.encode("ascii"))
                 for name, mode in (("host-launch.sh", 0o700), ("launch-host.conf", 0o600)):
                     atomic_write(staging / name, launch_source.with_name(name).read_bytes(), mode)
+            if wizard_default:
+                atomic_write(staging / "wizard-port", str(port).encode())
+            if wizard_source:
+                source = wizard_source / CONTROL
+                for name in ("session-key", "pairing.json"):
+                    origin = source / name
+                    if name == "pairing.json" and not origin.exists():
+                        continue
+                    info = origin.lstat()
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_uid
+                        or stat.S_IMODE(info.st_mode) != 0o600
+                    ):
+                        raise PermissionError("Invalid wizard session file")
+                    atomic_write(staging / name, origin.read_bytes())
+                atomic_write(staging / "install-intent.json", intent)
             atomic_write(staging / "current-manager", config["manager"].encode())
             atomic_write(staging / config_path.name, json.dumps(config).encode())
             staging.rename(control)
@@ -860,17 +981,32 @@ def bootstrap(args):
                 os.close(dir_fd)
         for path in (temporary, backup):
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        init_container(config, "candidate-init")
-        if not contained:
-            install_unit(data, config)
-        apply_manager(config, config["manager"], control / "bootstrap.compose.yaml")
+        if not wizard_source:
+            init_container(config, "candidate-init")
+            if not contained:
+                install_unit(data, config)
+            apply_manager(config, config["manager"], control / "bootstrap.compose.yaml")
+    if wizard_source:
+        print(f"Manager: {manager_origin(config)}", flush=True)
+        return
+    if wizard_default:
+        if not args.wizard_show_pairing:
+            return
+        token = init_container(config, "candidate-pair")
+        for origin in config["manager_origins"]:
+            print(f"Manager: {origin}/#pairing={token}", flush=True)
+        return
     if getattr(args, "quiet", False):
         return
     if config.get("manager_http") is True:
-        link = manager_origin(config)
-        if sys.stdout.isatty() and not args.non_interactive:
-            link += "/#pairing=" + init_container(config, "candidate-pair")
-        print(f"Manager: {link}")
+        origins = config.get("manager_origins") or [manager_origin(config)]
+        suffix = ""
+        if (sys.stdout.isatty() and not args.non_interactive) or (
+            config.get("manager_origins") and args.new_pairing_token
+        ):
+            suffix = "/#pairing=" + init_container(config, "candidate-pair")
+        for origin in origins:
+            print(f"Manager: {origin}{suffix}")
         return
     print(f"Manager: {manager_origin(config)}")
     if managed:
@@ -901,7 +1037,7 @@ def main():
     parser.add_argument(
         "action",
         choices=[
-            "bootstrap", "resume", "maintenance", "maintenance-extend", "maintenance-defer",
+            "bootstrap", "wizard-intent", "resume", "maintenance", "maintenance-extend", "maintenance-defer",
             "cancel-preparation", "recover-manager", "return-to-source", "restore-start",
         ],
     )
@@ -926,8 +1062,19 @@ def main():
         parser.add_argument(f"--{key}")
     for key in ("non-interactive", "install-docker", "new-pairing-token", "managed", "contained"):
         parser.add_argument(f"--{key}", action="store_true")
+    parser.add_argument("--local-images", action="store_true")
+    parser.add_argument("--local-ui-image")
+    parser.add_argument("--wizard-default")
+    parser.add_argument("--wizard-host")
+    parser.add_argument("--wizard-project")
+    parser.add_argument("--wizard-auto-port", action="store_true")
+    parser.add_argument("--wizard-show-pairing", action="store_true")
+    parser.add_argument("--wizard-source")
+    parser.add_argument("--wizard-key")
     args = parser.parse_args()
     try:
+        if args.local_images and (args.action != "bootstrap" or not args.contained):
+            raise ValueError("Local images are only supported by the contained test bootstrap")
         os.umask(0o077)
         if os.geteuid() or not sys.platform.startswith("linux") or platform.machine() != "x86_64":
             raise ValueError("This candidate requires root on Linux amd64")
@@ -936,13 +1083,26 @@ def main():
                 raise ValueError("Use the managed launcher with the host distribution bind mount")
         elif not Path("/run/systemd/system").is_dir():
             raise ValueError("The host must run systemd")
-        if args.action != "bootstrap":
+        if args.action == "wizard-intent":
+            if not args.contained:
+                raise ValueError("Use the managed installer to read the installation intent")
+            data = safe_path(args.dir)
+            if not load_host(data).get("wizard_temporary"):
+                raise ValueError("The manager is not running in initial setup")
+            key, request, _ = wizard_intent(data)
+            path = request["install_dir"]
+            if not re.fullmatch(r"/[a-zA-Z0-9_./-]+", path):
+                path = "/"
+            print(key, path)
+        elif args.action != "bootstrap":
             config = load_host(safe_path(args.dir))
             operation = active_id(config)
             if args.action == "resume":
                 if operation:
                     launch(config, operation)
                 elif args.contained:
+                    if (Path(config["data"]) / CONTROL / "install-intent.json").is_file():
+                        init_container(config, "candidate-init")
                     start_verified_manager(config)
             else:
                 if not args.operation_id or args.operation_id != operation:

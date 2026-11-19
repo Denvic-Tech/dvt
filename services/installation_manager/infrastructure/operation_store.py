@@ -199,8 +199,13 @@ class OperationStore:
         self._database = self._directory / "journal.sqlite3"
         self._lock = self._directory / "executor.lock"
         prepare_database(self._database)
-        with self._connect(write=True, initialize=True):
-            pass
+        with self._connect(write=True, initialize=True) as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS operator_log (
+                cursor INTEGER PRIMARY KEY, operation_id TEXT NOT NULL REFERENCES operations(id),
+                at TEXT NOT NULL, message TEXT NOT NULL
+            )""")
+            db.execute("""CREATE INDEX IF NOT EXISTS operator_log_cursor
+                ON operator_log(operation_id, cursor)""")
 
     @classmethod
     def for_host(cls, data_dir: Path) -> OperationStore:
@@ -318,6 +323,22 @@ class OperationStore:
                 (str(before) if before is not None else None, str(before), limit),
             )
             return [_decode_operation(row) for row in rows]
+
+    def log_message(self, operation_id: UUID, message: str) -> None:
+        """Record a curated progress message, without command output or environment values."""
+        with self._connect(write=True) as db:
+            db.execute(
+                "INSERT INTO operator_log(operation_id, at, message) VALUES (?, ?, ?)",
+                (str(operation_id), datetime.now(UTC).isoformat(), message),
+            )
+
+    def log_lines(self, operation_id: UUID, *, after: int, limit: int) -> list[dict]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT cursor, at, message FROM operator_log WHERE operation_id = ? "
+                "AND cursor > ? ORDER BY cursor LIMIT ?", (str(operation_id), after, limit),
+            )
+            return [dict(row) for row in rows]
 
     def events(
         self, operation_id: UUID, *, after: int = 0, limit: int = 100
@@ -532,6 +553,30 @@ class OperationStore:
         checkpoint: Checkpoint | None = None,
         previous: Operation | None = None,
     ) -> None:
+        labels = {
+            OperationStage.ADMITTED: "Запрос принят",
+            OperationStage.PREPARING: "Подготовка комплекта",
+            OperationStage.PREPARED: "Комплект проверен",
+            OperationStage.MAINTENANCE: "Начало обслуживания",
+            OperationStage.BACKUP: "Создание резервной копии",
+            OperationStage.MIGRATING: "Настройка базы данных",
+            OperationStage.APPLYING: "Запуск сервисов",
+            OperationStage.VERIFYING: "Проверка доступности",
+            OperationStage.RESUMING: "Завершение операции",
+            OperationStage.SUCCEEDED: "Операция завершена",
+            OperationStage.CANCELLED: "Операция отменена",
+            OperationStage.FAILED: "Операция завершилась ошибкой",
+            OperationStage.RECOVERING: "Восстановление",
+            OperationStage.RECOVERY_REQUIRED: "Требуется восстановление",
+        }
+        if kind is not EventKind.OWNER_ACQUIRED:
+            message = labels[operation.stage]
+            if checkpoint and checkpoint.reason:
+                message += f" ({checkpoint.reason.value})"
+            db.execute(
+                "INSERT INTO operator_log(operation_id, at, message) VALUES (?, ?, ?)",
+                (str(operation.id), occurred_at.isoformat(), message),
+            )
         owner = operation.last_owner
         duration_ms = None
         if previous is not None:

@@ -37,7 +37,11 @@ class SelectRelease(WireModel):
 class InstallRequest(SelectRelease):
     kind: Literal["install"]
     app_port: Annotated[int, Field(ge=1, le=65535)] | None = None
-    task_workers_count: Annotated[int, Field(ge=1)] = 1
+    task_workers_count: Annotated[int, Field(ge=1)] = 4
+    install_dir: str | None = Field(default=None, max_length=4096)
+    public_urls: list[Annotated[str, Field(max_length=512)]] | None = Field(
+        default=None, min_length=1, max_length=32,
+    )
     ai_mcp_enabled: bool = False
 
 

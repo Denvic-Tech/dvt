@@ -5,11 +5,13 @@ import json
 import os
 import shlex
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +21,10 @@ REPO = Path(__file__).resolve().parents[4]
 LAUNCHER = REPO / "install.sh"
 BOOTSTRAP = REPO / "services/installation_manager/host_bootstrap.py"
 MANAGER = "registry.fixture.test/dvt/installation_manager@sha256:" + "a" * 64
+LOCAL_IMAGE = "dvt/installation_manager:latest"
+LOCAL_MANAGER = "dvt/installation_manager@sha256:" + "d" * 64
+LOCAL_UI_TAG = "dvt/ui:local-setup"
+LOCAL_UI_PIN = "dvt/ui@sha256:" + "e" * 64
 
 # Replace only the system Docker/systemd effects. The verified script still produces
 # real TLS, persists the managed identity and uses the normal resume path.
@@ -34,7 +40,9 @@ check_project = lambda *args: None
 docker_ready = lambda: True
 
 def check_image(reference, **kwargs):
-    assert reference == "MANAGER_FIXTURE"
+    assert reference in {"MANAGER_FIXTURE", "UI_FIXTURE"}
+    if reference.startswith("dvt/"):
+        assert not kwargs.get("pull", False)
 
 def docker(*args, **kwargs):
     if args[0] == "info":
@@ -44,9 +52,14 @@ def docker(*args, **kwargs):
 
 def apply_manager(config, image, path):
     assert config["manager"] == image == "MANAGER_FIXTURE"
+    atomic_write(path, json.dumps(manager_compose(config, image)).encode())
     (Path(config["data"]) / "manager-witness").write_text(image)
 def init_container(config, action):
     assert config["manager"] == "MANAGER_FIXTURE"
+    if action == "candidate-init":
+        key = Path(config["data"]) / CONTROL / "session-key"
+        if not key.exists():
+            atomic_write(key, b"s" * 32)
     if action == "candidate-pair":
         return "p" * 43
 def active_id(config):
@@ -55,13 +68,15 @@ def active_id(config):
 def launch(config, operation):
     assert config["manager"] == "MANAGER_FIXTURE"
     (Path(config["data"]) / "resume-witness").write_text(operation)
-""".replace("MANAGER_FIXTURE", MANAGER)
+""".replace("MANAGER_FIXTURE", MANAGER).replace("UI_FIXTURE", LOCAL_UI_PIN)
 
 
 # The outer shell has no Python dependency. This isolated fixture adapts Docker
 # run to the test venv and checks the one-shot execution boundary and mounts.
 DOCKER_FIXTURE = r"""
 import json
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -73,13 +88,21 @@ if args[0] == "info":
         print(DOCKER_ROOT)
 elif args[:2] == ["compose", "version"]:
     print("fixture")
+elif args[:2] == ["compose", "--project-name"] and args[-1] == "down":
+    pass
 elif args[0] == "pull":
     assert args == ["pull", "--quiet", "--platform", "linux/amd64", MANAGER]
+elif args[:2] == ["image", "inspect"]:
+    print({LOCAL_IMAGE: LOCAL_MANAGER, LOCAL_UI_TAG: LOCAL_UI_PIN}[args[-1]])
 elif args[0] == "run":
-    boundary = args.index(MANAGER)
+    manager = LOCAL_MANAGER if LOCAL_MANAGER in args else MANAGER
+    boundary = args.index(manager)
     flags, container = args[1:boundary], args[boundary + 1:]
     assert "--rm" in flags and "--pull=never" in flags
     assert {"--privileged", "--pid=host"}.isdisjoint(flags)
+    if container[:1] == ["-c"]:
+        assert "WIZARD_PROTOCOL" in container[1]
+        raise SystemExit(0)
     assert ("-t" in flags) == ("--non-interactive" not in container)
     assert flags[flags.index("--entrypoint") + 1] == "python3"
     mounts = [flags[index + 1] for index, value in enumerate(flags) if value == "--mount"]
@@ -87,13 +110,18 @@ elif args[0] == "run":
     assert "type=bind,src=/etc/os-release,dst=/run/dvt-host-os,readonly" in mounts
     assert all(",src=/," not in mount for mount in mounts)
     assert "--contained" in container
+    if manager == LOCAL_MANAGER:
+        assert "com.docker.compose.project=" in flags
     with WITNESS.open("a", encoding="utf-8") as events:
         events.write(json.dumps(container[1:]) + "\n")
     for mount in mounts:
         if mount.endswith(",dst=/run/dvt-launch,readonly"):
             bootstrap_src = mount.split(",")[1].removeprefix("src=")
             container = [value.replace("/run/dvt-launch/", bootstrap_src + "/") for value in container]
-    raise SystemExit(subprocess.call([sys.executable, "-I", *container]))
+    result = subprocess.call([sys.executable, "-I", *container])
+    if result == 0 and "--wizard-source" in container and os.environ.get("DVT_FIXTURE_INTERRUPT"):
+        os.kill(os.getppid(), signal.SIGKILL)
+    raise SystemExit(result)
 else:
     raise AssertionError(args)
 """
@@ -106,7 +134,7 @@ else:
 )
 class InstallLauncherTest(unittest.TestCase):
     def setUp(self):
-        folder = tempfile.TemporaryDirectory(dir="/tmp", prefix="dvt-launcher-test-")
+        folder = tempfile.TemporaryDirectory(dir="/var/lib", prefix="dvt-launcher-test-")
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
         self.data = self.root / "data"
@@ -133,8 +161,12 @@ class InstallLauncherTest(unittest.TestCase):
         self.project = "dvt-launch-fixture-" + self.root.name.rsplit("-", 1)[-1].lower()
         unit = Path("/etc/systemd/system") / f"dvt-bootstrap-{self.project}.service"
         self.addCleanup(unit.unlink, missing_ok=True)
+        record = Path("/etc/dvt-bootstrap") / self.project
+        self.addCleanup(record.unlink, missing_ok=True)
         definitions = (
             f"DOCKER_ROOT = {str(docker_root)!r}\nMANAGER = {MANAGER!r}\n"
+            f"LOCAL_IMAGE = {LOCAL_IMAGE!r}\nLOCAL_MANAGER = {LOCAL_MANAGER!r}\n"
+            f"LOCAL_UI_TAG = {LOCAL_UI_TAG!r}\nLOCAL_UI_PIN = {LOCAL_UI_PIN!r}\n"
             f"WITNESS = __import__('pathlib').Path({str(self.events)!r})\n"
         )
         for name, content in (
@@ -249,35 +281,191 @@ class InstallLauncherTest(unittest.TestCase):
             },
         }
 
-    def launch(self, *flags, pass_ca=True, legacy_rc=True, terminal=False):
+    def launch_command(self, *flags, pass_ca=True, legacy_rc=True, wizard=False):
         command = 'bash <(curl -fsS --cacert "$1" "$2/dvt/install.sh") "${@:3}"'
         args = [
             "bash", "-c", command, "fixture", str(self.ca), self.origin,
             "--project", self.project, "--catalog-origin", self.origin, *flags,
         ]
-        if not terminal:
+        if not wizard:
             args.extend(("--non-interactive", "--dir", str(self.data), "--public-url", "https://dvt.fixture.test"))
         if legacy_rc:
             args.append("--test-rc")
         if pass_ca:
             args.extend(("--catalog-ca", str(self.ca)))
-        if terminal:
-            args = ["script", "-qec", shlex.join(args), "/dev/null"]
+        return args
+
+    def launch(self, *flags, **options):
         return subprocess.run(
-            args, input=f"192.0.2.20\n{self.data}\n" if terminal else None,
+            self.launch_command(*flags, **options),
             capture_output=True, text=True, check=False, timeout=40, start_new_session=True,
         )
 
-    def test_first_launch_asks_for_host_and_directory_and_prints_one_time_link(self):
-        result = self.launch("--channel", "rc", legacy_rc=False, terminal=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("DVT host or origin", result.stdout)
-        self.assertIn("Installation directory [/var/lib/dvt]", result.stdout)
-        self.assertIn("Manager: http://192.0.2.20:8888/#pairing=" + "p" * 43, result.stdout)
+    def test_wizard_creates_final_directory_after_submission_and_resumes_without_dir(self):
+        self._exercise_wizard(
+            self.launch_command("--new-pairing-token", wizard=True),
+            self.launch_command("--non-interactive", wizard=True),
+        )
+
+    def test_local_image_wizard_without_systemd(self):
+        launcher = self.local_launcher()
+        systemd = Path("/run/systemd/system")
+        systemd.rmdir()
+        self.addCleanup(systemd.mkdir)
+        command = [
+            "sh", str(launcher), "--project", self.project, "--local-image", LOCAL_IMAGE,
+            "--local-ui-image", LOCAL_UI_TAG, "--channel", "rc", "--catalog-origin", self.origin,
+            "--catalog-ca", str(self.ca),
+        ]
+        self._exercise_wizard(
+            [*command, "--new-pairing-token"], [*command, "--non-interactive"],
+        )
+
+    def test_wizard_resumes_after_interrupted_handoff(self):
+        self._exercise_wizard(
+            self.launch_command("--new-pairing-token", wizard=True),
+            self.launch_command("--non-interactive", wizard=True),
+            interrupt=True,
+        )
+
+    @unittest.skipUnless(socket.has_ipv6, "An IPv6 socket is required")
+    def test_wizard_publishes_ipv6_for_an_ipv6_ssh_connection(self):
+        self._exercise_wizard(
+            self.launch_command("--new-pairing-token", wizard=True),
+            self.launch_command("--non-interactive", wizard=True),
+            ipv6=True,
+        )
+
+    def _exercise_wizard(self, launch, repeat, *, interrupt=False, ipv6=False):
+        bind = "::" if ipv6 else "0.0.0.0"
+        detected = "2001:db8::20" if ipv6 else "192.0.2.20"
+        authority = f"[{detected}]" if ipv6 else detected
+        family = socket.AF_INET6 if ipv6 else socket.AF_INET
+        with socket.socket(family, socket.SOCK_STREAM) as busy:
+            try:
+                busy.bind((bind, 8888))
+            except OSError:
+                pass  # An existing listener already occupies the preferred port.
+            else:
+                busy.listen()
+            env = {**os.environ, "SSH_CONNECTION": f"192.0.2.2 12000 {detected} 22"}
+            if interrupt:
+                env["DVT_FIXTURE_INTERRUPT"] = "1"
+            with subprocess.Popen(
+                launch,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                start_new_session=True,
+            ) as process:
+                try:
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        if self.events.exists() and self.events.read_text().strip():
+                            call = json.loads(self.events.read_text().splitlines()[0])
+                            control = Path(call[call.index("--dir") + 1]) / ".bootstrap"
+                            if (control / "host.json").is_file():
+                                break
+                        if process.poll() is not None:
+                            self.fail(process.communicate())
+                        time.sleep(0.05)
+                    else:
+                        self.fail("The temporary manager did not start")
+                    temporary = json.loads((control / "host.json").read_bytes())
+                    self.assertFalse(self.data.exists())
+                    self.assertNotEqual(temporary["port"], 8888)
+                    self.assertTrue(temporary["wizard_temporary"])
+                    self.assertEqual(temporary["address"], bind)
+                    self.assertEqual(temporary["public_url"], f"http://{authority}")
+                    request = {
+                        "key": "install-intent",
+                        "request": {
+                            "kind": "install", "install_dir": str(self.data),
+                            "public_urls": ["http://app.example:9999"],
+                        },
+                    }
+                    self.write_intent(control, {
+                        "key": "unsafe-install-intent",
+                        "request": {**request["request"], "install_dir": "/run/dvt-fixture"},
+                    })
+                    deadline = time.monotonic() + 10
+                    error = control / "install-error.json"
+                    while not error.exists() and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                    self.assertEqual(json.loads(error.read_bytes())["key"], "unsafe-install-intent")
+                    self.assertFalse(Path("/run/dvt-fixture").exists())
+                    self.write_intent(control, request)
+                    stdout, stderr = process.communicate(timeout=40)
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.communicate(timeout=10)
+        if interrupt:
+            self.assertNotEqual(process.returncode, 0)
+            self.assertTrue(control.exists())
+            self.assertFalse((self.data / "manager-witness").exists())
+        else:
+            self.assertEqual(process.returncode, 0, stdout + stderr)
+        self.received.clear()
+        repeat_in_terminal = shlex.join(arg for arg in repeat if arg != "--non-interactive")
+        resumed = subprocess.run(
+            ["script", "-qec", repeat_in_terminal, "/dev/null"],
+            capture_output=True, text=True, timeout=40, check=False,
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertEqual(self.received, [])
+        self.assertTrue((self.data / "manager-witness").exists())
+        final = self.data / ".bootstrap"
+        config = json.loads((final / "host.json").read_bytes())
+        self.assertEqual(config["instance"], temporary["instance"])
+        self.assertEqual(config["manager_origins"], temporary["manager_origins"])
+        self.assertEqual(config["public_url"], "http://app.example:9999")
+        self.assertEqual((final / "session-key").read_bytes(), b"s" * 32)
+        self.assertEqual(json.loads((final / "install-intent.json").read_bytes()), request)
+        self.assertFalse(control.exists())
+        self.assertEqual(config["address"], bind)
+        for host in ("localhost", authority):
+            link = f"http://{host}:{config['port']}/#pairing=" + "p" * 43
+            self.assertIn(link, stdout)
+            self.assertIn(link, resumed.stdout)
+
+    @staticmethod
+    def write_intent(control, request):
+        staged = control / ".intent.new"
+        staged.write_text(json.dumps(request))
+        staged.replace(control / "install-intent.json")
+
+    def local_launcher(self):
+        local_bootstrap = self.root / "services/installation_manager/host_bootstrap.py"
+        local_bootstrap.parent.mkdir(parents=True)
+        local_bootstrap.write_bytes(self.bootstrap.replace(MANAGER.encode(), LOCAL_MANAGER.encode()))
+        launcher = self.root / "install.sh"
+        shutil.copyfile(LAUNCHER, launcher)
+        return launcher
+
+    def test_local_image_uses_local_bootstrap_without_systemd(self):
+        launcher = self.local_launcher()
+        systemd = Path("/run/systemd/system")
+        systemd.rmdir()
+        self.addCleanup(systemd.mkdir)
+
+        result = subprocess.run(
+            [
+                "sh", str(launcher), "--local-image", LOCAL_IMAGE,
+                "--local-ui-image", LOCAL_UI_TAG, "--dir", str(self.data), "--public-url", "http://localhost",
+                "--non-interactive", "--channel", "rc",
+                "--catalog-origin", self.origin, "--catalog-ca", str(self.ca),
+            ],
+            check=False, capture_output=True, text=True, timeout=40,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.data / "manager-witness").read_text(), LOCAL_MANAGER)
+        self.assertNotIn("Downloading the installation manager", result.stdout)
+        self.assertNotIn("/bootstrap.py", self.received)
         config = json.loads((self.data / ".bootstrap" / "host.json").read_bytes())
+        self.assertEqual(config["release_catalog"]["origin"], self.origin)
+        self.assertEqual(config["project"], "dvt-local")
         self.assertEqual(config["address"], "0.0.0.0")
-        self.assertEqual(config["public_url"], "http://192.0.2.20")
-        self.assertNotIn("ssh -", result.stdout)
+        self.assertEqual(config["local_ui_image"], LOCAL_UI_PIN)
 
     def test_explicit_channel_pins_release_and_resume_checks_saved_version(self):
         result = self.launch("--channel", "rc", legacy_rc=False)

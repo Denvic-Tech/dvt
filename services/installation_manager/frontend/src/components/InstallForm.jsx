@@ -151,7 +151,6 @@ export default function InstallForm({ initialConfig, onStarted }) {
               className="input"
               type="number"
               min="1"
-              max="64"
               value={form.task_workers_count}
               onChange={(e) => set('task_workers_count')(e.target.value)}
             />
