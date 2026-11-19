@@ -32,6 +32,7 @@ from ..host_bootstrap import (
     atomic_write,
     init_container,
     load_host,
+    manager_origin,
     safe_path,
 )
 from ..infrastructure.application_host import (
@@ -115,7 +116,7 @@ if not asyncio.run(verify_project_and_extensions()):
 
 def _validate_restored_runtime(services: dict, networks: dict, config: dict) -> None:
     gateway = services["gateway"]
-    sources = operator_binds(config["data"])
+    sources = operator_binds(config["data"], http=config.get("manager_http") is True)
     volumes = gateway.get("volumes", [])
     bridge = [mount for mount in volumes if mount["target"] in sources]
     origin = gateway.get("environment", {}).get("DVT_OPERATOR_MANAGER_ORIGIN")
@@ -125,7 +126,7 @@ def _validate_restored_runtime(services: dict, networks: dict, config: dict) -> 
 
     default_network = {"name": f"{config['project']}_default"}
     if (
-        origin != f"https://localhost:{config['port']}"
+        origin != manager_origin(config)
         or services["installation_manager"].get("networks") != {"default": None}
         or networks.get("default") not in (default_network, {**default_network, "ipam": {}})
         or gateway.get("networks") != {"dvt-net": None, "default": None}

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import ssl
 import subprocess
@@ -13,8 +14,6 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
-
-from services.installation_manager.host_bootstrap import managed_tls
 
 REPO = Path(__file__).resolve().parents[4]
 LAUNCHER = REPO / "install.sh"
@@ -48,6 +47,8 @@ def apply_manager(config, image, path):
     (Path(config["data"]) / "manager-witness").write_text(image)
 def init_container(config, action):
     assert config["manager"] == "MANAGER_FIXTURE"
+    if action == "candidate-pair":
+        return "p" * 43
 def active_id(config):
     sentinel = Path(config["data"]) / "pending-id"
     return sentinel.read_text() if sentinel.is_file() else None
@@ -73,12 +74,13 @@ if args[0] == "info":
 elif args[:2] == ["compose", "version"]:
     print("fixture")
 elif args[0] == "pull":
-    assert args == ["pull", "--platform", "linux/amd64", MANAGER]
+    assert args == ["pull", "--quiet", "--platform", "linux/amd64", MANAGER]
 elif args[0] == "run":
     boundary = args.index(MANAGER)
     flags, container = args[1:boundary], args[boundary + 1:]
     assert "--rm" in flags and "--pull=never" in flags
-    assert {"--privileged", "--pid=host", "-t", "-i"}.isdisjoint(flags)
+    assert {"--privileged", "--pid=host"}.isdisjoint(flags)
+    assert ("-t" in flags) == ("--non-interactive" not in container)
     assert flags[flags.index("--entrypoint") + 1] == "python3"
     mounts = [flags[index + 1] for index, value in enumerate(flags) if value == "--mount"]
     assert "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock" in mounts
@@ -112,8 +114,13 @@ class InstallLauncherTest(unittest.TestCase):
         docker_root.mkdir()
         tls = self.root / "tls"
         tls.mkdir()
-        managed_tls(tls)
-        self.ca = tls / "ca.pem"
+        # The signed release catalog still uses HTTPS independently of the manager UI.
+        self.ca = tls / "cert.pem"
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+            "-out", str(self.ca), "-keyout", str(tls / "key.pem"),
+        ], check=True, capture_output=True)
         text = BOOTSTRAP.read_text(encoding="utf-8")
         tail = 'if __name__ == "__main__":'
         head, separator, call = text.rpartition(tail)
@@ -140,6 +147,7 @@ class InstallLauncherTest(unittest.TestCase):
             self.addCleanup(command.unlink)
             command.chmod(0o700)
         self.received = []
+        self.queries = []
         self.failure = None
 
         class Handler(BaseHTTPRequestHandler):
@@ -151,13 +159,14 @@ class InstallLauncherTest(unittest.TestCase):
                     content = LAUNCHER.read_bytes()
                 elif path == "/api/v1/dvt/releases/install":
                     self.received.append(path)
+                    args = parse_qs(location.query)
+                    self.queries.append(args)
                     if self.failure == "unavailable":
                         inner.send_error(503)
                         return
                     if self.failure == "not-ready":
                         inner.send_error(404)
                         return
-                    args = parse_qs(location.query)
                     assert args["channel"] == ["rc"]
                     assert args["platform"] == ["linux/amd64"]
                     assert (args["distribution"][0], args["distribution_version"][0]) in {
@@ -240,26 +249,77 @@ class InstallLauncherTest(unittest.TestCase):
             },
         }
 
-    def launch(self, *flags, pass_ca=True):
+    def launch(self, *flags, pass_ca=True, legacy_rc=True, terminal=False):
         command = 'bash <(curl -fsS --cacert "$1" "$2/dvt/install.sh") "${@:3}"'
         args = [
             "bash", "-c", command, "fixture", str(self.ca), self.origin,
-            "--non-interactive", "--dir", str(self.data), "--project", self.project,
-            "--catalog-origin", self.origin,
-            "--test-rc", "--public-url", "https://dvt.fixture.test", *flags,
+            "--project", self.project, "--catalog-origin", self.origin, *flags,
         ]
+        if not terminal:
+            args.extend(("--non-interactive", "--dir", str(self.data), "--public-url", "https://dvt.fixture.test"))
+        if legacy_rc:
+            args.append("--test-rc")
         if pass_ca:
             args.extend(("--catalog-ca", str(self.ca)))
+        if terminal:
+            args = ["script", "-qec", shlex.join(args), "/dev/null"]
         return subprocess.run(
-            args, capture_output=True, text=True, check=False, timeout=40, start_new_session=True,
+            args, input=f"192.0.2.20\n{self.data}\n" if terminal else None,
+            capture_output=True, text=True, check=False, timeout=40, start_new_session=True,
         )
 
-    def test_verifies_and_passes_the_configuration_then_reuses_identity_and_tls(self):
+    def test_first_launch_asks_for_host_and_directory_and_prints_one_time_link(self):
+        result = self.launch("--channel", "rc", legacy_rc=False, terminal=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DVT host or origin", result.stdout)
+        self.assertIn("Installation directory [/var/lib/dvt]", result.stdout)
+        self.assertIn("Manager: http://192.0.2.20:8888/#pairing=" + "p" * 43, result.stdout)
+        config = json.loads((self.data / ".bootstrap" / "host.json").read_bytes())
+        self.assertEqual(config["address"], "0.0.0.0")
+        self.assertEqual(config["public_url"], "http://192.0.2.20")
+        self.assertNotIn("ssh -", result.stdout)
+
+    def test_explicit_channel_pins_release_and_resume_checks_saved_version(self):
+        result = self.launch("--channel", "rc", legacy_rc=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.queries[0]["channel"], ["rc"])
+        self.assertNotIn("version", self.queries[0])
+        pin = (self.data / ".bootstrap" / "launch-host.conf").read_text().splitlines()[5]
+        self.assertEqual(pin, "1.24.0-rc4 " + self.descriptor("/bootstrap.py")["manifest_digest"])
+        self.received.clear()
+        same = self.launch("--version", "1.24.0-rc4", legacy_rc=False)
+        self.assertEqual(same.returncode, 0, same.stderr)
+        other = self.launch("--version", "1.24.0-rc5", legacy_rc=False)
+        self.assertNotEqual(other.returncode, 0)
+        self.assertIn("different release selection", other.stderr)
+        self.assertEqual(self.received, [])
+
+    def test_exact_version_rejects_substitution_before_fetching_bootstrap(self):
+        wrong = self.launch("--version", "1.24.0-rc8", legacy_rc=False)
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("instead of requested version 1.24.0-rc8", wrong.stderr)
+        self.assertNotIn("/bootstrap.py", self.received)
+        self.assertEqual(self.queries[0]["version"], ["1.24.0-rc8"])
+        self.assertEqual(self.queries[0]["channel"], ["rc"])
+        good = self.launch("--version", "1.24.0-rc4", legacy_rc=False)
+        self.assertEqual(good.returncode, 0, good.stderr)
+
+    def test_default_requests_only_stable_and_conflicts_fail_locally(self):
+        self.failure = "not-ready"
+        result = self.launch(legacy_rc=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("(stable)", result.stderr)
+        self.assertEqual([query["channel"] for query in self.queries], [["stable"]])
+        result = self.launch("--channel", "stable", "--version", "1.24.0-rc8", legacy_rc=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Version and channel disagree", result.stderr)
+        self.assertEqual(len(self.queries), 1)
+
+    def test_verifies_the_configuration_then_reuses_the_same_identity(self):
         fresh = self.launch()
         self.assertEqual(fresh.returncode, 0, fresh.stdout + fresh.stderr)
-        self.assertIn("Approved rc release 1.24.0-rc4", fresh.stdout)
-        self.assertIn("ssh -N -L 127.0.0.1:8888:127.0.0.1:8888", fresh.stdout)
-        self.assertIn("sudo cat --", fresh.stdout)
+        self.assertIn("Manager: http://dvt.fixture.test:8888", fresh.stdout)
+        self.assertNotIn("#pairing=", fresh.stdout)
         control = self.data / ".bootstrap"
         config = json.loads((control / "host.json").read_bytes())
         self.assertEqual(config["manager"], MANAGER)
@@ -269,15 +329,11 @@ class InstallLauncherTest(unittest.TestCase):
         self.assertEqual(policy["trust"], self.descriptor("/bootstrap.py")["catalog"]["trust"])
         self.assertEqual((control / "release-catalog-ca.pem").read_bytes(), self.ca.read_bytes())
         self.assertEqual((self.data / "manager-witness").read_text(), MANAGER)
-        paths = ("host.json", "host_bootstrap.py", "launch-bootstrap.sha256", "ca.pem",
-                 "key.pem", "cert.pem", "current-manager", "host-launch.sh", "launch-host.conf")
+        paths = ("host.json", "host_bootstrap.py", "launch-bootstrap.sha256", "current-manager",
+                 "host-launch.sh", "launch-host.conf", "release-catalog-ca.pem")
         old = {name: (control / name).read_bytes() for name in paths}
-        self.assertEqual((control / "key.pem").stat().st_mode & 0o777, 0o600)
-        self.assertNotEqual(old["ca.pem"], self.ca.read_bytes())
-        subprocess.run([
-            "openssl", "verify", "-CAfile", str(control / "ca.pem"),
-            "-verify_hostname", "localhost", str(control / "cert.pem"),
-        ], check=True, capture_output=True)
+        for name in ("ca.pem", "key.pem", "cert.pem"):
+            self.assertFalse((control / name).exists())
         (self.data / "pending-id").write_text("pending-operation-fixture")
         self.failure = "unavailable"
         self.received.clear()

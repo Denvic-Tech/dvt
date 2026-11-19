@@ -477,6 +477,7 @@ def compare_project(
     *,
     bootstrap_image: str | None = None,
     require_bootstrap_manager: bool = False,
+    http_manager: bool = False,
 ) -> ComposePlan:
     _check_container_names(model["services"], identity.compose_project, docker, deadline)
     target = {
@@ -572,10 +573,10 @@ def compare_project(
             if name == "gateway":
                 injected = frozenset(
                     Mount("bind", source, path, True)
-                    for path, source in operator_binds(identity.data_dir).items()
+                    for path, source in operator_binds(identity.data_dir, http=http_manager).items()
                 )
                 if injected <= current.mounts:
-                    # Ignore only the two protected read-only binds and the manager network.
+                    # Normalize the enrolled bridge's read-only binds and manager network.
                     current = replace(
                         current, mounts=current.mounts - injected,
                         networks=current.networks - (manager.networks - planned.networks),

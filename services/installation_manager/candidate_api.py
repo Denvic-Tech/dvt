@@ -98,7 +98,7 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
             cookie,
             max_age=SESSION_TTL,
             httponly=True,
-            secure=True,
+            secure=auth.secure,
             samesite="strict",
         )
         return {"status": "paired"}

@@ -26,7 +26,7 @@ from .application.maintenance_backup import DRAIN_SECONDS
 from .application.offline_bundles import _configuration
 from .application.online_operations import initial_settings, is_online
 from .application.recovery import Action, last_failure
-from .catalog_api import select_release
+from .catalog_api import initial_release, select_release
 from .domain.operation_state import (
     ArtifactKind,
     OperationConflict,
@@ -51,6 +51,7 @@ class InstallerStatus(BaseModel):
     app_port: int
     installed: bool
     setup_required: bool
+    initial_release_version: str | None = None
     setup_operation_id: UUID | None
     ui_version: str
 
@@ -188,7 +189,9 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
                 operation and operation.request.kind is OperationKind.INSTALL
                 and operation.stage is OperationStage.SUCCEEDED and not completed(operation_id)
             )
+        pin = initial_release(config) if applied is None else None
         return InstallerStatus(
+            initial_release_version=pin.version if pin else None,
             app_origin=origin, app_port=parsed.port or (443 if parsed.scheme == "https" else 80),
             installed=applied is not None and operation is not None and operation.stage.terminal,
             setup_required=requires_setup,

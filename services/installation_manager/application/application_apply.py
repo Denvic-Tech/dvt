@@ -49,7 +49,6 @@ from ..infrastructure.application_host import (
 )
 from ..infrastructure.maintenance_archive import verify_copy
 from ..infrastructure.maintenance_database import confirm_return_to_source_sql, frozen_sql
-from ..infrastructure.operator_wiring import wire_gateway
 from ..infrastructure.maintenance_host import PG_TARGET, ComposeMaintenanceHost
 from ..infrastructure.offline_host import (
     EXTENSION_ROLES,
@@ -59,6 +58,7 @@ from ..infrastructure.offline_host import (
     offline_ready,
 )
 from ..infrastructure.operation_store import FORMAT_VERSION, OperationStore
+from ..infrastructure.operator_wiring import wire_gateway
 from ..infrastructure.release_verification import MAX_MANIFEST_BYTES, TrustPolicy, verify_file
 from ..infrastructure.staging_artifacts import (
     artifact_directory,
@@ -329,6 +329,7 @@ class ApplicationApply:
                 None,
                 deadline,
                 bootstrap_image=plan["observed_images"].get("installation_manager"),
+                http_manager=self.config.get("manager_http") is True,
             )
             if (
                 observed.image_references != plan["services"]
@@ -723,7 +724,7 @@ class ApplicationApply:
                 existing_compose = read_artifact(host.path, 8 * COMPOSE_LIMIT)
                 if existing_compose is None or b"DVT_OPERATOR_MANAGER_ORIGIN" in existing_compose:
                     bridge_ca = Path(self.config["data"]) / CONTROL / "ca.pem"
-                    if bridge_ca.is_file():
+                    if self.config.get("manager_http") is True or bridge_ca.is_file():
                         wire_gateway(full["services"], self.config)
                 compose_bytes = canonical_json(_compose_literal(full))
                 env_bytes = _dotenv(env)

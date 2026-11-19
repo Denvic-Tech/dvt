@@ -333,6 +333,7 @@ def _prepare(
     try:
         staged = VerifiedStaging(
             store, trust, LocalOnly(), local, paths, _preparer_version(),
+            http_manager=config.get("manager_http") is True,
         ).prepare(
             operation.id, "", observed=observed, applied=observed.pin if observed else None,
             bootstrap_image=manager.decode().strip() if manager is not None else None,

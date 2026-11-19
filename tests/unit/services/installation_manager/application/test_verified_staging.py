@@ -496,17 +496,18 @@ def test_an_older_signed_release_requires_recovery_before_pulling(setup):
 
 
 @pytest.mark.parametrize("foreign_readonly_bind", [False, True])
+@pytest.mark.parametrize("http_manager", [False, True])
 def test_bridge_files_do_not_become_persistent_storage_budgets(
-    setup, tmp_path, monkeypatch, foreign_readonly_bind,
+    setup, tmp_path, monkeypatch, foreign_readonly_bind, http_manager,
 ):
     service, _, _, _ = setup
     identity = service.store.identity()
-    bridge_binds = operator_binds(str(tmp_path))
+    bridge_binds = operator_binds(str(tmp_path), http=http_manager)
     for source in bridge_binds.values():
         credential = Path(source)
         credential.parent.mkdir(exist_ok=True)
         credential.write_text("test-only fixture")
-    monkeypatch.setattr(staging_compose, "operator_binds", lambda _data: bridge_binds)
+    monkeypatch.setattr(staging_compose, "operator_binds", lambda _data, *, http: operator_binds(str(tmp_path), http=http))
 
     env = {
         "DVT_LIB_DIR": identity.data_dir,
@@ -535,10 +536,10 @@ def test_bridge_files_do_not_become_persistent_storage_budgets(
     )
     if foreign_readonly_bind:
         with pytest.raises(StagingError, match="Candidate changes data mounts"):
-            staging_compose.compare_project(model, identity, env, service.docker, observed, None)
+            staging_compose.compare_project(model, identity, env, service.docker, observed, None, http_manager=http_manager)
         return
 
-    plan = staging_compose.compare_project(model, identity, env, service.docker, observed, None)
+    plan = staging_compose.compare_project(model, identity, env, service.docker, observed, None, http_manager=http_manager)
     # Map the mock runtime's database directories to genuine directories. The injected mounts
     # already point to real files, so an erroneous inclusion must fail the directory check.
     working_paths = {}

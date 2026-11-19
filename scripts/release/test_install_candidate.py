@@ -163,8 +163,15 @@ def run_outer(args) -> None:
             # docker cp works against local and remote host daemons without host filesystem mounts.
             inputs = context / "input"
             inputs.mkdir()
+            # The POSIX entrypoint normally persists this shell program beside bootstrap.py.
+            launcher = (Path(__file__).resolve().parents[2] / "install.sh").read_text("utf-8")
+            start = "runtime=$(cat <<'ROOT_SH'\n"
+            _, found, rest = launcher.partition(start)
+            shim, end, _ = rest.partition("\nROOT_SH\n)")
+            require(bool(found and end and shim.strip()), "Missing managed host launcher")
             for filename, data in {
                 **files,
+                "host-launch.sh": shim.encode("utf-8"),
                 "manifest.json": content,
                 "trust.json": args.trust.read_bytes(),
                 "test_install_candidate.py": Path(__file__).read_bytes(),
@@ -252,6 +259,7 @@ def finish_setup(product, setup_status: dict, email: str, password: str) -> None
 def controller(pipeline_id: str, progress: dict[str, str]) -> None:
     """Runs inside the unique daemon container; all Docker calls target its Unix socket."""
     import runpy
+    import socket
     from types import SimpleNamespace
 
     import httpx
@@ -317,12 +325,20 @@ def controller(pipeline_id: str, progress: dict[str, str]) -> None:
         atomic_write(auth_dir / "config.json", auth_file.read_bytes())
     docker("pull", "--platform", "linux/amd64", manager, timeout=600)
     bootstrap = runpy.run_path(str(inputs / "bootstrap.py"), run_name="packaged_bootstrap")
-    tls_dir = Path("/case/tls")
-    tls_dir.mkdir(mode=0o700)
-    tls = bootstrap["managed_tls"](tls_dir)
-    for key, value in tls.items():
-        atomic_write(tls_dir / f"{key}.pem", value)
+    # Supply the verified inputs normally passed by install.sh. Until publication the
+    # exact candidate is staged locally, and does not need a live public catalog.
+    project = "dvt-install-candidate"
+    port = 8888
+    public_host = socket.gethostbyname(socket.gethostname())
     data = Path("/case/data")
+    root = docker("info", "--format", "{{.DockerRootDir}}").stdout.strip()
+    host_record = f"{project}\n{manager}\n{root}\n\n{port}\n{release.version} {pin.manifest_digest}\n"
+    atomic_write(inputs / "launch-host.conf", host_record.encode("ascii"))
+    catalog_file = inputs / "catalog.json"
+    atomic_write(catalog_file, json.dumps({
+        "origin": "https://catalog.invalid",
+        "trust": strict_json((inputs / "trust.json").read_bytes()),
+    }).encode("utf-8"))
     # The daemon container is the actual disposable installation host. Bootstrap's
     # contained entry uses its OS release and its own backing store and Unix socket.
     Path("/run/dvt-host-os").write_bytes(Path("/etc/os-release").read_bytes())
@@ -330,30 +346,38 @@ def controller(pipeline_id: str, progress: dict[str, str]) -> None:
     bootstrap["bootstrap_with_lock"](
         SimpleNamespace(
             dir=str(data),
-            project="dvt-install-candidate",
-            port=8888,
-            public_url="http://localhost:8080",
+            project=project,
+            port=port,
+            public_url=f"http://{public_host}:8080",
             manager=manager,
-            candidate=manager,
-            executor=manager,
-            cert=str(tls_dir / "cert.pem"),
-            key=str(tls_dir / "key.pem"),
-            ca=str(tls_dir / "ca.pem"),
+            candidate=None,
+            executor=None,
+            cert=None,
+            key=None,
+            ca=None,
             containerd_root=None,
             temporary=None,
             backup=None,
             non_interactive=True,
-            release_catalog_config=None,
+            release_catalog_config=str(catalog_file),
             release_catalog_ca=None,
             new_pairing_token=False,
             local_images=True,
             quiet=True,
-            managed=False,
+            managed=True,
             contained=True,
         )
     )
     config = load_host(data)
     control = data / CONTROL
+    require(
+        config.get("manager_http") is True and config["address"] == "0.0.0.0",
+        "Candidate manager did not enable direct HTTP access",
+    )
+    require(
+        not any((control / name).exists() for name in ("cert.pem", "key.pem", "ca.pem")),
+        "HTTP bootstrap unexpectedly created manager certificates",
+    )
     atomic_write(control / "release-trust.json", (inputs / "trust.json").read_bytes())
     cli_auth = control / "docker"
     cli_auth.mkdir(mode=0o700)
@@ -393,6 +417,7 @@ def controller(pipeline_id: str, progress: dict[str, str]) -> None:
             Path(config["temporary"]), Path(config["backup"]), os_release=Path("/etc/os-release")
         ),
         _preparer_version(),
+        http_manager=True,
     ).prepare(operation.id, "", bootstrap_image=manager)
     # Ordinary detached executor applies the staged, signed full Compose and real migrator.
     progress["phase"] = "application"
@@ -447,7 +472,8 @@ def controller(pipeline_id: str, progress: dict[str, str]) -> None:
     # Real HTTP boundary through the packaged proxy, including protected setup exchange.
     auth = CandidateAuth(config)
     progress["phase"] = "setup_pairing"
-    with httpx.Client(verify=auth.probe_tls(), trust_env=False, timeout=15) as manager_http:
+    require(auth.origin == f"http://{public_host}:{port}", "Unexpected manager origin")
+    with httpx.Client(trust_env=False, timeout=15) as manager_http:
         manager_http.headers["Authorization"] = f"Bearer {auth.machine}"
         response = manager_http.post(
             f"{auth.origin}/api/operator/setup/{operation.id}/pairing",
