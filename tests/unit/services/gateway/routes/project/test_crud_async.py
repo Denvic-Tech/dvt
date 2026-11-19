@@ -937,6 +937,36 @@ async def test_update_and_delete_project(
 
 
 @pytest.mark.asyncio
+async def test_project_shuffle_method_accepts_only_known_methods_and_can_be_reset(
+        gateway_client,
+        router_prefix,
+        test_user_project,
+):
+    project_url = f"{router_prefix}/projects/{test_user_project.id}"
+
+    set_resp = await gateway_client.patch(project_url, json={"shuffle_method": "tasks"})
+    assert set_resp.status_code == 200, set_resp.json()
+    assert (await gateway_client.get(project_url)).json()["shuffle_method"] == "tasks"
+
+    for invalid in ("p2p", "TASKS", ""):
+        invalid_resp = await gateway_client.patch(project_url, json={"shuffle_method": invalid})
+        assert invalid_resp.status_code == 422, invalid_resp.json()
+        assert invalid_resp.json()["detail"][0]["loc"][-1] == "shuffle_method"
+    assert (await gateway_client.get(project_url)).json()["shuffle_method"] == "tasks"
+
+    # null returns the project to the installation default.
+    reset_resp = await gateway_client.patch(project_url, json={"shuffle_method": None})
+    assert reset_resp.status_code == 200, reset_resp.json()
+    assert (await gateway_client.get(project_url)).json()["shuffle_method"] is None
+
+    create_resp = await gateway_client.post(
+        f"{router_prefix}/projects",
+        json={"name": "Invalid shuffle method", "shuffle_method": "p2p"},
+    )
+    assert create_resp.status_code == 422, create_resp.json()
+
+
+@pytest.mark.asyncio
 async def test_admin_can_move_project_into_other_users_folder_in_same_organization(
         gateway_client,
         router_prefix,

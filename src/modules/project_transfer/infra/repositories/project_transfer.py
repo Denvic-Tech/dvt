@@ -55,6 +55,7 @@ def _project_to_source(project: ProjectRecord) -> SourceProject:
             store_enabled=project.store_enabled,
             ttl_time=project.ttl_time,
             workers_count=project.workers_count,
+            shuffle_method=project.shuffle_method,
         ),
         variables=dict(project.variables) if project.variables else None,
     )
@@ -288,6 +289,7 @@ class SQLProjectTransferWriteRepository(ProjectTransferWriteRepository):
             store_enabled=meta.store_enabled,
             ttl_time=meta.ttl_time,
             workers_count=meta.workers_count,
+            shuffle_method=meta.shuffle_method,
             variables=variables,
             created_at=now,
             updated_at=now,
