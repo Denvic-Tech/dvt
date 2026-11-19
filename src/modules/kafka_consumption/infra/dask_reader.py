@@ -6,6 +6,8 @@ from threading import RLock
 import dask
 import dask.dataframe as dd
 
+from core.dask_lifecycle import OutputLifecycleHandlers, attach_lifecycle
+
 from ..domain.entities import ReadSummary
 from ..domain.exceptions import KafkaInputError
 from ..domain.value_objects import PartitionPosition, ReadCursor
@@ -52,14 +54,6 @@ def _frame(result, reader, number):
         # Only original output IDs count; cursor-only dependencies cannot publish.
         reader.finish()
     return result[0]
-
-
-def _finish(_meta, _operation_id, *, reader, **_):
-    reader.finish()
-
-
-def _fail(_meta, _operation_id, _exc, *, reader, **_):
-    reader.invalidate()
 
 
 class KafkaDaskReader:
@@ -184,13 +178,7 @@ class KafkaDaskReader:
             frames.append(dask.delayed(_frame, pure=True)(result, self, number))
         with dask.config.set({"dataframe.convert-string": False}):
             frame = dd.from_delayed(frames, meta=meta)
-        return frame.add_callbacks(
-            on_end=_finish,
-            on_error=_fail,
-            metadata={"reader": self},
-            metadata_token=self.plan.read_id,
-            operation_id=f"kafka-{self.plan.read_id}",
-            copy_meta_mode="none",
-            copy_partition_mode="none",
-            partition_dispatch_mode="sync",
+        return attach_lifecycle(
+            frame,
+            OutputLifecycleHandlers(on_end=self.finish, on_error=self.invalidate),
         )

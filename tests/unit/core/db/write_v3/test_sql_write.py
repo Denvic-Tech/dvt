@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects import mssql
 from sqlalchemy.exc import IntegrityError
 
+from core.dask_lifecycle import OutputLifecycleHandlers, attach_lifecycle
 from core.db.write_v3 import (
     ExtraColumnsMode,
     MissingColumnsMode,
@@ -262,19 +263,19 @@ def test_write_v3_sqlite_append_supports_upstream_operation_callbacks(tmp_path) 
     )
     callback_events = {"start": 0, "end": 0}
 
-    def on_start(_meta, operation_id: str) -> None:
-        assert operation_id == "write_v3_append_source"
+    def on_start() -> None:
         callback_events["start"] += 1
 
-    def on_end(_meta, operation_id: str) -> None:
-        assert operation_id == "write_v3_append_source"
+    def on_end() -> None:
         callback_events["end"] += 1
 
-    ddf = source.add_callbacks(
-        on_start=on_start,
-        on_end=on_end,
-        on_partition=lambda *_args, **_kwargs: None,
-        operation_id="write_v3_append_source",
+    ddf = attach_lifecycle(
+        source,
+        OutputLifecycleHandlers(
+            on_start=on_start,
+            on_end=on_end,
+            on_partition=lambda _partition, _part_no: None,
+        ),
     )
 
     request = WriteRequest(

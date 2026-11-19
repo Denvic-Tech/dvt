@@ -4,6 +4,7 @@ from dask import dataframe as dd
 from dask import delayed
 import pandas as pd
 
+from core.dask_lifecycle import delayed_partitions
 from src.node_dsl.node_typing import IO
 from src.node_dsl import DFOutputBaseNode, InputField, OutputField
 from src.node_dsl.hooks import on_validation
@@ -147,9 +148,9 @@ class DataFrameGroupByAgg(DFOutputBaseNode):
         if agg_func == "nunique":
             return series.nunique()
         if agg_func == "first":
-            return delayed(DataFrameGroupByAgg._first_from_series_partitions)(series.to_delayed())
+            return delayed(DataFrameGroupByAgg._first_from_series_partitions)(delayed_partitions(series))
         if agg_func == "last":
-            return delayed(DataFrameGroupByAgg._last_from_series_partitions)(series.to_delayed())
+            return delayed(DataFrameGroupByAgg._last_from_series_partitions)(delayed_partitions(series))
         return getattr(series, agg_func)()
 
     @staticmethod

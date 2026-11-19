@@ -84,7 +84,7 @@ def _merge_checksums(parts: list[dict[str, Any]], sorted_by: str | None) -> dict
 
 
 def compute_kwargs(num_workers: int) -> dict[str, Any]:
-    # The DVT dask fork allows public operation callbacks only with local schedulers.
+    # DVT node lifecycle taps (core.dask_lifecycle) work only with local schedulers.
     if num_workers <= 1:
         return {"scheduler": "sync"}
     return {"scheduler": "threads", "num_workers": num_workers}

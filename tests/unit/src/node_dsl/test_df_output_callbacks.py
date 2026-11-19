@@ -1,5 +1,6 @@
 import threading
 
+import dask
 import dask.dataframe as dd
 import pandas as pd
 import pytest
@@ -249,6 +250,107 @@ async def test_df_output_execution_snapshot_rejects_missing_partition() -> None:
     assert restored is None
 
 
+class _SortCallbacksTestNode(DFOutputBaseNode):
+    df_in: dd.DataFrame = InputField()
+    output: dd.DataFrame = OutputField()
+
+    def process(self) -> None:
+        self.output = self.df_in.sort_values("value")
+
+
+def _counting(events: dict[str, int], name: str):
+    def _handler(**_kwargs) -> None:
+        events[name] += 1
+
+    return _handler
+
+
+@pytest.mark.asyncio
+async def test_df_output_callbacks_for_sorted_output() -> None:
+    """Graph building of a sort runs a nested Dask computation (quantiles) at execute time."""
+    data_store = _build_data_store()
+    events = {"started": 0, "finished": 0, "progress_calls": 0}
+    values = [7, 3, 9, 1, 8, 2, 6, 4, 5, 0, 11, 10]
+
+    node = _SortCallbacksTestNode(
+        user_id="user",
+        project_id="project-sort",
+        task_id="task",
+        node_id="node",
+        df_in=dd.from_pandas(pd.DataFrame({"value": values}), npartitions=3),
+        data_store=data_store,
+        data_index_store=_build_data_index_store(),
+        store_enabled=True,
+        on_process_start=_counting(events, "started"),
+        on_process_success=_counting(events, "finished"),
+        on_progress_step=_counting(events, "progress_calls"),
+    )
+
+    await node.execute(PipelineExecutionMode.FULL)
+    assert events == {"started": 0, "finished": 0, "progress_calls": 0}
+
+    result = node.output.compute(scheduler="threads")
+    assert result["value"].tolist() == sorted(values)
+    npartitions = node.output.npartitions
+
+    assert events == {"started": 1, "finished": 1, "progress_calls": npartitions}
+    await node.cache_execution_snapshot(
+        outputs=node.get_outputs(), metadata=await node.resolve_metadata()
+    )
+    manifest = await _get_manifest(data_store, project_id=node.project_id, node_id="node")
+    assert [entry.part_no for entry in manifest.partitions] == list(range(npartitions))
+    cached = [await data_store.get(entry.cache_key) for entry in manifest.partitions]
+    assert pd.concat(cached)["value"].tolist() == sorted(values)
+
+
+class _GroupByCallbacksTestNode(DFOutputBaseNode):
+    df_in: dd.DataFrame = InputField()
+    output: dd.DataFrame = OutputField()
+
+    def process(self) -> None:
+        self.output = self.df_in.groupby("key").value.sum().to_frame()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tune", [False, True])
+async def test_df_output_cache_keeps_declared_partitions_of_a_groupby(tune: bool) -> None:
+    """Dask's ``tune`` stage would re-plan this aggregation at compute time; the dataframe cache
+    commits only when the output produces the partition count declared at execute time."""
+    data_store = _build_data_store()
+    events = {"started": 0, "finished": 0, "progress_calls": 0}
+    pdf = pd.DataFrame({"key": [i % 7 for i in range(2000)], "value": range(2000)})
+
+    with dask.config.set({"optimization.tune.active": tune}):
+        node = _GroupByCallbacksTestNode(
+            user_id="user",
+            project_id=f"project-groupby-tune-{tune}",
+            task_id="task",
+            node_id="node",
+            df_in=dd.from_pandas(pdf, npartitions=200),
+            data_store=data_store,
+            data_index_store=_build_data_index_store(),
+            store_enabled=True,
+            on_process_start=_counting(events, "started"),
+            on_process_success=_counting(events, "finished"),
+            on_progress_step=_counting(events, "progress_calls"),
+        )
+        await node.execute(PipelineExecutionMode.FULL)
+        result = node.output.compute(scheduler="threads")
+
+    expected = pdf.groupby("key").value.sum().to_frame()
+    pd.testing.assert_frame_equal(result.sort_index(), expected)
+    assert node.output.npartitions == 1
+    assert events == {"started": 1, "finished": 1, "progress_calls": 1}
+    await node.cache_execution_snapshot(
+        outputs=node.get_outputs(), metadata=await node.resolve_metadata()
+    )
+    manifest = await _get_manifest(data_store, project_id=node.project_id, node_id="node")
+    assert manifest.npartitions == 1
+    assert [entry.part_no for entry in manifest.partitions] == [0]
+    cached = [await data_store.get(entry.cache_key) for entry in manifest.partitions]
+    pd.testing.assert_frame_equal(pd.concat(cached).sort_index(), expected)
+
+
 def test_on_operation_partition_delegates_to_bounded_writer() -> None:
     progress_calls = {"count": 0}
     submitted: list[tuple[pd.DataFrame, int]] = []
@@ -268,9 +370,8 @@ def test_on_operation_partition_delegates_to_bounded_writer() -> None:
 
     df_output_module._on_operation_partition(
         pd.DataFrame({"value": [1, 2]}),
-        "operation-id",
+        3,
         partition_context=context,
-        partition_info={"number": 3},
     )
 
     assert progress_calls["count"] == 1

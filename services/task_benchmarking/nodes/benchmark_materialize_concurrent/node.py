@@ -1,13 +1,8 @@
 import asyncio
-from contextlib import nullcontext
 from typing import Any, ClassVar, Literal
 
 import dask
 import dask.dataframe as dd
-from dask.dataframe.dask_expr._operation_callbacks import (
-    PublicOperationCallbacks,
-    collect_operation_callbacks_specs,
-)
 
 from services.task_benchmarking.metrics import record_metric
 from services.task_benchmarking.nodes.benchmark_materialize.node import (
@@ -49,16 +44,7 @@ class BenchmarkMaterializeConcurrent(SignalOutputBaseNode):
     def _materialize(self) -> dict[str, Any]:
         lazy_a = lazy_result(self.df, self.mode, self.sorted_by)
         lazy_b = lazy_result(self.df_b, self.mode, self.sorted_by_b)
-        # FrameBase.compute() activates the DVT fork's operation callbacks; dask.compute() over
-        # several collections does not, so activate the callbacks of both inputs explicitly.
-        specs = collect_operation_callbacks_specs(lazy_a.expr) + collect_operation_callbacks_specs(
-            lazy_b.expr
-        )
-        callbacks = PublicOperationCallbacks(specs) if specs else nullcontext()
-        with callbacks:
-            computed_a, computed_b = dask.compute(
-                lazy_a, lazy_b, **compute_kwargs(self.num_workers)
-            )
+        computed_a, computed_b = dask.compute(lazy_a, lazy_b, **compute_kwargs(self.num_workers))
         result_a = finish_result(self.mode, self.sorted_by, computed_a)
         result_b = finish_result(self.mode, self.sorted_by_b, computed_b)
         result: dict[str, Any] = {"rows": result_a["rows"] + result_b["rows"]}

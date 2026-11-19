@@ -64,7 +64,8 @@ Input scenarios are stored in `services/task_benchmarking/pipelines/`:
     to branch A (`sort_a` by `str_high` → `period` → `sink_a`) and branch B (`unpivot` of
     `float_a`/`float_b`/`amount` → `group_b` by `variable` → `sink_b`). Branch A sorts before
     `period` because `DataFrameJoin` → `DataFrameSelectColumns` → `DataFrameConvertToPeriodStart` →
-    `DataFrameSortValues` hangs in the sink compute (DVT dask operation callbacks wait forever). `--outputs sink_a sink_b`
+    `DataFrameSortValues` hung in the sink compute on the former `dvt-dask` fork (its operation
+    callbacks waited forever); the order is kept so results stay comparable. `--outputs sink_a sink_b`
     computes the upstream once per sink; `--outputs sink_ab` computes both branches in one
     `dask.compute` (shared upstream once); `--outputs materialize_u` computes the upstream alone;
     `--outputs store_write` computes it and writes the barrier store;
@@ -168,8 +169,7 @@ Run artifacts are written to `tmp/task_benchmarking/runs/<run_id>/`.
 - `BenchmarkMaterializeConcurrent` is an output node with two DataFrame inputs, `df` and `df_b`,
   computed in one `dask.compute` call on one thread pool, so the branches run concurrently and an
   upstream they share is computed once. Inputs `num_workers`, `mode` (`count_rows` or
-  `checksum`), `sorted_by` (for `df`) and `sorted_by_b`. It activates the DVT dask operation
-  callbacks of both inputs, as `DataFrame.compute()` does for one. Records `rows` (sum of both),
+  `checksum`), `sorted_by` (for `df`) and `sorted_by_b`. Records `rows` (sum of both),
   every `BenchmarkMaterialize` metric of each input with the suffix `_a` or `_b` (`rows_a`,
   `checksum_b`, ...), `mode` and `num_workers`.
 - `BenchmarkStoreWrite` is an output node that emulates a stage barrier: it computes `df` and

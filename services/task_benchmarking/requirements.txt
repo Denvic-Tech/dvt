@@ -34,7 +34,7 @@ msgpack==1.1.2
 
 pandas==3.0.0
 pyarrow==25.0.1
-dvt-dask[complete]==2026.3.11
+dask[dataframe]==2026.8.0
 
 
 smbprotocol==1.16.1

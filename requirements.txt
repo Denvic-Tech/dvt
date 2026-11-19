@@ -42,7 +42,7 @@ packaging==25.0
 msgpack==1.1.2
 
 pandas==3.0.0
-dvt-dask[complete]==2026.3.11
+dask[dataframe]==2026.8.0
 
 kafka-python==2.2.15
 aiokafka==0.12.0

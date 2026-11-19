@@ -10,11 +10,8 @@ import dask.dataframe as dd
 import pandas as pd
 import pyarrow.parquet as pq
 
-from core.parquet.write.dask import (
-    compute_with_dataframe_callbacks,
-    find_source_paths,
-    flatten_delayed_partitions,
-)
+from core.dask_lifecycle import delayed_partitions
+from core.parquet.write.dask import compute_once, find_source_paths
 from core.parquet.write.filesystem import ParquetFilesystem
 from core.parquet.write.models import (
     ParquetLayout,
@@ -144,15 +141,13 @@ def _write_simple(
         # Dask computation still guarantees shared-upstream reuse, while the synchronous local
         # scheduler keeps only the currently-needed partition live.
         chain = dask.delayed(lambda: 0, pure=False)()
-        for delayed_part in flatten_delayed_partitions(ddf):
+        for delayed_part in delayed_partitions(ddf):
             chain = dask.delayed(_append_simple_partition, pure=False)(
                 chain,
                 delayed_part,
                 session,
             )
-        rows_written = int(
-            compute_with_dataframe_callbacks(ddf, chain, max_workers=1)[0]
-        )
+        rows_written = int(compute_once(chain, max_workers=1)[0])
     except Exception:
         if writer is not None:
             with contextlib.suppress(Exception):
@@ -228,15 +223,11 @@ def _write_advanced(
             request.write_index,
             compression,
         )
-        for partition_index, delayed_part in enumerate(flatten_delayed_partitions(ddf))
+        for partition_index, delayed_part in enumerate(delayed_partitions(ddf))
     ]
 
     try:
-        results = (
-            compute_with_dataframe_callbacks(ddf, *tasks, max_workers=workers)
-            if tasks
-            else ()
-        )
+        results = compute_once(*tasks, max_workers=workers) if tasks else ()
         created_paths = [path for result in results for path in result.paths]
         rows_written = sum(result.rows for result in results)
 

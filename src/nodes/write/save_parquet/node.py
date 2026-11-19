@@ -13,6 +13,7 @@ from dask import dataframe as dd
 from dask.dataframe.io.parquet.core import get_engine
 from loguru import logger
 
+from core.dask_lifecycle import delayed_partitions
 from core.parquet.write import ParquetWriteRequest, write_dataframe
 
 from src.node_dsl import BaseNode, InputField
@@ -317,7 +318,7 @@ class SaveParquet(FileConnectionInputMixin, BaseNode):
             raise ValueError("Input 'row_cap' must be >= 1.")
 
         partition_lengths = ddf.map_partitions(len).compute()
-        delayed_parts = list(ddf.to_delayed())
+        delayed_parts = delayed_partitions(ddf)
         delayed_chunks = []
         expected_dtypes = dict(ddf._meta.dtypes.items())
         for delayed_part, partition_length in zip(delayed_parts, partition_lengths, strict=True):

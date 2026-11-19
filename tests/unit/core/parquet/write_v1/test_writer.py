@@ -11,9 +11,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from dask.dataframe.dask_expr._collection import _collect_public_operation_callbacks_specs
-from dask.dataframe.dask_expr._operation_callbacks import PublicOperationCallbacks
 
+from core.dask_lifecycle import OutputLifecycleHandlers, attach_lifecycle
 from core.parquet.write import ParquetLayout, ParquetWriteRequest, write_dataframe
 from core.parquet.write.filesystem import ParquetFilesystem
 from core.parquet.write.naming import FilenameTemplate
@@ -27,10 +26,7 @@ from core.types import FsCtx
 from src.node_dsl.base_node.df_output import (
     DDFPartitionCallbackContext,
     _NodeCallbacksCoordinator,
-    _on_operation_end,
-    _on_operation_error,
-    _on_operation_partition,
-    _on_operation_start,
+    _output_lifecycle_handlers,
 )
 
 
@@ -201,63 +197,76 @@ def test_shared_upstream_dependency_executes_exactly_once(write_request):
     assert calls == [1]
 
 
-@pytest.mark.parametrize("layout", [ParquetLayout.SIMPLE, ParquetLayout.ADVANCED])
-def test_writer_activates_dataframe_operation_callbacks_once(layout):
-    fs = _memory_fs()
-    events = {"start": 0, "end": 0, "error": 0, "partitions": []}
-    lock = threading.Lock()
+class _LifecycleEvents:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.counts = {"start": 0, "end": 0, "error": 0}
+        self.partitions: list[int | None] = []
 
-    def on_start(_meta, operation_id):
-        assert operation_id == "save_parquet_test"
-        with lock:
-            events["start"] += 1
+    def _bump(self, name: str):
+        def handler() -> None:
+            with self.lock:
+                self.counts[name] += 1
 
-    def on_end(_meta, operation_id):
-        assert operation_id == "save_parquet_test"
-        with lock:
-            events["end"] += 1
+        return handler
 
-    def on_error(_meta, operation_id, _exc):
-        assert operation_id == "save_parquet_test"
-        with lock:
-            events["error"] += 1
+    def _partition(self, _pdf, part_no: int | None) -> None:
+        with self.lock:
+            self.partitions.append(part_no)
 
-    def on_partition(_pdf, operation_id, partition_info=None):
-        assert operation_id == "save_parquet_test"
-        with lock:
-            events["partitions"].append(partition_info["number"])
+    def handlers(self) -> OutputLifecycleHandlers:
+        return OutputLifecycleHandlers(
+            on_start=self._bump("start"),
+            on_end=self._bump("end"),
+            on_error=self._bump("error"),
+            on_partition=self._partition,
+        )
 
-    ddf = dd.from_pandas(
-        pd.DataFrame({"value": [1, 2, 3, 4]}),
-        npartitions=2,
-    ).add_callbacks(
-        on_start=on_start,
-        on_end=on_end,
-        on_error=on_error,
-        on_partition=on_partition,
-        operation_id="save_parquet_test",
-    )
-    path = "callbacks.parquet" if layout is ParquetLayout.SIMPLE else "callbacks"
-    request = ParquetWriteRequest(
-        path=path,
+
+class _CountingPassThrough:
+    def __init__(self) -> None:
+        self.runs = 0
+        self._lock = threading.Lock()
+        self._token = uuid.uuid4().hex
+
+    def __call__(self, pdf: pd.DataFrame) -> pd.DataFrame:
+        with self._lock:
+            self.runs += 1
+        return pdf
+
+    def __dask_tokenize__(self) -> tuple[str, str]:
+        return (type(self).__name__, self._token)
+
+
+def _layout_request(layout: ParquetLayout, name: str) -> ParquetWriteRequest:
+    return ParquetWriteRequest(
+        path=f"{name}.parquet" if layout is ParquetLayout.SIMPLE else name,
         mode="create",
         filename_template=None if layout is ParquetLayout.SIMPLE else "<increment>.parquet",
         write_workers=2,
     )
 
-    write_dataframe(ddf, _memory_ctx(fs, path), request)
 
-    assert events["start"] == 1
-    assert events["end"] == 1
-    assert events["error"] == 0
-    assert sorted(events["partitions"]) == [0, 1]
-    assert len(events["partitions"]) == len(set(events["partitions"]))
+@pytest.mark.parametrize("layout", [ParquetLayout.SIMPLE, ParquetLayout.ADVANCED])
+def test_writer_reports_upstream_lifecycle_once(layout):
+    fs = _memory_fs()
+    events = _LifecycleEvents()
+    ddf = attach_lifecycle(
+        dd.from_pandas(pd.DataFrame({"value": [1, 2, 3, 4]}), npartitions=2),
+        events.handlers(),
+    )
+    request = _layout_request(layout, "callbacks")
+
+    write_dataframe(ddf, _memory_ctx(fs, request.path), request)
+
+    assert events.counts == {"start": 1, "end": 1, "error": 0}
+    assert sorted(events.partitions) == [0, 1]
 
 
 @pytest.mark.parametrize("layout", [ParquetLayout.SIMPLE, ParquetLayout.ADVANCED])
 def test_writer_propagates_upstream_error_and_emits_error_lifecycle(layout):
     fs = _memory_fs()
-    events = {"start": 0, "end": 0, "error": 0, "partitions": []}
+    events = _LifecycleEvents()
 
     def fail_on_second_partition(pdf, partition_info=None):
         if partition_info["number"] == 1:
@@ -266,55 +275,36 @@ def test_writer_propagates_upstream_error_and_emits_error_lifecycle(layout):
 
     base = dd.from_pandas(pd.DataFrame({"value": [1, 2, 3, 4]}), npartitions=2)
     failed = base.map_partitions(fail_on_second_partition, meta=base._meta)
-    ddf = failed.add_callbacks(
-        on_start=lambda *_args, **_kwargs: events.__setitem__("start", events["start"] + 1),
-        on_end=lambda *_args, **_kwargs: events.__setitem__("end", events["end"] + 1),
-        on_error=lambda *_args, **_kwargs: events.__setitem__("error", events["error"] + 1),
-        on_partition=lambda _pdf, _op, partition_info=None, **_kwargs: events["partitions"].append(
-            partition_info["number"]
-        ),
-        operation_id="save_parquet_failure_test",
-    )
-    path = "failed.parquet" if layout is ParquetLayout.SIMPLE else "failed"
-    request = ParquetWriteRequest(
-        path=path,
-        mode="create",
-        filename_template=None if layout is ParquetLayout.SIMPLE else "<increment>.parquet",
-        write_workers=2,
-    )
+    ddf = attach_lifecycle(failed, events.handlers())
+    request = _layout_request(layout, "failed")
 
     with pytest.raises(RuntimeError, match="boom"):
-        write_dataframe(ddf, _memory_ctx(fs, path), request)
+        write_dataframe(ddf, _memory_ctx(fs, request.path), request)
 
-    assert events["start"] == 1
-    assert events["error"] == 1
-    assert events["end"] == 0
-    assert len(events["partitions"]) == len(set(events["partitions"]))
-    assert _files(fs, f"/bucket/{path}") == []
+    assert events.counts == {"start": 1, "end": 0, "error": 1}
+    assert len(events.partitions) == len(set(events.partitions))
+    assert _files(fs, f"/bucket/{request.path}") == []
 
 
-def test_writer_does_not_duplicate_callbacks_inside_existing_public_callback_context():
+@pytest.mark.parametrize("layout", [ParquetLayout.SIMPLE, ParquetLayout.ADVANCED])
+def test_writer_reports_upstream_lifecycle_once_across_several_dask_runs(layout):
+    """Writing a sort runs the attached upstream output twice (quantile pass, then the write)."""
     fs = _memory_fs()
-    events = {"start": 0, "end": 0, "partitions": []}
-    ddf = dd.from_pandas(pd.DataFrame({"value": [1, 2, 3, 4]}), npartitions=2).add_callbacks(
-        on_start=lambda *_args, **_kwargs: events.__setitem__("start", events["start"] + 1),
-        on_end=lambda *_args, **_kwargs: events.__setitem__("end", events["end"] + 1),
-        on_partition=lambda _pdf, _op, partition_info=None, **_kwargs: events["partitions"].append(
-            partition_info["number"]
-        ),
-        operation_id="save_parquet_nested_test",
+    events = _LifecycleEvents()
+    count_run = _CountingPassThrough()
+    base = dd.from_pandas(pd.DataFrame({"value": [4, 1, 3, 2, 6, 5]}), npartitions=2)
+    upstream = attach_lifecycle(
+        base.map_partitions(count_run, meta=base._meta), events.handlers()
     )
+    request = _layout_request(layout, "sorted")
 
-    with PublicOperationCallbacks(_collect_public_operation_callbacks_specs(ddf)):
-        write_dataframe(
-            ddf,
-            _memory_ctx(fs, "nested.parquet"),
-            ParquetWriteRequest(path="nested.parquet", mode="create"),
-        )
+    result = write_dataframe(upstream.sort_values("value"), _memory_ctx(fs, request.path), request)
 
-    assert events["start"] == 1
-    assert events["end"] == 1
-    assert sorted(events["partitions"]) == [0, 1]
+    assert result.rows_written == 6
+    # The premise: both runs compute every upstream partition.
+    assert count_run.runs == 4
+    assert events.counts == {"start": 1, "end": 1, "error": 0}
+    assert sorted(events.partitions) == [0, 1]
 
 
 def test_writer_preserves_df_output_callback_metadata_and_cache_lifecycle():
@@ -363,21 +353,13 @@ def test_writer_preserves_df_output_callback_metadata_and_cache_lifecycle():
         progress_lock=threading.Lock(),
     )
     operation_id = "task:node:output"
-    ddf = ddf.add_callbacks(
-        on_start=_on_operation_start,
-        on_end=_on_operation_end,
-        on_partition=_on_operation_partition,
-        on_error=_on_operation_error,
-        metadata={
-            "callback_coordinator": coordinator,
-            "partition_context": partition_context,
-        },
-        metadata_token=operation_id,
-        operation_id=operation_id,
-        operation_type="node_df_output",
-        copy_meta_mode="none",
-        copy_partition_mode="none",
-        partition_dispatch_mode="sync",
+    ddf = attach_lifecycle(
+        ddf,
+        _output_lifecycle_handlers(
+            callback_coordinator=coordinator,
+            partition_context=partition_context,
+            operation_id=operation_id,
+        ),
     )
 
     write_dataframe(
