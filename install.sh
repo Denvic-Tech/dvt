@@ -7,7 +7,7 @@ export PATH
 fail() { printf 'DVT installer: %s\n' "$*" >&2; exit 1; }
 public_origin=https://dvt.distribution.denvic.tech
 origin=$public_origin
-channel= requested_version= explicit_selection=no private_rc=no ca_file= dir=/var/lib/dvt project= port= public_url= containerd=
+channel= requested_version= explicit_selection=no private_rc=no ca_file= dir= project= port= public_url= containerd=
 ask=yes apt=no pair=no
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -69,6 +69,33 @@ channel=${channel:-stable}
 origin_pattern='^https://[a-z0-9.-]+(:[0-9]{1,5})?$'
 digest_pattern='^sha256:[0-9a-f]{64}$'
 manager_pattern='^[a-z0-9][a-z0-9.:-]*/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
+resume_url=$public_url
+if [ "$ask" = yes ]; then
+    if [ -z "$public_url" ]; then
+        # The SSH server address or the source of the default route is local information.
+        detected=$(printf '%s\n' "${SSH_CONNECTION:-}" | awk '{print $3}')
+        if [ -z "$detected" ]; then
+            detected=$(ip -4 route get 192.0.2.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src"){print $(i+1); exit}}')
+        fi
+        if [ -z "$detected" ]; then
+            detected=$(hostname -I 2>/dev/null | awk '{print $1}')
+        fi
+        case "$detected" in *:*) detected="[$detected]" ;; esac
+        printf 'DVT host or origin [%s]: ' "${detected:-localhost}" >&2
+        IFS= read -r reply </dev/tty || fail 'Use an interactive terminal or --non-interactive'
+        public_url=${reply:-${detected:-localhost}}
+        if [ -n "$reply" ]; then resume_url=$reply; fi
+    fi
+    if [ -z "$dir" ]; then
+        printf 'Installation directory [/var/lib/dvt]: ' >&2
+        IFS= read -r dir </dev/tty || fail 'Use an interactive terminal or --non-interactive'
+    fi
+fi
+dir=${dir:-/var/lib/dvt}
+case "$public_url" in ''|http://*|https://*) ;; *) public_url=http://$public_url ;; esac
+case "$resume_url" in ''|http://*|https://*) ;; *) resume_url=http://$resume_url ;; esac
+public_url_pattern='^https?://([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(:[0-9]{1,5})?/?$'
+[ -z "$public_url" ] || valid "$public_url" "$public_url_pattern" || fail 'Enter an IP, hostname or HTTP(S) origin'
 valid "$dir" '^/[a-zA-Z0-9_./-]+$' && [ "$dir" != / ] || fail 'Use a canonical data directory'
 [ "$(realpath -m -- "$dir")" = "$dir" ] || fail 'Use a canonical data directory without symlinks'
 [ "$(uname -m)" = x86_64 ] || fail 'The installer requires Linux amd64'
@@ -124,15 +151,11 @@ docker_ready() { docker info >/dev/null 2>&1 && docker compose version >/dev/nul
 
 install_docker() {
     docker_ready && return
-    printf '%s\n' 'Docker Engine and Compose are required. Installation uses Docker’s signed APT repository.'
-    if [ "$apt" != yes ]; then
-        [ "$ask" = yes ] && [ -t 1 ] || fail 'Approve Docker installation with --install-docker'
-        printf 'Install Docker Engine and Compose? [y/N] ' >&2
-        IFS= read -r reply </dev/tty || fail 'Docker installation needs explicit consent'
-        case "$reply" in y|Y) ;; *) fail 'Docker installation needs explicit consent' ;; esac
-    fi
-    apt-get update
-    apt-get install -y ca-certificates curl gpg
+    [ "$ask" = yes ] || [ "$apt" = yes ] || fail 'Approve Docker installation with --install-docker'
+    printf '%s\n' 'Installing Docker Engine and Compose…'
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -qq update
+    apt-get -qq install -y ca-certificates curl gpg >/dev/null
     curl --disable --proto '=https' --fail --silent --show-error --max-time 30 \
         --max-filesize 65536 --output "$work/docker.asc" "https://download.docker.com/linux/$distro/gpg"
     mkdir -m 700 "$work/gnupg"
@@ -145,8 +168,8 @@ install_docker() {
     install -m 644 "$work/docker.asc" /etc/apt/keyrings/dvt-docker.asc
     printf '%s\n' "deb [arch=amd64 signed-by=/etc/apt/keyrings/dvt-docker.asc] https://download.docker.com/linux/$distro $codename stable" \
         | install -m 644 /dev/stdin /etc/apt/sources.list.d/dvt-docker.list
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    apt-get -qq update
+    apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
     docker_ready || fail 'Docker Engine or Compose remains unavailable'
 }
 
@@ -166,8 +189,9 @@ storage_paths() {
                 fail 'Use --containerd-root for this Docker image store'
             [ "$(tr '\000' '\n' <"/proc/$containerd_pid/cmdline")" = /usr/bin/containerd ] ||
                 fail 'Use --containerd-root for this Docker image store'
-            containerd=$(/usr/bin/containerd config dump |
-                awk -F '[ \t]*=[ \t]*' '$1=="root" {gsub(/[\047"]/, "", $2); print $2}')
+            /usr/bin/containerd config dump >"$work/containerd.conf" 2>"$work/containerd.err" ||
+                { cat "$work/containerd.err" >&2; fail 'Cannot read containerd configuration'; }
+            containerd=$(awk -F '[ \t]*=[ \t]*' '$1=="root" {gsub(/[\047"]/, "", $2); print $2}' "$work/containerd.conf")
         fi
         path_check "$containerd"
         [ -d "$containerd" ] || fail 'Containerd backing directory is missing'
@@ -204,7 +228,7 @@ UNIT
         mv -T -- "$unit_tmp" "$unit"
     fi
     systemctl daemon-reload
-    systemctl enable "dvt-bootstrap-$project.service"
+    systemctl --quiet enable "dvt-bootstrap-$project.service"
 }
 
 run_bootstrap() {
@@ -303,17 +327,14 @@ if [ "$mode" = new ] && [ ! -e "$control" ] && [ ! -L "$control" ]; then
         ! \( -name '.bootstrap-partial-*' -type d \) -print -quit)" ]; then
         fail 'The selected data directory is not empty'
     fi
-    if [ "$ask" = yes ] && [ -z "$public_url" ]; then
-        printf 'Public DVT origin [http://localhost] ' >&2
-        IFS= read -r public_url </dev/tty
-    fi
     if [ -n "$public_url" ]; then
-        valid "$public_url" '^https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?/?$' ||
+        valid "$public_url" '^https?://([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(:[0-9]{1,5})?/?$' ||
             fail 'Enter the separate public HTTP(S) origin of DVT'
     fi
     install_docker
     storage_paths
-    docker pull --platform linux/amd64 "$manager"
+    printf '%s\n' 'Downloading the installation manager…'
+    docker pull --quiet --platform linux/amd64 "$manager" >/dev/null
     install -d -m 700 -- "$dir"
     printf '%s\n' "$project" "$manager" "$docker_root" "$containerd" "$port" >"$work/launch-host.conf"
     if [ -n "${10:-}" ]; then
@@ -392,7 +413,7 @@ if [ "$explicit_selection" = yes ]; then selection_channel=$channel; fi
 if [ -e "$dir" ]; then
     result=0
     as_root /bin/sh -c "$runtime" dvt-runtime dispatch "$dir" \
-        "$project" "$port" "$public_url" "$containerd" "$ask" "$apt" "$pair" "$selection_channel" "$requested_version" || result=$?
+        "$project" "$port" "$resume_url" "$containerd" "$ask" "$apt" "$pair" "$selection_channel" "$requested_version" || result=$?
     [ "$result" -eq 73 ] || exit "$result"
 fi
 
@@ -470,7 +491,6 @@ if [ -n "$ca_file" ]; then
     [ "$(wc -c <"$ca_file")" -le 32768 ] || fail 'The private catalog CA is too large'
     catalog_ca=$(cat -- "$ca_file")
 fi
-printf 'Approved %s release %s (%s)\n' "$channel" "$selected" "$manifest"
 as_root /bin/sh -c "$runtime" dvt-runtime new "$dir" \
     "$runtime" "$manager" "$asset_digest" "$asset_size" "$catalog" "$catalog_hash" "$catalog_ca" \
     "$project" "$port" "$public_url" "$containerd" "$ask" "$apt" "$pair" "$distro" "$codename" \

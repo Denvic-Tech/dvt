@@ -7,11 +7,19 @@ import CandidateReleaseForm from './CandidateReleaseForm.jsx'
 
 const operations = '/operator/operations'
 
-const initialOperation = new URLSearchParams(window.location.hash.slice(1)).get('operation')
+const fragment = new URLSearchParams(window.location.hash.slice(1))
+const initialOperation = fragment.get('operation')
+const pairingCode = fragment.get('pairing')
+if (initialOperation || pairingCode) {
+  window.history.replaceState(null, '', window.location.pathname + window.location.search)
+}
 if (initialOperation && /^[0-9a-f-]{36}$/.test(initialOperation)) {
   sessionStorage.setItem(operationKey, initialOperation)
-  window.history.replaceState(null, '', window.location.pathname)
 }
+const initialPairing = pairingCode && /^[\w-]{43}$/.test(pairingCode)
+  ? candidateRequest('/session', { method: 'POST', data: { code: pairingCode } })
+      .then(() => '', (error) => error.message)
+  : null
 
 export default function CandidateApp() {
   const [code, setCode] = useState('')
@@ -88,7 +96,13 @@ export default function CandidateApp() {
       }
       if (!stopped) timer = setTimeout(poll, 1600)
     }
-    poll()
+    async function start() {
+      const error = await initialPairing
+      if (stopped) return
+      if (error) setMessage(error)
+      poll()
+    }
+    start()
     return () => { stopped = true; clearTimeout(timer) }
   }, [show, paired])
 
@@ -122,7 +136,8 @@ export default function CandidateApp() {
       const intent = JSON.stringify(data)
       if (admitting.current) return
       const saved = JSON.parse(sessionStorage.getItem(candidateRequestKey) ?? 'null')
-      const key = saved?.intent === intent ? saved.key : crypto.randomUUID()
+      const key = saved?.intent === intent ? saved.key
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
       sessionStorage.setItem(candidateRequestKey, JSON.stringify({ key, intent }))
       admitting.current = true
       try {
@@ -164,7 +179,7 @@ export default function CandidateApp() {
         {disconnected && <p className="banner banner-info" role="status">Мастер перезапускается. Сохраняем последнюю подтверждённую стадию.</p>}
         {!paired && !disconnected && (
           <form onSubmit={pair} className="operator-form">
-            <p>Мастер доступен по защищённому соединению.</p>
+            <p>Для входа откройте одноразовую ссылку из терминала или введите код.</p>
             <label className="field" htmlFor="pairing-code">Одноразовый код из административного терминала
               <input id="pairing-code" type="password" value={code} autoComplete="off"
                 onChange={(event) => setCode(event.target.value)} required />

@@ -102,6 +102,7 @@ class VerifiedStaging:
     paths: HostPaths
     preparer_version: str
     retry: RetryPolicy = field(default_factory=RetryPolicy)
+    http_manager: bool = False
 
     def prepare(
         self,
@@ -266,6 +267,7 @@ class VerifiedStaging:
             deadline,
             bootstrap_image=bootstrap_image,
             require_bootstrap_manager=require_bootstrap_manager,
+            http_manager=self.http_manager,
         )
         images = {
             img.reference: img
@@ -337,6 +339,7 @@ class VerifiedStaging:
                 deadline,
                 bootstrap_image=bootstrap_image,
                 require_bootstrap_manager=require_bootstrap_manager,
+                http_manager=self.http_manager,
             )
             != plan
         ):

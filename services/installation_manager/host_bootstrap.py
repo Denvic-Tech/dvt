@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import ipaddress
 import json
 import os
 import platform
@@ -299,7 +300,7 @@ def image_store(info):
 
 
 def check_port(address, port):
-    with socket.socket() as probe:
+    with socket.socket(socket.AF_INET6 if ":" in address else socket.AF_INET) as probe:
         probe.bind((address, port))
 
 
@@ -587,34 +588,29 @@ def bootstrap_images(args, *, catalog):
     return args.manager, args.candidate, args.executor
 
 
-def managed_tls(directory):
-    ca, ca_key, cert, key, request, extensions = (
-        directory / name for name in ("ca.pem", "ca.key", "cert.pem", "key.pem", "host.csr", "host.ext")
-    )
-    extensions.write_text(
-        "basicConstraints=critical,CA:FALSE\n"
-        "keyUsage=critical,digitalSignature,keyEncipherment\n"
-        "extendedKeyUsage=serverAuth\n"
-        "subjectAltName=DNS:localhost,IP:127.0.0.1\n"
-    )
-    command([
-        "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "3650",
-        "-subj", "/CN=DVT local installation CA",
-        "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
-        "-addext", "keyUsage=critical,keyCertSign,cRLSign",
-        "-keyout", str(ca_key), "-out", str(ca),
-    ])
-    command([
-        "openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
-        "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(request),
-    ])
-    command([
-        "openssl", "x509", "-req", "-in", str(request), "-CA", str(ca), "-CAkey", str(ca_key),
-        "-set_serial", f"0x{os.urandom(16).hex()}", "-sha256", "-days", "825",
-        "-extfile", str(extensions), "-out", str(cert),
-    ])
-    command(["openssl", "verify", "-CAfile", str(ca), "-verify_hostname", "localhost", str(cert)])
-    return {name: path.read_bytes() for name, path in (("cert", cert), ("key", key), ("ca", ca))}
+def manager_origin(config):
+    if config.get("manager_http") is True:
+        host = urlsplit(config["public_url"]).hostname
+        authority = f"[{host}]" if ":" in host else host
+        return f"http://{authority}:{config['port']}"
+    return f"https://localhost:{config['port']}"
+
+
+def manager_bind(host):
+    if host == "localhost":
+        return "127.0.0.1"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", host):
+            raise ValueError("Invalid manager hostname") from None
+        return "0.0.0.0"
+    if address.is_unspecified or address.is_multicast:
+        raise ValueError("Enter the server address used by the browser")
+    if address.is_loopback:
+        return str(address)
+    # A cloud public IP may be translated to a different address on this host.
+    return "::" if address.version == 6 else "0.0.0.0"
 
 
 def print_managed_access(data, port):
@@ -759,7 +755,6 @@ def bootstrap(args):
             )
         ):
             raise ValueError("The selected data directory is not empty")
-        check_port("127.0.0.1", port)
         if docker_ready():
             check_project(project)
         manager, candidate_image, executor = bootstrap_images(args, catalog=catalog)
@@ -782,11 +777,11 @@ def bootstrap(args):
         ):
             raise ValueError("Expected a public DVT HTTP(S) origin")
         _ = url.port
-        if managed:
-            with tempfile.TemporaryDirectory(prefix="dvt-tls-", dir="/tmp") as folder:
-                tls = managed_tls(Path(folder))
-        else:
-            tls = {name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")}
+        address = manager_bind(url.hostname) if managed else "127.0.0.1"
+        check_port(address, port)
+        tls = {} if managed else {
+            name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")
+        }
         local_images = getattr(args, "local_images", False)
         if local_images or contained:
             if not docker_ready():
@@ -829,7 +824,7 @@ def bootstrap(args):
             "instance": str(uuid4()),
             "data": str(data),
             "project": project,
-            "address": "127.0.0.1",
+            "address": address,
             "port": port,
             "public_url": public_url,
             "manager": manager,
@@ -840,6 +835,8 @@ def bootstrap(args):
             "temporary": str(temporary),
             "backup": str(backup),
         }
+        if managed:
+            config["manager_http"] = True
         if catalog is not None:
             config["release_catalog"] = catalog
         with tempfile.TemporaryDirectory(prefix=".bootstrap-partial-", dir=data) as folder:
@@ -869,8 +866,13 @@ def bootstrap(args):
         apply_manager(config, config["manager"], control / "bootstrap.compose.yaml")
     if getattr(args, "quiet", False):
         return
-    print(f"Manager: https://localhost:{config['port']} (127.0.0.1)")
-    print(f"Instance: {config['instance']} · {data} · {config['project']}")
+    if config.get("manager_http") is True:
+        link = manager_origin(config)
+        if sys.stdout.isatty() and not args.non_interactive:
+            link += "/#pairing=" + init_container(config, "candidate-pair")
+        print(f"Manager: {link}")
+        return
+    print(f"Manager: {manager_origin(config)}")
     if managed:
         print_managed_access(data, config["port"])
     if not prior or args.new_pairing_token:

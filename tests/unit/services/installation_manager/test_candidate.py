@@ -520,10 +520,13 @@ def test_operator_plan_reports_staged_transition_and_excludes_private_metadata(c
     assert "protected-never-returns" not in response.text
 
 
-def test_gateway_gets_only_read_only_bridge_files_and_manager_network(candidate):
+@pytest.mark.parametrize("direct", [False, True])
+def test_gateway_gets_only_read_only_bridge_files_and_manager_network(candidate, direct):
     config, _, _ = candidate
+    config["manager_http"] = direct
     auth = CandidateAuth(config)
-    host_bootstrap.atomic_write(auth.directory / "ca.pem", b"test ca")
+    if not direct:
+        host_bootstrap.atomic_write(auth.directory / "ca.pem", b"test ca")
     services = {
         "gateway": {"networks": {"application": None}, "volumes": [], "environment": {}},
         "installation_manager": {"networks": {"default": None}},
@@ -531,9 +534,9 @@ def test_gateway_gets_only_read_only_bridge_files_and_manager_network(candidate)
     wire_gateway(services, config)
     result = services["gateway"]
     assert set(result["networks"]) == {"application", "default"}
-    assert set(result["environment"].values()) == {ORIGIN}
+    assert set(result["environment"].values()) == {("http://fixture.invalid:8888" if direct else ORIGIN)}
     source_names = {mount["source"].replace("\\", "/").rsplit("/", 1)[1] for mount in result["volumes"]}
-    assert source_names == {"gateway-token", "ca.pem"}
+    assert source_names == ({"gateway-token"} if direct else {"gateway-token", "ca.pem"})
     assert all(mount["read_only"] for mount in result["volumes"])
     scoped_token = (auth.directory / "gateway-token").read_text()
     assert scoped_token == auth.gateway_token and scoped_token != auth.machine
