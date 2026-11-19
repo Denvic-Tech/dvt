@@ -1,8 +1,0 @@
-PASS — Distributor builder and DVT verifier, Windows project venvs.
-The actual SignedDvtBundleSource and RegistryClient.export_oci wrote a signed update archive using the actual Buildx OCI probe manifest and its blobs. The ready HTTPS response and Skopeo dir copy transport were supplied in-process. No production endpoints or credentials were used.
-The actual DVT extract_bundle and inspect_oci accepted these archive bytes:
-manifest SHA-256: 8b6b9144b5e7f2b190281a1e894fd830e975512f6721d17534c8d71eaae8328c
-original OCI leaf SHA-256: ed55e9e50823b60c493ebe75d642e956773f52bd09b5ffd7c750e97dad7e8f60
-original config SHA-256: 59748fc432dab071492e74e33495801d1197adb3e74d4695164b80200fcf2df7
-verified OCI layers: 1
-This check exercised the producer/consumer wire contract. Docker load and PostgreSQL lifecycle were checked separately on the isolated VM fixture.
