@@ -82,6 +82,7 @@ def prepare_online(config, store, operation):
         VerifiedStaging(
             store, trust, downloader, docker, paths, _preparer_version(),
             http_manager=config.get("manager_http") is True,
+            local_ui_image=config.get("local_ui_image"),
         ).prepare(
             operation.id, "", observed=source, applied=source.pin if source else None,
             bootstrap_image=manager.decode("ascii").strip(),

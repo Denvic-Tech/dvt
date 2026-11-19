@@ -19,6 +19,10 @@ REPO = Path(__file__).resolve().parents[4]
 LAUNCHER = REPO / "install.sh"
 BOOTSTRAP = REPO / "services/installation_manager/host_bootstrap.py"
 MANAGER = "registry.fixture.test/dvt/installation_manager@sha256:" + "a" * 64
+LOCAL_IMAGE = "dvt/installation_manager:latest"
+LOCAL_MANAGER = "dvt/installation_manager@sha256:" + "d" * 64
+LOCAL_UI_TAG = "dvt/ui:local-setup"
+LOCAL_UI_PIN = "dvt/ui@sha256:" + "e" * 64
 
 # Replace only the system Docker/systemd effects. The verified script still produces
 # real TLS, persists the managed identity and uses the normal resume path.
@@ -34,7 +38,9 @@ check_project = lambda *args: None
 docker_ready = lambda: True
 
 def check_image(reference, **kwargs):
-    assert reference == "MANAGER_FIXTURE"
+    assert reference in {"MANAGER_FIXTURE", "UI_FIXTURE"}
+    if reference.startswith("dvt/"):
+        assert not kwargs.get("pull", False)
 
 def docker(*args, **kwargs):
     if args[0] == "info":
@@ -55,7 +61,7 @@ def active_id(config):
 def launch(config, operation):
     assert config["manager"] == "MANAGER_FIXTURE"
     (Path(config["data"]) / "resume-witness").write_text(operation)
-""".replace("MANAGER_FIXTURE", MANAGER)
+""".replace("MANAGER_FIXTURE", MANAGER).replace("UI_FIXTURE", LOCAL_UI_PIN)
 
 
 # The outer shell has no Python dependency. This isolated fixture adapts Docker
@@ -75,8 +81,11 @@ elif args[:2] == ["compose", "version"]:
     print("fixture")
 elif args[0] == "pull":
     assert args == ["pull", "--quiet", "--platform", "linux/amd64", MANAGER]
+elif args[:2] == ["image", "inspect"]:
+    print({LOCAL_IMAGE: LOCAL_MANAGER, LOCAL_UI_TAG: LOCAL_UI_PIN}[args[-1]])
 elif args[0] == "run":
-    boundary = args.index(MANAGER)
+    manager = LOCAL_MANAGER if LOCAL_MANAGER in args else MANAGER
+    boundary = args.index(manager)
     flags, container = args[1:boundary], args[boundary + 1:]
     assert "--rm" in flags and "--pull=never" in flags
     assert {"--privileged", "--pid=host"}.isdisjoint(flags)
@@ -87,6 +96,9 @@ elif args[0] == "run":
     assert "type=bind,src=/etc/os-release,dst=/run/dvt-host-os,readonly" in mounts
     assert all(",src=/," not in mount for mount in mounts)
     assert "--contained" in container
+    if manager == LOCAL_MANAGER:
+        assert "--local-images" in container
+        assert "com.docker.compose.project=" in flags
     with WITNESS.open("a", encoding="utf-8") as events:
         events.write(json.dumps(container[1:]) + "\n")
     for mount in mounts:
@@ -135,6 +147,8 @@ class InstallLauncherTest(unittest.TestCase):
         self.addCleanup(unit.unlink, missing_ok=True)
         definitions = (
             f"DOCKER_ROOT = {str(docker_root)!r}\nMANAGER = {MANAGER!r}\n"
+            f"LOCAL_IMAGE = {LOCAL_IMAGE!r}\nLOCAL_MANAGER = {LOCAL_MANAGER!r}\n"
+            f"LOCAL_UI_TAG = {LOCAL_UI_TAG!r}\nLOCAL_UI_PIN = {LOCAL_UI_PIN!r}\n"
             f"WITNESS = __import__('pathlib').Path({str(self.events)!r})\n"
         )
         for name, content in (
@@ -278,6 +292,36 @@ class InstallLauncherTest(unittest.TestCase):
         self.assertEqual(config["address"], "0.0.0.0")
         self.assertEqual(config["public_url"], "http://192.0.2.20")
         self.assertNotIn("ssh -", result.stdout)
+
+    def test_local_image_uses_local_bootstrap_without_systemd(self):
+        local_bootstrap = self.root / "services/installation_manager/host_bootstrap.py"
+        local_bootstrap.parent.mkdir(parents=True)
+        local_bootstrap.write_bytes(self.bootstrap.replace(MANAGER.encode(), LOCAL_MANAGER.encode()))
+        launcher = self.root / "install.sh"
+        shutil.copyfile(LAUNCHER, launcher)
+        systemd = Path("/run/systemd/system")
+        systemd.rmdir()
+        self.addCleanup(systemd.mkdir)
+
+        result = subprocess.run(
+            [
+                "sh", str(launcher), "--local-image", LOCAL_IMAGE,
+                "--local-ui-image", LOCAL_UI_TAG, "--dir", str(self.data), "--public-url", "http://localhost",
+                "--non-interactive", "--channel", "rc",
+                "--catalog-origin", self.origin, "--catalog-ca", str(self.ca),
+            ],
+            check=False, capture_output=True, text=True, timeout=40,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.data / "manager-witness").read_text(), LOCAL_MANAGER)
+        self.assertNotIn("Downloading the installation manager", result.stdout)
+        self.assertNotIn("/bootstrap.py", self.received)
+        config = json.loads((self.data / ".bootstrap" / "host.json").read_bytes())
+        self.assertEqual(config["release_catalog"]["origin"], self.origin)
+        self.assertEqual(config["project"], "dvt-local")
+        self.assertEqual(config["address"], "0.0.0.0")
+        self.assertEqual(config["local_ui_image"], LOCAL_UI_PIN)
 
     def test_explicit_channel_pins_release_and_resume_checks_saved_version(self):
         result = self.launch("--channel", "rc", legacy_rc=False)

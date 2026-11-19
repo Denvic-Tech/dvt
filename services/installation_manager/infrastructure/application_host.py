@@ -16,7 +16,7 @@ from ..domain.operation_state import FailureReason
 from ..host_bootstrap import docker
 from .maintenance_database import frozen_sql
 from .maintenance_host import PG_TARGET, ComposeMaintenanceHost
-from .staging_docker import StagingDocker, image_references
+from .staging_docker import StagingDocker, canonical_image_reference, image_references
 
 DATABASE_ID = """
 SELECT (pg_control_system()).system_identifier::text || ':' || oid::text
@@ -86,8 +86,11 @@ class ComposeApplicationHost:
         self.services = {name: model["services"][name] for name in plan["services"]}
 
     def bind_images(self) -> None:
-        for ref in set(self.plan["services"].values()):
-            if not self.docker.local_image(ref, self.platform, self.deadline):
+        local_ui = self.config.get("local_ui_image")
+        services = self.plan["services"]
+        for ref in set(services.values()):
+            allow_index = ref == local_ui and ref == services.get("ui")
+            if not self.docker.local_image(ref, self.platform, self.deadline, allow_index=allow_index):
                 raise ApplyError(FailureReason.INVALID_PACKAGE, "A staged image is unavailable")
             self.image_ids[ref] = self.docker.inspect_image(ref, self.deadline)["Id"]
 
@@ -148,7 +151,8 @@ class ComposeApplicationHost:
                 )
             if container["Image"] not in {self.image_ids.get(ref) for ref in allowed}:
                 (image,) = json.loads(docker("image", "inspect", container["Image"]).stdout)
-                if not (allowed & image_references(image)):
+                expected_references = {canonical_image_reference(ref) for ref in allowed}
+                if not (expected_references & image_references(image)):
                     raise ApplyError(
                         FailureReason.COMPOSE, "A container is outside the staged images"
                     )

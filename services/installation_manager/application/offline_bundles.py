@@ -194,9 +194,7 @@ def _preflight_fresh(args, data: Path, bundle: OfflineBundle, values: dict[str, 
     if Version(_preparer_version()) < Version(release.compatibility.minimum_preparer_version):
         raise incompatible("The current preparer is too old for this offline release")
     request = OperationRequest(OperationKind.INSTALL, bundle.pin, bundle_id=bundle.id)
-    prepared, profiles = effective_config(
-        values, identity, request, release.version, release.environment.base.max_task_workers,
-    )
+    prepared, profiles = effective_config(values, identity, request, release.version)
     resources = selected_profile(release.environment, profiles)
     check_bundle_host(bundle, Path("/etc/os-release"), profiles, "linux/amd64")
     if (

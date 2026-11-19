@@ -103,6 +103,7 @@ class VerifiedStaging:
     preparer_version: str
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     http_manager: bool = False
+    local_ui_image: str | None = None
 
     def prepare(
         self,
@@ -253,6 +254,14 @@ class VerifiedStaging:
             compose_path, identity.compose_project, profiles, env, deadline
         )
         check_model(current, identity, release, env, active=True)
+        local_ui = (
+            self.local_ui_image
+            if operation.request.kind is OperationKind.INSTALL and bundle is None else None
+        )
+        if local_ui:
+            if not self.docker.local_image(local_ui, platform, deadline, allow_index=True):
+                raise invalid_package("The local UI image is unavailable")
+            current["services"]["ui"]["image"] = local_ui
         require_bootstrap_manager = (
             operation.request.kind is OperationKind.INSTALL
             and bundle is None
@@ -272,7 +281,9 @@ class VerifiedStaging:
         images = {
             img.reference: img
             for name, img in release.images.items()
-            if bundle is not None or name in plan.image_references
+            if bundle is not None or (
+                name in plan.image_references and not (name == "ui" and local_ui)
+            )
         }
         if bundle is None:
             self.docker.check_registries(set(images), info)
@@ -431,18 +442,8 @@ class VerifiedStaging:
         manifest: ReleaseManifest,
         values: dict[str, str],
     ):
-        limits = manifest.environment
-        env, profiles = effective_config(
-            values,
-            identity,
-            operation.request,
-            manifest.version,
-            limits.base.max_task_workers,
-        )
-        profile = selected_profile(limits, profiles)
-        if int(env["DVT_TASK_WORKERS_COUNT"]) > profile.max_task_workers:
-            raise incompatible("The selected worker count exceeds the enabled profile limit")
-        return profile, env, profiles
+        env, profiles = effective_config(values, identity, operation.request, manifest.version)
+        return selected_profile(manifest.environment, profiles), env, profiles
 
     def _asset(
         self,

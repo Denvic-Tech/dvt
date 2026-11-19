@@ -9,7 +9,7 @@ from typing import Annotated
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from core.operator_contract import (
@@ -47,6 +47,7 @@ LIMIT = 256 * 1024
 
 
 class InstallerStatus(BaseModel):
+    instance_id: UUID
     app_origin: str
     app_port: int
     installed: bool
@@ -191,6 +192,7 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
             )
         pin = initial_release(config) if applied is None else None
         return InstallerStatus(
+            instance_id=config["instance"],
             initial_release_version=pin.version if pin else None,
             app_origin=origin, app_port=parsed.port or (443 if parsed.scheme == "https" else 80),
             installed=applied is not None and operation is not None and operation.stage.terminal,
@@ -305,19 +307,20 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
         return None
 
     @router.get("/operations", dependencies=operator)
-    def history(request: Request) -> list[OperationView]:
-        gateway_operator = getattr(request.state, "gateway_operator", False)
+    def history(
+        request: Request, limit: int = Query(default=20, ge=1, le=20),
+    ) -> list[OperationView]:
+        if not getattr(request.state, "gateway_operator", False):
+            return [view(row) for row in store.history(limit=limit)]
         records = []
         before = None
         for _ in range(5):
             page = store.history(before=before, limit=20)
-            records.extend(view(row) for row in page if (
-                not gateway_operator or row.request.kind is OperationKind.UPDATE
-            ))
-            if len(records) >= 20 or len(page) < 20:
+            records.extend(row for row in page if row.request.kind is OperationKind.UPDATE)
+            if len(records) >= limit or len(page) < 20:
                 break
             before = page[-1].id
-        return records[:20]
+        return [view(row) for row in records[:limit]]
 
     @router.get("/operations/{operation_id}", dependencies=operator)
     def get(request: Request, operation_id: UUID) -> OperationView:

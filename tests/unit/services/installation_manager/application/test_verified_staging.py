@@ -168,6 +168,7 @@ class Docker:
         ]
         if self.binding_collision:
             services["ui"]["ports"] = services["proxy"]["ports"]
+        services["task-worker"]["deploy"] = {"replicas": int(env.get("DVT_TASK_WORKERS_COUNT", "1"))}
         services["gateway"]["environment"] = {
             "DVT_AI_MCP_ENABLED": env["DVT_AI_MCP_ENABLED"],
             "DVT_AI_MCP_INTERNAL_SECRET": env["DVT_AI_MCP_INTERNAL_SECRET"],
@@ -200,7 +201,7 @@ class Docker:
     def check_registries(self, _refs, _info):
         pass
 
-    def local_image(self, ref, _platform, _deadline):
+    def local_image(self, ref, _platform, _deadline, *, allow_index=False):
         return ref in self.images
 
     def pull(self, ref, _platform, _deadline):
@@ -418,7 +419,7 @@ def test_validation_failures_block_before_image_pulls(setup, monkeypatch, failur
     assert service.store.events(operation.id)[-1].checkpoint.outcome is CheckpointOutcome.BLOCKED
 
 
-@pytest.mark.parametrize("case", ["matching", "binding", "unrelated", "digest"])
+@pytest.mark.parametrize("case", ["matching", "short", "binding", "unrelated", "digest"])
 def test_first_install_only_accepts_matching_bootstrap(setup, case):
     service, config_id, _, pin = setup
     host = "127.0.0.2" if case == "binding" else "127.0.0.1"
@@ -426,14 +427,68 @@ def test_first_install_only_accepts_matching_bootstrap(setup, case):
     if case == "unrelated":
         service.docker.running.append(_container("proxy"))
     operation = _admit(service, config_id, pin)
-    bootstrap = TARGET_IMAGE if case == "digest" else SOURCE_IMAGE
-    if case == "matching":
+    bootstrap = {
+        "digest": TARGET_IMAGE,
+        "short": SOURCE_IMAGE.removeprefix("docker.io/"),
+    }.get(case, SOURCE_IMAGE)
+    if case in {"matching", "short"}:
         result = service.prepare(operation.id, MANIFEST_URL, bootstrap_image=bootstrap)
         assert result.recreate == ("installation_manager",)
+        plan = service.store.artifact_path(ArtifactKind.STAGING, operation.id) / "plan.json"
+        assert json.loads(plan.read_bytes())["observed_images"] == {"installation_manager": bootstrap}
     else:
         with pytest.raises(StagingError, match=r"running service|established source"):
             service.prepare(operation.id, MANIFEST_URL, bootstrap_image=bootstrap)
         assert service.docker.pulls == []
+
+
+@pytest.mark.parametrize("case", ["available", "missing", "compose_mismatch"])
+def test_local_ui_overrides_only_the_verified_ui_service(setup, monkeypatch, case):
+    service, config_id, _, _ = setup
+    signed_ui = "registry.example.test/dvt/ui@sha256:" + "3" * 64
+    local_ui = "dvt/ui@sha256:" + "4" * 64
+    compose = service.downloader.content[ORIGIN + "/compose.yaml"].replace(
+        f"  ui:\n    image: {TARGET_IMAGE}".encode(), f"  ui:\n    image: {signed_ui}".encode()
+    )
+    manifest = make_manifest(compose)
+    manifest["platforms"]["linux/amd64"]["images"]["ui"]["reference"] = signed_ui
+    pin, service.downloader.content[MANIFEST_URL] = sign_manifest(manifest)
+    service.downloader.content[ORIGIN + "/compose.yaml"] = compose
+    service = replace(service, local_ui_image=local_ui)
+    if case != "missing":
+        service.docker.images.add(local_ui)
+
+    render = service.docker.config
+
+    def config(*args):
+        model = render(*args)
+        if case != "compose_mismatch":
+            model["services"]["ui"]["image"] = signed_ui
+        return model
+
+    monkeypatch.setattr(service.docker, "config", config)
+    operation = _admit(service, config_id, pin)
+    if case == "available":
+        result = service.prepare(operation.id, MANIFEST_URL)
+        assert result.images["ui"] == local_ui
+        assert result.images["gateway"] == TARGET_IMAGE
+        assert service.docker.pulls == [TARGET_IMAGE]
+    else:
+        with pytest.raises(StagingError, match="(local UI image|Compose images)"):
+            service.prepare(operation.id, MANIFEST_URL)
+        assert not service.docker.pulls
+
+
+def test_signed_staging_accepts_worker_count_above_manifest_limit(setup):
+    service, config_id, _, pin = setup
+    request = OperationRequest(OperationKind.INSTALL, pin, config_id=config_id, task_workers_count=65)
+    operation = service.store.admit(request, idempotency_key=str(uuid4()))
+    service.docker.running = [_container("installation_manager")]
+
+    result = service.prepare(operation.id, MANIFEST_URL, bootstrap_image=SOURCE_IMAGE)
+
+    assert result.environment["DVT_TASK_WORKERS_COUNT"] == "65"
+    assert service.store.get(operation.id).stage is OperationStage.PREPARED
 
 
 @pytest.mark.parametrize("change", ["port", "volume", "credentials", "image", "network"])

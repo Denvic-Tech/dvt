@@ -135,13 +135,16 @@ def test_initial_release_pin_limits_first_install_to_the_saved_version_and_diges
     metadata = b"project\nmanager\n/docker\n\n8888\n"
     host_bootstrap.atomic_write(launch_config, metadata)
     client = TestClient(create_app(config, store, None), base_url=ORIGIN)
-    assert client.get("/api/operator/settings", headers=MACHINE).json()["initial_release_version"] is None
+    status = client.get("/api/operator/settings", headers=MACHINE).json()
+    assert status["instance_id"] == config["instance"]
+    assert status["initial_release_version"] is None
 
     version = "1.24.0-rc8"
     digest = "sha256:" + "a" * 64
     selected = SimpleNamespace(version=version, channel="rc", manifest_digest=digest)
     newer = SimpleNamespace(version="1.24.0-rc9", channel="rc", manifest_digest="sha256:" + "b" * 64)
-    releases = [selected, newer]
+    stable = SimpleNamespace(version="1.24.0", channel="stable", manifest_digest="sha256:" + "d" * 64)
+    releases = [selected, newer, stable]
     catalog = SimpleNamespace(
         verify=True,
         refresh=lambda: SimpleNamespace(releases=releases, fetched_at=None, error=None),
@@ -150,10 +153,20 @@ def test_initial_release_pin_limits_first_install_to_the_saved_version_and_diges
     )
     monkeypatch.setattr(catalog_api, "catalog_client", lambda _: catalog)
     monkeypatch.setattr(catalog_api, "observe_source", lambda *_: None)
+    combined = client.get("/api/releases?channel=all", headers=MACHINE).json()
+    assert [row["version"] for row in combined["releases"]] == [stable.version, newer.version, version]
+    assert combined["recommended_stable"]["version"] == stable.version
+    assert combined["first_steps"][version]["channel"] == "rc"
+    assert [row["version"] for row in client.get(
+        "/api/releases", headers=MACHINE,
+    ).json()["releases"]] == [stable.version]
+
     host_bootstrap.atomic_write(launch_config, metadata + f"{version} {digest}\n".encode())
     assert client.get("/api/operator/settings", headers=MACHINE).json()["initial_release_version"] == version
-    listed = client.get("/api/releases?channel=rc", headers=MACHINE).json()["releases"]
-    assert [row["version"] for row in listed] == [version]
+    for channel in ("rc", "all"):
+        listing = client.get(f"/api/releases?channel={channel}", headers=MACHINE).json()
+        assert [row["version"] for row in listing["releases"]] == [version]
+        assert listing["recommended_stable"] is None
 
     def select(row):
         return client.post("/api/releases/selection", headers=MACHINE, json={

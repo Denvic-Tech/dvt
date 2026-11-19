@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  candidateOperationKey, candidateRequestKey, confirmCandidateAdmission,
+  candidateOperationKey, candidateRequestKey, confirmCandidateAdmission, syncCandidateInstance,
 } from '../src/candidateApi.js'
 
 const cancellation = '29f46867-1c2c-482a-8a50-9c17adfdcdaf'
@@ -44,6 +44,23 @@ for (const stage of ['preparing', 'succeeded']) {
     assert.equal(calls, 2)
   })
 }
+
+test('discards the previous installation’s selection and pending admission before replay', async (t) => {
+  const storage = session()
+  syncCandidateInstance('previous', storage)
+  storage.setItem(candidateOperationKey, cancellation)
+  const saved = JSON.stringify({ key: 'same-key', intent: JSON.stringify(data) })
+  storage.setItem(candidateRequestKey, saved)
+
+  assert.equal(syncCandidateInstance('previous', storage), false)
+  assert.equal(storage.getItem(candidateOperationKey), cancellation)
+  assert.equal(storage.getItem(candidateRequestKey), saved)
+
+  t.mock.method(globalThis, 'fetch', () => assert.fail('A fresh instance must not replay the request'))
+  assert.equal(syncCandidateInstance('fresh', storage), true)
+  assert.equal(await confirmCandidateAdmission(path, storage), null)
+  assert.equal(storage.getItem(candidateOperationKey), null)
+})
 
 test('keeps an exact history selection when there is no outstanding admission', async (t) => {
   const storage = session()

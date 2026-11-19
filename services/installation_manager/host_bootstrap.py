@@ -220,6 +220,10 @@ def _launch(config, operation_id, action="candidate-executor"):
         "--name",
         name,
         "--label",
+        "com.docker.compose.project=",
+        "--label",
+        "com.docker.compose.service=",
+        "--label",
         f"dvt.executor.instance={config['instance']}",
         "--label",
         f"dvt.executor.operation={operation_id}",
@@ -465,6 +469,10 @@ def init_container(config, action):
         "--pull=never",
         "--network",
         "none",
+        "--label",
+        "com.docker.compose.project=",
+        "--label",
+        "com.docker.compose.service=",
         "--mount",
         mount(config["data"]),
         config["manager"],
@@ -634,6 +642,10 @@ def bootstrap(args):
     config_path = data / CONTROL / "host.json"
     prior = load_host(data) if config_path.exists() else None
     contained = getattr(args, "contained", False)
+    local_images = getattr(args, "local_images", False)
+    local_ui_image = getattr(args, "local_ui_image", None)
+    if local_ui_image and not (local_images and contained):
+        raise ValueError("Use the contained local-image bootstrap to select a local UI")
     catalog_file = getattr(args, "release_catalog_config", None)
     os_release = HOST_OS_RELEASE if contained else Path("/etc/os-release")
     catalog = _catalog_config(catalog_file, os_release) if catalog_file else None
@@ -778,11 +790,13 @@ def bootstrap(args):
             raise ValueError("Expected a public DVT HTTP(S) origin")
         _ = url.port
         address = manager_bind(url.hostname) if managed else "127.0.0.1"
+        if local_images and managed and address == "127.0.0.1":
+            # Docker Desktop forwards to the disposable host's bridge interface.
+            address = "0.0.0.0"
         check_port(address, port)
         tls = {} if managed else {
             name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")
         }
-        local_images = getattr(args, "local_images", False)
         if local_images or contained:
             if not docker_ready():
                 raise ValueError("Prepare Docker on the host before bootstrap")
@@ -817,6 +831,8 @@ def bootstrap(args):
             raise ValueError("Choose separate data, temporary and backup directories")
         for img in dict.fromkeys([manager, candidate_image, executor]):
             check_image(img, pull=not local_images)
+        if local_ui_image:
+            check_image(local_ui_image)
         data.mkdir(mode=0o700, parents=True, exist_ok=True)
         control = data / CONTROL
         config = {
@@ -837,6 +853,8 @@ def bootstrap(args):
         }
         if managed:
             config["manager_http"] = True
+        if local_ui_image:
+            config["local_ui_image"] = local_ui_image
         if catalog is not None:
             config["release_catalog"] = catalog
         with tempfile.TemporaryDirectory(prefix=".bootstrap-partial-", dir=data) as folder:
@@ -926,8 +944,12 @@ def main():
         parser.add_argument(f"--{key}")
     for key in ("non-interactive", "install-docker", "new-pairing-token", "managed", "contained"):
         parser.add_argument(f"--{key}", action="store_true")
+    parser.add_argument("--local-images", action="store_true")
+    parser.add_argument("--local-ui-image")
     args = parser.parse_args()
     try:
+        if args.local_images and (args.action != "bootstrap" or not args.contained):
+            raise ValueError("Local images are only supported by the contained test bootstrap")
         os.umask(0o077)
         if os.geteuid() or not sys.platform.startswith("linux") or platform.machine() != "x86_64":
             raise ValueError("This candidate requires root on Linux amd64")

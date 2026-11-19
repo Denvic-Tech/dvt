@@ -2,17 +2,14 @@ import { useEffect, useState } from 'react'
 import { candidateRequest } from './candidateApi.js'
 
 export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
-  const pinnedVersion = settings.initial_release_version
-  const [channel, setChannel] = useState(pinnedVersion?.includes('-rc') ? 'rc' : 'stable')
   const [catalog, setCatalog] = useState(null)
   const [version, setVersion] = useState('')
-  const [confirmed, setConfirmed] = useState(false)
   const [message, setMessage] = useState('')
   const install = !settings.installed
 
   useEffect(() => {
     let active = true
-    candidateRequest('/releases?channel=' + channel).then((data) => {
+    candidateRequest('/releases?channel=all').then((data) => {
       if (!active) return
       setCatalog(data)
       setVersion(data.recommended_stable?.version ?? data.releases[0]?.version ?? '')
@@ -20,7 +17,7 @@ export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
       if (active) setMessage(error.message)
     })
     return () => { active = false }
-  }, [channel])
+  }, [])
 
   const release = catalog?.releases.find((row) => row.version === version)
   const route = catalog?.paths?.[version] ?? []
@@ -37,7 +34,7 @@ export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
       kind: install ? 'install' : 'update',
       version: available.version,
       manifest_digest: available.manifest_digest,
-      confirm_rc: channel === 'rc' && confirmed,
+      confirm_rc: available.channel === 'rc',
     }
     if (install) {
       data.app_port = Number(fields.get('app_port'))
@@ -57,17 +54,6 @@ export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
       ) : catalog?.source && (
         <p>Работает DVT {catalog.source.version}, схема базы {catalog.source.revision}.</p>
       )}
-      <label className="field">Канал релиза
-        <select value={channel} disabled={Boolean(pinnedVersion)} onChange={(event) => {
-          setCatalog(null)
-          setMessage('')
-          setConfirmed(false)
-          setChannel(event.target.value)
-        }}>
-          <option value="stable">Стабильные релизы</option>
-          <option value="rc">Предварительные релизы (RC)</option>
-        </select>
-      </label>
       {catalog?.catalog_fetched_at && (
         <p className="section-hint">Каталог от {new Date(catalog.catalog_fetched_at).toLocaleString()}</p>
       )}
@@ -82,10 +68,7 @@ export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
       {catalog && catalog.releases.length === 0 && <p>Нет применимых релизов.</p>}
       {catalog?.releases.length > 0 && (
         <label className="field">Версия DVT
-          <select value={version} onChange={(event) => {
-            setVersion(event.target.value)
-            setConfirmed(false)
-          }}>
+          <select value={version} onChange={(event) => setVersion(event.target.value)}>
             {catalog.releases.map((row) => (
               <option key={row.version} value={row.version}>
                 {row.version}{row.version === catalog.recommended_stable?.version ? ' (рекомендуется)' : ''}
@@ -96,12 +79,6 @@ export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
       )}
       {requiresIntermediate && (
         <p>Нужен переход через {route.join(' → ')}. Сначала подготовьте версию {route[0]}.</p>
-      )}
-      {channel === 'rc' && (
-        <label className="checkbox-row">
-          <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-          Подтверждаю выбор предварительного релиза
-        </label>
       )}
       {install && <details>
         <summary>Дополнительные настройки</summary>
@@ -118,7 +95,7 @@ export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
         </label>
       </details>}
       <button className="btn btn-primary" type="submit"
-        disabled={disabled || !available || (requiresIntermediate && !selected) || (channel === 'rc' && !confirmed)}>
+        disabled={disabled || !available || (requiresIntermediate && !selected)}>
         {install ? 'Установить DVT' : 'Подготовить обновление'}
       </button>
     </form>

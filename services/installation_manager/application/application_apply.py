@@ -76,7 +76,6 @@ from ..infrastructure.staging_compose import (
     validate_template,
 )
 from ..infrastructure.staging_docker import StagingDocker, _compose_value
-from ..infrastructure.staging_host import selected_profile
 from ..logger import logger
 from .recovery import MigrationState, classify_migration, save_observation
 
@@ -288,17 +287,9 @@ class ApplicationApply:
 
         values = load_config(self.store, operation.request.config_id)
         values.pop("DVT_ALLOW_PRERELEASE", None)
-        env, profiles = effective_config(
-            values,
-            identity,
-            operation.request,
-            release.version,
-            release.environment.base.max_task_workers,
-        )
-        if (
-            tuple(plan["profiles"]) != profiles
-            or int(env["DVT_TASK_WORKERS_COUNT"])
-            > selected_profile(release.environment, profiles).max_task_workers
+        env, profiles = effective_config(values, identity, operation.request, release.version)
+        if tuple(plan["profiles"]) != profiles or any(
+            profile not in release.environment.profiles for profile in profiles
         ):
             raise ApplyError(
                 FailureReason.COMPOSE, "The selected profile differs from the staging plan"
@@ -313,6 +304,13 @@ class ApplicationApply:
         full = docker.config(compose, identity.compose_project, ("*",), env, deadline)
         check_model(model, identity, distribution, env, active=True)
         check_model(full, identity, distribution, env, active=False)
+        if (
+            operation.request.kind is OperationKind.INSTALL
+            and operation.request.bundle_id is None
+            and (local_ui := self.config.get("local_ui_image"))
+        ):
+            model["services"]["ui"]["image"] = local_ui
+            full["services"]["ui"]["image"] = local_ui
         if plan["services"] != {
             name: entry["image"] for name, entry in model["services"].items()
         } or plan["model_digest"] != digest_of(canonical_json(model)):

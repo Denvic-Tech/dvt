@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  candidateOperationKey as operationKey, candidateRequest, candidateRequestKey, confirmCandidateAdmission,
+  candidateOperationKey as operationKey, candidateRequest, candidateRequestKey,
+  confirmCandidateAdmission, syncCandidateInstance,
 } from './candidateApi.js'
 import CandidateOperation, { failureMessage, terminalStages } from './CandidateOperation.jsx'
 import CandidateReleaseForm from './CandidateReleaseForm.jsx'
@@ -13,9 +14,6 @@ const pairingCode = fragment.get('pairing')
 if (initialOperation || pairingCode) {
   window.history.replaceState(null, '', window.location.pathname + window.location.search)
 }
-if (initialOperation && /^[0-9a-f-]{36}$/.test(initialOperation)) {
-  sessionStorage.setItem(operationKey, initialOperation)
-}
 const initialPairing = pairingCode && /^[\w-]{43}$/.test(pairingCode)
   ? candidateRequest('/session', { method: 'POST', data: { code: pairingCode } })
       .then(() => '', (error) => error.message)
@@ -26,17 +24,26 @@ export default function CandidateApp() {
   const [paired, setPaired] = useState(false)
   const [settings, setSettings] = useState(null)
   const [operation, setOperation] = useState(null)
-  const [items, setItems] = useState([])
   const [activeOperation, setActiveOperation] = useState(null)
   const [disconnected, setDisconnected] = useState(false)
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
   const admitting = useRef(false)
+  const linkedOperation = useRef(/^[0-9a-f-]{36}$/.test(initialOperation) ? initialOperation : null)
 
   const show = useCallback((result) => {
     if (!result) return
     sessionStorage.setItem(operationKey, result.id)
     setOperation(result)
+  }, [])
+
+  useEffect(() => {
+    function followLink() {
+      const params = new URLSearchParams(window.location.hash.slice(1))
+      if (params.has('pairing') || params.has('operation')) window.location.reload()
+    }
+    window.addEventListener('hashchange', followLink)
+    return () => window.removeEventListener('hashchange', followLink)
   }, [])
 
   useEffect(() => {
@@ -48,8 +55,18 @@ export default function CandidateApp() {
     async function poll() {
       try {
         const info = await candidateRequest('/operator/settings')
+        if (stopped) return
+        if (syncCandidateInstance(info.instance_id)) {
+          setSettings(null)
+          setOperation(null)
+          setActiveOperation(null)
+          setMessage('')
+        }
+        if (linkedOperation.current) {
+          sessionStorage.setItem(operationKey, linkedOperation.current)
+          linkedOperation.current = null
+        }
         const active = await candidateRequest(operations + '/active')
-        const history = await candidateRequest(operations)
         let confirmed = null
         if (!stopped && !admitting.current && sessionStorage.getItem(candidateRequestKey)) {
           admitting.current = true
@@ -64,17 +81,23 @@ export default function CandidateApp() {
           }
         }
         const id = sessionStorage.getItem(operationKey)
-        const selected = history.find((entry) => entry.id === id)
-        let result = confirmed ?? selected ?? active ?? history[0]
-        if (!confirmed && !selected && id && id !== active?.id) {
-          result = await candidateRequest(operations + '/' + id).catch((error) => {
-            if (error.status === 404) return active ?? history[0]
+        const selected = !confirmed && id && id !== active?.id
+          ? await candidateRequest(operations + '/' + id).catch((error) => {
+            if (error.status === 404) return null
             throw error
           })
-        }
+          : null
+        const result = confirmed ?? selected ?? active
+          ?? (await candidateRequest(operations + '?limit=1'))[0]
         if (stopped) return
-        show(result)
-        setItems(history)
+        if (sessionStorage.getItem(operationKey) === id) {
+          if (result) {
+            show(result)
+          } else {
+            sessionStorage.removeItem(operationKey)
+            setOperation(null)
+          }
+        }
         setActiveOperation(active)
         setSettings(info)
         setPaired(true)
@@ -87,6 +110,9 @@ export default function CandidateApp() {
       } catch (error) {
         if (stopped) return
         if (error.status === 401) {
+          setSettings(null)
+          setOperation(null)
+          setActiveOperation(null)
           setPaired(false)
           setDisconnected(false)
         } else {
@@ -215,15 +241,6 @@ export default function CandidateApp() {
           <CandidateReleaseForm settings={settings} disabled={disabled} onSubmit={submit} />
         </section>
       )}
-      {paired && items.length > 0 && <section className="card operator-form">
-        <h2>История операций</h2>
-        <ul className="operator-history">
-          {items.map((entry) => <li key={entry.id}>
-            <button className="btn btn-secondary" disabled={entry.id === operation?.id}
-              onClick={() => show(entry)}>{entry.version} · {entry.id}</button>
-          </li>)}
-        </ul>
-      </section>}
     </main>
   )
 }

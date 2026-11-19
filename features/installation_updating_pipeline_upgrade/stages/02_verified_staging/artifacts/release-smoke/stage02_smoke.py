@@ -149,7 +149,7 @@ def run(work):
     clean_config, _ = effective_config(
         values, identity, OperationRequest(OperationKind.UPDATE, sign_manifest(
             make_manifest(make_compose(source)),
-        )[0], ai_mcp_enabled=False), "1.23.0", 2,
+        )[0], ai_mcp_enabled=False), "1.23.0",
     )
     clean = {"PATH": os.environ["PATH"], **clean_config}
     preexisting = {ref: docker.local_image(ref, "linux/amd64", Deadline(policy)) for ref in (source, target)}

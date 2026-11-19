@@ -162,7 +162,7 @@ def catalog_router(
     router = APIRouter(prefix="/api/releases")
 
     @router.get("", dependencies=[Depends(auth.operator_or_gateway)])
-    def releases(channel: Literal["stable", "rc"] = "stable"):
+    def releases(channel: Literal["stable", "rc", "all"] = "stable"):
         catalog = catalog_client(config)
         snapshot = catalog.refresh()
         source_error = None
@@ -174,11 +174,18 @@ def catalog_router(
             observed = None
         else:
             if catalog.verify is not None:
-                paths = catalog.paths(snapshot, observed, allow_rc=channel == "rc")
+                channels = ("stable", "rc") if channel == "all" else (channel,)
+                for release_channel in channels:
+                    routes = catalog.paths(snapshot, observed, allow_rc=release_channel == "rc")
+                    paths.update(
+                        (row.version, routes[row.version])
+                        for row in snapshot.releases
+                        if row.channel == release_channel and row.version in routes
+                    )
         pin = initial_release(config) if observed is None and source_error is None else None
         matching = [
             row for row in reversed(snapshot.releases)
-            if row.channel == channel and row.version in paths
+            if row.version in paths
             and (pin is None or (row.version, row.manifest_digest) == (pin.version, pin.manifest_digest))
         ]
         return {
@@ -188,7 +195,7 @@ def catalog_router(
             "source": observed,
             "trust_configured": catalog.verify is not None,
             "releases": matching,
-            "recommended_stable": matching[0] if matching and channel == "stable" else None,
+            "recommended_stable": next((row for row in matching if row.channel == "stable"), None),
             "paths": {row.version: [step.version for step in paths[row.version]] for row in matching},
             "first_steps": {row.version: paths[row.version][0] for row in matching},
         }
