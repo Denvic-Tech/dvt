@@ -15,7 +15,7 @@ from tests.data.installation_manager.verified_staging.fixtures import (
     sign_manifest,
 )
 
-from services.installation_manager import candidate_api, host_bootstrap, operator_api
+from services.installation_manager import candidate_api, catalog_api, host_bootstrap, operator_api
 from services.installation_manager.candidate_api import create_app
 from services.installation_manager.candidate_auth import CandidateAuth
 from services.installation_manager.candidate_executor import execute
@@ -125,6 +125,45 @@ def test_anonymous_api_and_bad_browser_origin_cannot_control_candidate(candidate
         create_app(config, store, None), base_url=ORIGIN, cookies=client.cookies
     )
     assert replacement.get("/api/operations").json() == []
+
+
+def test_initial_release_pin_limits_first_install_to_the_saved_version_and_digest(
+    candidate, tmp_path, monkeypatch
+):
+    config, store, _ = candidate
+    launch_config = tmp_path / host_bootstrap.CONTROL / "launch-host.conf"
+    metadata = b"project\nmanager\n/docker\n\n8888\n"
+    host_bootstrap.atomic_write(launch_config, metadata)
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    assert client.get("/api/operator/settings", headers=MACHINE).json()["initial_release_version"] is None
+
+    version = "1.24.0-rc8"
+    digest = "sha256:" + "a" * 64
+    selected = SimpleNamespace(version=version, channel="rc", manifest_digest=digest)
+    newer = SimpleNamespace(version="1.24.0-rc9", channel="rc", manifest_digest="sha256:" + "b" * 64)
+    releases = [selected, newer]
+    catalog = SimpleNamespace(
+        verify=True,
+        refresh=lambda: SimpleNamespace(releases=releases, fetched_at=None, error=None),
+        paths=lambda *_args, **_kwargs: {row.version: [row] for row in releases},
+        select=lambda entry, *_args, **_kwargs: entry,
+    )
+    monkeypatch.setattr(catalog_api, "catalog_client", lambda _: catalog)
+    monkeypatch.setattr(catalog_api, "observe_source", lambda *_: None)
+    host_bootstrap.atomic_write(launch_config, metadata + f"{version} {digest}\n".encode())
+    assert client.get("/api/operator/settings", headers=MACHINE).json()["initial_release_version"] == version
+    listed = client.get("/api/releases?channel=rc", headers=MACHINE).json()["releases"]
+    assert [row["version"] for row in listed] == [version]
+
+    def select(row):
+        return client.post("/api/releases/selection", headers=MACHINE, json={
+            "version": row.version, "manifest_digest": row.manifest_digest, "confirm_rc": True,
+        })
+
+    assert select(selected).status_code == 200
+    assert select(newer).status_code == 409
+    selected.manifest_digest = "sha256:" + "c" * 64
+    assert select(selected).status_code == 409
 
 
 def test_expired_pairing_and_validation_errors_do_not_reveal_codes(candidate, monkeypatch):

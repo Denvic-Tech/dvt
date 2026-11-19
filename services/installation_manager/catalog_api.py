@@ -36,6 +36,23 @@ from .infrastructure.staging_downloads import ReleaseDownloader
 Selection = SelectRelease
 
 
+def initial_release(config: dict) -> SelectRelease | None:
+    """Read the optional first-install pin from the root-owned launcher settings."""
+    try:
+        raw = read_artifact(Path(config["data"]) / CONTROL / "launch-host.conf", 16384)
+        if raw is None:
+            return None
+        lines = raw.decode("ascii").splitlines()
+        if len(lines) == 5:
+            return None
+        if len(lines) != 6:
+            raise ValueError
+        version, digest = lines[5].split(" ")
+        return SelectRelease(version=version, manifest_digest=digest)
+    except (StagingError, OSError, ValueError):
+        raise HTTPException(409, "Invalid saved initial release selection") from None
+
+
 def observe_source(config: dict, store: OperationStore) -> SourceFacts | None:
     """Establish the source from matching runtime image, database and committed release."""
     if store.active() is not None:
@@ -158,9 +175,11 @@ def catalog_router(
         else:
             if catalog.verify is not None:
                 paths = catalog.paths(snapshot, observed, allow_rc=channel == "rc")
+        pin = initial_release(config) if observed is None and source_error is None else None
         matching = [
             row for row in reversed(snapshot.releases)
             if row.channel == channel and row.version in paths
+            and (pin is None or (row.version, row.manifest_digest) == (pin.version, pin.manifest_digest))
         ]
         return {
             "catalog_fetched_at": snapshot.fetched_at,
@@ -199,6 +218,10 @@ def select_release(config, store, selection):
         observed = observe_source(config, store)
     except _OBSERVATION_ERRORS:
         raise HTTPException(409, "The current release and schema are not established") from None
+    if observed is None:
+        pin = initial_release(config)
+        if pin and (version, entry.manifest_digest) != (pin.version, pin.manifest_digest):
+            raise HTTPException(409, "The selected release differs from the initial installation pin")
     try:
         return catalog.select(entry, observed, allow_rc=selection.confirm_rc), observed
     except StagingError as error:

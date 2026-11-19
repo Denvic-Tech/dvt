@@ -140,6 +140,7 @@ class InstallLauncherTest(unittest.TestCase):
             self.addCleanup(command.unlink)
             command.chmod(0o700)
         self.received = []
+        self.queries = []
         self.failure = None
 
         class Handler(BaseHTTPRequestHandler):
@@ -151,13 +152,14 @@ class InstallLauncherTest(unittest.TestCase):
                     content = LAUNCHER.read_bytes()
                 elif path == "/api/v1/dvt/releases/install":
                     self.received.append(path)
+                    args = parse_qs(location.query)
+                    self.queries.append(args)
                     if self.failure == "unavailable":
                         inner.send_error(503)
                         return
                     if self.failure == "not-ready":
                         inner.send_error(404)
                         return
-                    args = parse_qs(location.query)
                     assert args["channel"] == ["rc"]
                     assert args["platform"] == ["linux/amd64"]
                     assert (args["distribution"][0], args["distribution_version"][0]) in {
@@ -240,19 +242,57 @@ class InstallLauncherTest(unittest.TestCase):
             },
         }
 
-    def launch(self, *flags, pass_ca=True):
+    def launch(self, *flags, pass_ca=True, legacy_rc=True):
         command = 'bash <(curl -fsS --cacert "$1" "$2/dvt/install.sh") "${@:3}"'
         args = [
             "bash", "-c", command, "fixture", str(self.ca), self.origin,
             "--non-interactive", "--dir", str(self.data), "--project", self.project,
             "--catalog-origin", self.origin,
-            "--test-rc", "--public-url", "https://dvt.fixture.test", *flags,
+            "--public-url", "https://dvt.fixture.test", *flags,
         ]
+        if legacy_rc:
+            args.append("--test-rc")
         if pass_ca:
             args.extend(("--catalog-ca", str(self.ca)))
         return subprocess.run(
             args, capture_output=True, text=True, check=False, timeout=40, start_new_session=True,
         )
+
+    def test_explicit_channel_pins_release_and_resume_checks_saved_version(self):
+        result = self.launch("--channel", "rc", legacy_rc=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.queries[0]["channel"], ["rc"])
+        self.assertNotIn("version", self.queries[0])
+        pin = (self.data / ".bootstrap" / "launch-host.conf").read_text().splitlines()[5]
+        self.assertEqual(pin, "1.24.0-rc4 " + self.descriptor("/bootstrap.py")["manifest_digest"])
+        self.received.clear()
+        same = self.launch("--version", "1.24.0-rc4", legacy_rc=False)
+        self.assertEqual(same.returncode, 0, same.stderr)
+        other = self.launch("--version", "1.24.0-rc5", legacy_rc=False)
+        self.assertNotEqual(other.returncode, 0)
+        self.assertIn("different release selection", other.stderr)
+        self.assertEqual(self.received, [])
+
+    def test_exact_version_rejects_substitution_before_fetching_bootstrap(self):
+        wrong = self.launch("--version", "1.24.0-rc8", legacy_rc=False)
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("instead of requested version 1.24.0-rc8", wrong.stderr)
+        self.assertNotIn("/bootstrap.py", self.received)
+        self.assertEqual(self.queries[0]["version"], ["1.24.0-rc8"])
+        self.assertEqual(self.queries[0]["channel"], ["rc"])
+        good = self.launch("--version", "1.24.0-rc4", legacy_rc=False)
+        self.assertEqual(good.returncode, 0, good.stderr)
+
+    def test_default_requests_only_stable_and_conflicts_fail_locally(self):
+        self.failure = "not-ready"
+        result = self.launch(legacy_rc=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("(stable)", result.stderr)
+        self.assertEqual([query["channel"] for query in self.queries], [["stable"]])
+        result = self.launch("--channel", "stable", "--version", "1.24.0-rc8", legacy_rc=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Version and channel disagree", result.stderr)
+        self.assertEqual(len(self.queries), 1)
 
     def test_verifies_and_passes_the_configuration_then_reuses_identity_and_tls(self):
         fresh = self.launch()
