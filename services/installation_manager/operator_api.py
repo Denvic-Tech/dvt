@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 from hashlib import sha256
 from pathlib import Path
 from subprocess import SubprocessError
@@ -22,6 +25,13 @@ from core.operator_contract import (
     UpdateRequest,
 )
 
+from .application.first_install import (
+    INTENT,
+    MAX_INTENT_BYTES,
+    normalized_request,
+    pending_intent,
+    request_directory,
+)
 from .application.maintenance_backup import DRAIN_SECONDS
 from .application.offline_bundles import _configuration
 from .application.online_operations import initial_settings, is_online
@@ -50,6 +60,9 @@ class InstallerStatus(BaseModel):
     instance_id: UUID
     app_origin: str
     app_port: int
+    install_dir: str
+    install_dir_editable: bool
+    public_urls: list[str]
     installed: bool
     setup_required: bool
     initial_release_version: str | None = None
@@ -68,7 +81,7 @@ def _marker(store, operation):
     if not is_online(store, operation):
         return None
     path = store.artifact_path(ArtifactKind.CONFIG, operation.request.config_id)
-    return strict_json(read_artifact(path / "operator.json", 4096))
+    return strict_json(read_artifact(path / "operator.json", MAX_INTENT_BYTES))
 
 
 def _plan(store, operation) -> OperationPlan | None:
@@ -111,7 +124,39 @@ def _plan(store, operation) -> OperationPlan | None:
 
 
 def operator_router(config, store, auth, snapshot, start, diagnostics, static_dir) -> APIRouter:
-    router = APIRouter(prefix="/api/operator")
+    async def finish_first_install():
+        while True:
+            try:
+                intent = pending_intent(control)
+                if intent is None:
+                    return
+                payload = InstallRequest.model_validate(intent["request"])
+                await asyncio.to_thread(admit_operation, payload, intent["key"], False)
+            except HTTPException as error:
+                if error.status_code != 503:
+                    logging.getLogger(__name__).warning(
+                        "First install admission returned HTTP %s", error.status_code,
+                    )
+                    return
+                await asyncio.sleep(2)
+            else:
+                (control / INTENT).unlink(missing_ok=True)
+                return
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        task = None
+        if not config.get("wizard_temporary") and (control / INTENT).is_file():
+            task = asyncio.create_task(finish_first_install())
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
+    router = APIRouter(prefix="/api/operator", lifespan=lifespan)
     directory = Path(config["data"])
     control = directory / CONTROL
     operator = [Depends(auth.operator_or_gateway)]
@@ -141,6 +186,8 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
         actions = snapshot(operation).actions
         if not operation.stage.terminal:
             directory = store.artifact_path(ArtifactKind.STAGING, operation.id)
+            if failure is None and (directory / "launch-failed").is_file():
+                failure = "executor_unavailable"
             if not actions and (directory / "restored-data.json").is_file():
                 actions = [Action.RESTORE_START]
         if (
@@ -192,6 +239,10 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
             )
         pin = initial_release(config) if applied is None else None
         return InstallerStatus(
+            install_dir=config.get("default_install_dir", "/var/lib/dvt") if config.get("wizard_temporary")
+            else config["data"],
+            install_dir_editable=bool(config.get("wizard_temporary")),
+            public_urls=config.get("public_urls") or [origin],
             instance_id=config["instance"],
             initial_release_version=pin.version if pin else None,
             app_origin=origin, app_port=parsed.port or (443 if parsed.scheme == "https" else 80),
@@ -205,15 +256,33 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
     def admit(
         request: Request, payload: Admission, key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> OperationView:
-        if getattr(request.state, "gateway_operator", False) and payload.kind != "update":
+        return admit_operation(payload, key, getattr(request.state, "gateway_operator", False))
+
+    def admit_operation(payload: InstallRequest | UpdateRequest, key: str, gateway_request: bool):
+        if gateway_request and payload.kind != "update":
             raise HTTPException(403, "Gateway may only admit updates")
-        intent = payload.model_dump(mode="json")
+        if isinstance(payload, InstallRequest):
+            payload = normalized_request(payload, config)
+        intent = payload.model_dump(mode="json", exclude_none=True)
+        # Keep the nullable port in the on-disk intent used by older clients.
+        if isinstance(payload, InstallRequest):
+            intent["app_port"] = payload.app_port
         try:
             with executor_lock(control / "operator-admission.lock"):
                 existing = store.by_idempotency_key(key)
                 if existing is not None:
-                    scoped(request, existing)
-                    if _marker(store, existing) != intent:
+                    if gateway_request and existing.request.kind is not OperationKind.UPDATE:
+                        raise HTTPException(404, "Unknown update operation")
+                    previous = _marker(store, existing)
+                    if (
+                        isinstance(payload, InstallRequest)
+                        and "task_workers_count" not in payload.model_fields_set
+                        and previous and "install_dir" not in previous
+                        and previous.get("task_workers_count") == 1
+                    ):
+                        # Older clients could rely on the former default of one worker.
+                        intent["task_workers_count"] = 1
+                    if previous != intent:
                         raise _conflict(existing.id)
                     operation = existing
                 elif active := store.active():
@@ -222,9 +291,14 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
                     selected, source = select_release(config, store, payload)
                     if (payload.kind == "install") != (source is None):
                         raise HTTPException(409, "The action does not match the observed installation")
+                    if config.get("wizard_temporary"):
+                        request_directory(control, key, intent)
                     if isinstance(payload, InstallRequest):
                         values = initial_settings()
-                        if urlsplit(config["public_url"]).scheme == "https":
+                        if payload.public_urls:
+                            values["DVT_PUBLIC_URL"] = ";".join(payload.public_urls)
+                        if any(urlsplit(url).scheme == "https" for url in
+                               (payload.public_urls or [config["public_url"]])):
                             values["DVT_COOKIE_SECURE"] = "true"
                         default_port = settings().app_port
                         operation_settings = {
@@ -256,9 +330,11 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
         except OperationConflict as error:
             raise _conflict(error.operation_id) from None
         except OwnershipConflict:
-            if active := store.active():
+            active = store.active()
+            existing = store.by_idempotency_key(key) if active else None
+            if active and (existing is None or active.id != existing.id):
                 raise _conflict(active.id) from None
-            raise HTTPException(409, "Another request is selecting a release") from None
+            raise HTTPException(503, "Another request is selecting a release") from None
         except StagingError as error:
             raise HTTPException(422, {"reason": error.reason.value}) from None
         except (OSError, SubprocessError):
@@ -339,6 +415,15 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
             raise HTTPException(422, "This action requires explicit confirmation")
         operation = start(operation, action).operation
         return view(operation)
+
+    @router.get("/operations/{operation_id}/log", dependencies=operator)
+    def operation_log(
+        request: Request, operation_id: UUID, after: int = Query(0, ge=0, lt=2**63),
+        limit: int = Query(100, ge=1, le=100),
+    ):
+        lookup(request, operation_id)
+        lines = store.log_lines(operation_id, after=after, limit=limit)
+        return {"lines": lines, "next_cursor": lines[-1]["cursor"] if lines else after}
 
     @router.get("/operations/{operation_id}/diagnostics", dependencies=operator)
     def support(request: Request, operation_id: UUID, after: int = 0) -> dict:

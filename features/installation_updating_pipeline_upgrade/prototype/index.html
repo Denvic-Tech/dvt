@@ -292,9 +292,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <label class="name" for="install-dir">Путь установки</label>
             <div>
               <input id="install-dir" type="text" value="/var/lib/dvt" required pattern="/.*"
-                title="Абсолютный путь на сервере, например /srv/dvt" aria-describedby="dir-hint"
+                title="Абсолютный путь на сервере, например /srv/dvt"
                 autocomplete="off" autocapitalize="none" spellcheck="false">
-              <p class="hint" id="dir-hint">Каталог DVT на сервере.</p>
             </div>
           </div>
           <div class="row"><label class="name" for="port">Порт приложения</label><input id="port" type="number" min="1" max="65535" value="80" required></div>
@@ -329,7 +328,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const $ = (id) => document.getElementById(id);
     const addresses = $('addresses');
     const directory = $('install-dir');
-    const defaultDir = directory.defaultValue;
 
     function selectedDirectory() {
       const parts = [];
@@ -340,11 +338,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       return '/' + parts.join('/');
     }
 
-    directory.oninput = () => {
-      $('dir-hint').textContent = directory.validity.valid && selectedDirectory() !== defaultDir
-        ? 'Мастер перенесёт сюда файлы, которые установщик уже сохранил в ' + defaultDir + '.'
-        : 'Каталог DVT на сервере.';
-    };
     function addAddress(value = 'http://', focus = true) {
       const row = $('address-template').content.firstElementChild.cloneNode(true);
       const input = row.querySelector('input');
@@ -464,10 +457,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           'Проверка окружения Docker', 'Docker Engine доступен', 'Docker Compose доступен',
           'Проверка свободного места', 'Проверка прав на запись в ' + installDir,
           'Каталог ' + installDir + ' готов',
-          ...(installDir === defaultDir ? [] : [
-            'Перенос файлов установщика из ' + defaultDir + ' в ' + installDir,
-            'Файлы установщика перенесены'
-          ]),
           'Рабочий каталог: ' + installDir, 'Подготовка сети контейнеров',
           'Порт приложения: ' + $('port').value, 'Адреса DVT: ' + urls.join(', '),
           'Конфигурация установки сформирована'

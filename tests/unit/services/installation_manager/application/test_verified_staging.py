@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 from uuid import uuid4
 
 import pytest
@@ -23,7 +24,7 @@ from tests.data.installation_manager.verified_staging.fixtures import (
     sign_manifest,
 )
 
-from services.installation_manager.application import verified_staging
+from services.installation_manager.application import application_apply, verified_staging
 from services.installation_manager.application.verified_staging import VerifiedStaging
 from services.installation_manager.domain.operation_state import (
     ArtifactKind,
@@ -42,12 +43,13 @@ from services.installation_manager.domain.release_manifest import (
     canonical_json,
     digest_of,
 )
-from services.installation_manager.infrastructure import staging_compose, staging_host
+from services.installation_manager.infrastructure import application_host, staging_compose, staging_host
 from services.installation_manager.infrastructure.operation_store import OperationStore
 from services.installation_manager.infrastructure.operator_wiring import operator_binds
 from services.installation_manager.infrastructure.release_verification import TrustPolicy
 from services.installation_manager.infrastructure.staging_artifacts import save_config
 from services.installation_manager.infrastructure.staging_compose import ObservedRelease
+from services.installation_manager.infrastructure.staging_docker import StagingDocker
 from services.installation_manager.infrastructure.staging_host import (
     FilesystemBudget,
     HostPaths,
@@ -477,6 +479,87 @@ def test_local_ui_overrides_only_the_verified_ui_service(setup, monkeypatch, cas
         with pytest.raises(StagingError, match="(local UI image|Compose images)"):
             service.prepare(operation.id, MANIFEST_URL)
         assert not service.docker.pulls
+
+
+@pytest.mark.parametrize(
+    "image_case", ["matching", "wrong_digest", "wrong_platform", "registry_index", "shared_index"],
+)
+def test_local_manager_oci_index_from_preparation_to_database_start(
+    setup, tmp_path, monkeypatch, image_case,
+):
+    service, config_id, _, pin = setup
+    manager = "dvt/installation_manager@sha256:" + "3" * 64
+    repo_digest = "docker.io/" + manager
+    if image_case == "shared_index":
+        # The signed PostgreSQL and Valkey services also use this pin.
+        manager = repo_digest = SOURCE_IMAGE
+    index = {
+        "Id": "local-manager-id",
+        "RepoDigests": [repo_digest],
+        "Descriptor": {"mediaType": "application/vnd.oci.image.index.v1+json"},
+        "Os": "linux", "Architecture": "amd64",
+    }
+    service = replace(service, local_manager_image=manager)
+    service.docker.running = [_container("installation_manager")]
+    monkeypatch.setattr(service.docker, "inspect_image", lambda *_: index)
+    operation = _admit(service, config_id, pin)
+    prepared = service.prepare(operation.id, MANIFEST_URL, bootstrap_image=manager)
+    assert service.store.get(operation.id).stage is OperationStage.PREPARED
+    assert prepared.images["installation_manager"] == manager
+    assert prepared.images["gateway"] == TARGET_IMAGE
+
+    def inspect_image(_docker, reference, _deadline):
+        if reference == manager:
+            if image_case == "wrong_digest":
+                wrong_digest = "docker.io/dvt/installation_manager@sha256:" + "4" * 64
+                return {**index, "RepoDigests": [wrong_digest]}
+            if image_case == "wrong_platform":
+                return {**index, "Architecture": "arm64"}
+            return index
+        media_type = "application/vnd.oci.image.manifest.v1+json"
+        if image_case == "registry_index" and reference == TARGET_IMAGE:
+            media_type = "application/vnd.oci.image.index.v1+json"
+        return {
+            "Id": reference, "RepoDigests": [reference], "Os": "linux", "Architecture": "amd64",
+            "Descriptor": {"mediaType": media_type},
+        }
+
+    identity = service.store.identity()
+    config = {
+        "local_manager_image": manager,
+        "instance": str(identity.instance_id),
+        "data": identity.data_dir,
+        "project": identity.compose_project,
+        "temporary": str(tmp_path),
+    }
+    docker = StagingDocker(tmp_path, tmp_path)
+    monkeypatch.setattr(StagingDocker, "inspect_image", inspect_image)
+    monkeypatch.setattr(application_host, "StagingDocker", lambda *_: docker)
+    monkeypatch.setattr(application_apply, "StagingDocker", lambda *_: service.docker)
+    # The staging fixture has a minimal Compose model and no running services beyond the manager.
+    monkeypatch.setattr(application_apply, "_validate_runtime", lambda _: None)
+    monkeypatch.setattr(application_apply, "CONTROL", tmp_path)
+    application_apply.atomic_write(tmp_path / "current-manager", manager.encode())
+    monkeypatch.setattr(
+        application_apply, "init_container", lambda *_: str(application_apply.FORMAT_VERSION),
+    )
+    host = application_host.ComposeApplicationHost
+    monkeypatch.setattr(host, "containers", lambda _: {})
+    start = Mock(return_value=True)
+    monkeypatch.setattr(host, "up", start)
+    monkeypatch.setattr(host, "wait_for_database", Mock(side_effect=ConnectionError("DB starting")))
+
+    application_apply.ApplicationApply(service.store, config, lambda *_: None).execute(operation.id)
+    if image_case == "matching":
+        assert service.store.get(operation.id).stage is OperationStage.MIGRATING
+        start.assert_called_once_with(
+            "postgres", path=prepared.compose_path.parent / "database.compose.yaml",
+        )
+    else:
+        start.assert_not_called()
+        failure = service.store.first_failure(operation.id)
+        assert failure.stage is OperationStage.PREPARED
+        assert failure.checkpoint.reason is FailureReason.INVALID_PACKAGE
 
 
 def test_signed_staging_accepts_worker_count_above_manifest_limit(setup):

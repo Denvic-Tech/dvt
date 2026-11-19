@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import stat
 import subprocess
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from services.installation_manager import candidate_api, catalog_api, host_boots
 from services.installation_manager.candidate_api import create_app
 from services.installation_manager.candidate_auth import CandidateAuth
 from services.installation_manager.candidate_executor import execute
+from services.installation_manager.candidate_main import _identity
 from services.installation_manager.domain.operation_state import (
     ArtifactKind,
     Checkpoint,
@@ -411,7 +413,7 @@ def test_operator_install_admission_is_single_and_replay_survives_web_restart(ca
     assert dispatched == [operation.id]
     assert response.json()["id"] == str(operation.id)
     assert operation.request.app_port == 80
-    assert operation.request.task_workers_count == 1
+    assert operation.request.task_workers_count == 4
 
     replacement = TestClient(create_app(config, store, None), base_url=ORIGIN, cookies=client.cookies)
     replay = replacement.post(path, json=data, headers={**CSRF, **key})
@@ -422,6 +424,26 @@ def test_operator_install_admission_is_single_and_replay_survives_web_restart(ca
         "Authorization": f"Bearer {auth.gateway_token}",
     }).status_code == 404
     assert store.history() == [operation]
+
+
+def test_legacy_install_replay_preserves_saved_default_and_retries_contention(
+    candidate, monkeypatch, tmp_path,
+):
+    config, store, _ = candidate
+    selected = SimpleNamespace(pin=ReleasePin("stable", "sha256:" + "1" * 64))
+    monkeypatch.setattr(operator_api, "select_release", lambda *_: (selected, None))
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    body = {"kind": "install", "version": "1.2.3", "manifest_digest": selected.pin.manifest_digest}
+    url = "/api/operator/operations"
+    headers = {**MACHINE, "Idempotency-Key": "legacy-install"}
+    original = client.post(url, json={**body, "task_workers_count": 1}, headers=headers)
+    assert original.status_code == 202
+    with operator_api.executor_lock(tmp_path / host_bootstrap.CONTROL / "operator-admission.lock"):
+        assert client.post(url, json=body, headers=headers).status_code == 503
+    replay = client.post(url, json=body, headers=headers)
+    assert replay.status_code == 202 and replay.json()["id"] == original.json()["id"]
+    changed = client.post(url, json={**body, "task_workers_count": 4}, headers=headers)
+    assert changed.status_code == 409
 
 
 def test_setup_pairing_is_separate_ready_only_single_use_and_absent_from_diagnostics(candidate):
@@ -613,3 +635,100 @@ def test_resume_restores_only_an_approved_manager_for_empty_early_online_install
         assert applied == [(config, TARGET_IMAGE, control / "bootstrap.compose.yaml")]
     else:
         assert checked == applied == []
+
+def test_wizard_aliases_require_matching_browser_origin(candidate):
+    config, _, _ = candidate
+    config.update(manager_http=True, manager_origins=[
+        "http://192.0.2.8:8888", "http://localhost:8888",
+    ])
+    app = create_app(config, candidate[1], None)
+    auth = CandidateAuth(config)
+    code = auth.issue_pairing()
+    client = TestClient(app, base_url="http://localhost:8888")
+    for origin in ["http://192.0.2.8:8888", "http://other.invalid:8888"]:
+        assert client.post("/api/session", json={"code": code}, headers={
+            "Origin": origin, "X-DVT-CSRF": "1",
+        }).status_code == 403
+    for origin in config["manager_origins"]:
+        assert TestClient(app, base_url=origin).get("/health").is_success
+    assert client.get("/health", headers={"Host": "other.invalid:8888"}).status_code == 421
+    assert client.post("/api/session", json={"code": code}, headers={
+        "Origin": "http://localhost:8888", "X-DVT-CSRF": "1",
+    }).is_success
+
+
+def test_first_install_handoff_survives_browser_close_and_replay(candidate, tmp_path, monkeypatch):
+    config, temporary_store, _ = candidate
+    source_control = tmp_path / host_bootstrap.CONTROL
+    config.update(wizard_temporary=True, manager_http=True,
+                  manager_origins=["http://localhost:8888"], default_install_dir="/var/lib/dvt")
+    selected = SimpleNamespace(pin=ReleasePin("stable", "sha256:" + "1" * 64))
+    monkeypatch.setattr(operator_api, "select_release", lambda *_: (selected, None))
+    client = TestClient(create_app(config, temporary_store, None), base_url="http://localhost:8888")
+    destination = tmp_path / "chosen"
+    path = destination.as_posix().removeprefix(destination.drive)
+    data = {
+        "kind": "install", "version": "1.2.3", "manifest_digest": selected.pin.manifest_digest,
+        "install_dir": path, "app_port": 8087,
+        "public_urls": ["http://example.test", "http://192.0.2.9"],
+    }
+    key = {"Idempotency-Key": "wizard-handoff"}
+    url = "/api/operator/operations"
+    assert client.get("/api/operator/settings", headers=MACHINE).json()["install_dir"] == "/var/lib/dvt"
+    assert client.post(url, headers={**MACHINE, **key}, json=data).status_code == 503
+    assert temporary_store.active() is None and not destination.exists()
+    handoff = source_control / "install-intent.json"
+    intent = json.loads(handoff.read_bytes())
+    assert intent["request"]["public_urls"] == ["http://example.test:8087", "http://192.0.2.9:8087"]
+    assert client.post(url, headers={**MACHINE, **key}, json=data).status_code == 503
+    assert client.post(url, headers={**MACHINE, "Idempotency-Key": "other"}, json=data).status_code == 409
+
+    # The host starts the final manager on the selected directory, with this saved intent.
+    destination.mkdir()
+    control = destination / host_bootstrap.CONTROL
+    control.mkdir(mode=0o700)
+    for name in ("machine-token", "session-key", "install-intent.json"):
+        host_bootstrap.atomic_write(control / name, (source_control / name).read_bytes())
+    final = {**config, "data": path, "public_url": "http://example.test:8087",
+             "public_urls": intent["request"]["public_urls"], "wizard_temporary": False}
+    store = OperationStore.for_host(destination)
+    store.establish_identity(_identity(final))
+    dispatched = []
+    monkeypatch.setattr(candidate_api, "launch", lambda _config, op: dispatched.append(op))
+    with TestClient(create_app(final, store, None), base_url="http://localhost:8888") as permanent:
+        deadline = time.monotonic() + 3
+        while (control / "install-intent.json").exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        op = store.active()
+        assert op and dispatched == [str(op.id)]
+        assert not (control / "install-intent.json").exists()
+        assert permanent.post(url, headers={**MACHINE, **key}, json=data).json()["id"] == str(op.id)
+        assert len(store.history()) == 1
+        assert op.request.app_port == 8087 and op.request.task_workers_count == 4
+        first = permanent.get(url + f"/{op.id}/log", headers=MACHINE).json()
+        assert first["lines"][0]["message"] == "Запрос принят"
+        store.log_message(op.id, "Проверка сервисов")
+        more = permanent.get(url + f"/{op.id}/log?after={first['next_cursor']}", headers=MACHINE)
+        assert [line["message"] for line in more.json()["lines"]] == ["Проверка сервисов"]
+
+
+def test_wizard_rejected_directory_can_be_corrected(candidate, tmp_path, monkeypatch):
+    config, store, _ = candidate
+    config["wizard_temporary"] = True
+    selected = SimpleNamespace(pin=ReleasePin("stable", "sha256:" + "1" * 64))
+    monkeypatch.setattr(operator_api, "select_release", lambda *_: (selected, None))
+    client = TestClient(create_app(config, store, None), base_url=ORIGIN)
+    data = {
+        "kind": "install", "version": "1.2.3", "manifest_digest": selected.pin.manifest_digest,
+        "install_dir": "/srv/busy", "public_urls": ["http://dvt.local"], "app_port": 80,
+    }
+    url = "/api/operator/operations"
+    headers = {**MACHINE, "Idempotency-Key": "first"}
+    assert client.post(url, headers=headers, json={**data, "install_dir": "/"}).status_code == 422
+    assert client.post(url, headers=headers, json=data).status_code == 503
+    host_bootstrap.atomic_write(tmp_path / host_bootstrap.CONTROL / "install-error.json",
+                                b'{"key":"first","detail":"Directory is not empty"}')
+    assert client.post(url, headers=headers, json=data).status_code == 422
+    headers["Idempotency-Key"] = "second"
+    assert client.post(url, headers=headers, json={**data, "install_dir": "/srv/new"}).status_code == 503
+    assert store.active() is None

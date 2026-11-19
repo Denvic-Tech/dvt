@@ -26,6 +26,8 @@ class CandidateAuth:
         self.origin = manager_origin(config)
         self.host = self.origin.split("://", 1)[1]
         self.secure = self.origin.startswith("https://")
+        self.origins = frozenset(config.get("manager_origins") or [self.origin])
+        self.hosts = {origin.split("://", 1)[1] for origin in self.origins}
         self.cookie = f"{'__Host-' if self.secure else ''}dvt-{config['instance']}"
         self.machine = self._read("machine-token").decode("ascii")
         self._key = self._read("session-key")
@@ -98,9 +100,13 @@ class CandidateAuth:
         except ValueError:
             return False
 
+    def same_origin(self, request: Request) -> bool:
+        origin = request.headers.get("origin")
+        return origin in self.origins and origin.split("://", 1)[1] == request.headers.get("host")
+
     def csrf(self, request: Request) -> None:
         if (
-            request.headers.get("origin") != self.origin
+            not self.same_origin(request)
             or request.headers.get("x-dvt-csrf") != "1"
             or request.headers.get("content-type", "").split(";", 1)[0] != "application/json"
         ):
@@ -129,7 +135,7 @@ class CandidateAuth:
 
     def require_operator(self, request: Request) -> None:
         origin = request.headers.get("origin")
-        if origin is not None and origin != self.origin:
+        if origin is not None and not self.same_origin(request):
             raise HTTPException(403, "Origin is not authorized")
         authorization = request.headers.get("authorization")
         if authorization is not None:

@@ -55,6 +55,8 @@ def initial_release(config: dict) -> SelectRelease | None:
 
 def observe_source(config: dict, store: OperationStore) -> SourceFacts | None:
     """Establish the source from matching runtime image, database and committed release."""
+    if config.get("wizard_temporary"):
+        return None
     if store.active() is not None:
         raise ValueError("An operation owns the current source")
     data = Path(config["data"])

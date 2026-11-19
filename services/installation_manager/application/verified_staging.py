@@ -104,6 +104,7 @@ class VerifiedStaging:
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     http_manager: bool = False
     local_ui_image: str | None = None
+    local_manager_image: str | None = None
 
     def prepare(
         self,
@@ -214,6 +215,7 @@ class VerifiedStaging:
                 manifest_url, MAX_MANIFEST_BYTES, cwd=directory, deadline=deadline
             )
         manifest = self.trust.verify(signed, pin)
+        self.store.log_message(operation.id, f"Проверена подпись манифеста DVT {manifest.version}")
         if manifest.channel == "rc" and values.pop("DVT_ALLOW_PRERELEASE", "").lower() != "true":
             raise incompatible(
                 "A release candidate requires explicit consent in the saved configuration"
@@ -262,6 +264,14 @@ class VerifiedStaging:
             if not self.docker.local_image(local_ui, platform, deadline, allow_index=True):
                 raise invalid_package("The local UI image is unavailable")
             current["services"]["ui"]["image"] = local_ui
+        local_manager = (
+            self.local_manager_image
+            if operation.request.kind is OperationKind.INSTALL and bundle is None else None
+        )
+        if local_manager:
+            if local_manager != bootstrap_image:
+                raise invalid_package("The local manager differs from the approved bootstrap manager")
+            current["services"]["installation_manager"]["image"] = local_manager
         require_bootstrap_manager = (
             operation.request.kind is OperationKind.INSTALL
             and bundle is None
@@ -283,6 +293,7 @@ class VerifiedStaging:
             for name, img in release.images.items()
             if bundle is not None or (
                 name in plan.image_references and not (name == "ui" and local_ui)
+                and not (name == "installation_manager" and local_manager)
             )
         }
         if bundle is None:
@@ -314,9 +325,13 @@ class VerifiedStaging:
             deadline,
         )
         check_filesystems(budgets)
+        self.store.log_message(operation.id, "Проверено свободное место для установки")
         if bundle is None:
+            self.store.log_message(operation.id, f"Образы для загрузки: {len(missing)}")
             for image in missing:
+                self.store.log_message(operation.id, f"Загрузка образа {image.reference}")
                 self.docker.pull(image.reference, platform, deadline)
+                self.store.log_message(operation.id, f"Образ получен: {image.reference}")
         else:
             import_offline_images(bundle, self.docker, deadline)
             check_offline_extensions(

@@ -1,3 +1,4 @@
+import subprocess
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -194,3 +195,30 @@ def test_missing_target_manager_restores_previous_digest_at_same_address(tmp_pat
             host, tmp_path, (previous, target), operation, owner
         )
     assert (control / "current-manager").read_text() == previous
+
+
+def test_first_install_rejects_target_manager_without_wizard_support(tmp_path, monkeypatch):
+    control = tmp_path / apply.CONTROL
+    control.mkdir(mode=0o700)
+    source, target = "fixture/current", "fixture/previous-release"
+    apply.atomic_write(control / "current-manager", source.encode())
+    plan = {
+        "observed_images": {"installation_manager": source},
+        "services": {"installation_manager": target},
+    }
+    config = {"data": str(tmp_path), "manager_origins": ["http://localhost:8888"]}
+
+    def inspect(host_config, command):
+        if host_config["manager"] == target and command == "candidate-inspect-wizard":
+            raise subprocess.CalledProcessError(2, command)
+        return str(apply.FORMAT_VERSION)
+
+    monkeypatch.setattr(apply, "init_container", inspect)
+    executor = apply.ApplicationApply(None, config, lambda *_: None)
+    operation = SimpleNamespace(stage=OperationStage.PREPARED)
+    with pytest.raises(apply.ApplyError) as error:
+        executor._manager_images(operation, plan)
+    assert error.value.reason == apply.FailureReason.INCOMPATIBLE_RELEASE
+
+    del config["manager_origins"]
+    assert executor._manager_images(operation, plan) == (source, target)

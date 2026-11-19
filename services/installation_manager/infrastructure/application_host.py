@@ -86,10 +86,15 @@ class ComposeApplicationHost:
         self.services = {name: model["services"][name] for name in plan["services"]}
 
     def bind_images(self) -> None:
-        local_ui = self.config.get("local_ui_image")
         services = self.plan["services"]
+        local_pins = {
+            "ui": self.config.get("local_ui_image"),
+            "installation_manager": self.config.get("local_manager_image"),
+        }
+        # A pin shared with a release service must satisfy its platform-manifest requirement.
+        manifest_only = {ref for role, ref in services.items() if ref != local_pins.get(role)}
         for ref in set(services.values()):
-            allow_index = ref == local_ui and ref == services.get("ui")
+            allow_index = ref not in manifest_only
             if not self.docker.local_image(ref, self.platform, self.deadline, allow_index=allow_index):
                 raise ApplyError(FailureReason.INVALID_PACKAGE, "A staged image is unavailable")
             self.image_ids[ref] = self.docker.inspect_image(ref, self.deadline)["Id"]

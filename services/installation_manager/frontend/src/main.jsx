@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import CandidateApp from './CandidateApp.jsx'
 import './styles.css'
+import './wizard.css'
 
 function Entry() {
   const [mode, setMode] = useState(null)

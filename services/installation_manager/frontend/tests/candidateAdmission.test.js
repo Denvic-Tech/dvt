@@ -79,3 +79,32 @@ test('an operation with another kind or digest cannot replace the selected one',
   assert.equal(storage.getItem(candidateOperationKey), cancellation)
   assert.equal(storage.getItem(candidateRequestKey), null)
 })
+
+
+test('keeps the first-install settings and key while the wizard restarts', async (t) => {
+  const storage = session()
+  const settings = { ...data, app_port: 80, install_dir: '/srv/dvt', public_urls: ['http://dvt.example.ru'] }
+  const saved = JSON.stringify({ key: 'same-key', intent: JSON.stringify(settings) })
+  storage.setItem(candidateRequestKey, saved)
+  let calls = 0
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, '/api' + path)
+    assert.equal(options.headers['Idempotency-Key'], 'same-key')
+    assert.deepEqual(JSON.parse(options.body), settings)
+    if (++calls === 1) return Response.json({ detail: 'Setup is switching to the installation directory' }, { status: 503 })
+    return Response.json({ ...settings, id: admitted, stage: 'admitted' }, { status: 202 })
+  })
+  await assert.rejects(confirmCandidateAdmission(path, storage), { status: 503 })
+  assert.equal(storage.getItem(candidateRequestKey), saved)
+  assert.equal((await confirmCandidateAdmission(path, storage)).id, admitted)
+  assert.equal(storage.getItem(candidateRequestKey), null)
+})
+
+test('ends an invalid install intent so the operator can correct the directory', async (t) => {
+  const storage = session()
+  storage.setItem(candidateRequestKey, JSON.stringify({ key: 'same-key', intent: JSON.stringify(data) }))
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ detail: 'Invalid path' }, { status: 422 }))
+  await assert.rejects(confirmCandidateAdmission(path, storage), { status: 422 })
+  assert.equal(storage.getItem(candidateRequestKey), null)
+  assert.equal(storage.getItem(candidateOperationKey), cancellation)
+})
