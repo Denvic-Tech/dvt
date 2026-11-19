@@ -10,15 +10,18 @@ CA_TARGET = "/run/dvt-operator/ca.pem"
 TOKEN_TARGET = "/run/dvt-operator/gateway-token"
 
 
-def operator_binds(data: str) -> dict[str, str]:
+def operator_binds(data: str, *, http: bool = False) -> dict[str, str]:
     control = Path(data) / CONTROL
-    return {CA_TARGET: str(control / "ca.pem"), TOKEN_TARGET: str(control / "gateway-token")}
+    paths = {TOKEN_TARGET: str(control / "gateway-token")}
+    if not http:
+        paths[CA_TARGET] = str(control / "ca.pem")
+    return paths
 
 
 def wire_gateway(services: dict, config: dict) -> None:
     """Add trusted runtime wiring after the signed service model has been checked."""
     auth = CandidateAuth(config)
-    paths = operator_binds(config["data"])
+    paths = operator_binds(config["data"], http=config.get("manager_http") is True)
     write_artifact(Path(paths[TOKEN_TARGET]), auth.gateway_token.encode("ascii"))
     gateway = services["gateway"]
     manager = services["installation_manager"]

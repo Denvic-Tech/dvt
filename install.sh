@@ -7,7 +7,7 @@ export PATH
 fail() { printf 'DVT installer: %s\n' "$*" >&2; exit 1; }
 public_origin=https://dvt.distribution.denvic.tech
 origin=$public_origin
-channel=stable ca_file= dir=/var/lib/dvt project= port= public_url= containerd=
+channel= requested_version= explicit_selection=no private_rc=no ca_file= dir= project= port= public_url= containerd=
 ask=yes apt=no pair=no
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -15,18 +15,26 @@ while [ "$#" -gt 0 ]; do
             printf '%s\n' 'Launch the HTTPS DVT installer' \
                 '  --dir PATH --project NAME --port PORT --public-url ORIGIN --containerd-root PATH' \
                 '  --non-interactive --install-docker --new-pairing-token' \
+                '  --channel stable|rc --version X.Y.Z[-rcN] (first installation)' \
                 '  --catalog-origin HTTPS_ORIGIN --catalog-ca FILE --test-rc'
             exit 0 ;;
         -n|--non-interactive) ask=no ;;
         --install-docker) apt=yes ;;
         --new-pairing-token) pair=yes ;;
-        --test-rc) channel=rc ;;
-        --dir|--project|--port|--public-url|--containerd-root|--catalog-origin|--catalog-ca)
+        --test-rc) private_rc=yes ;;
+        --dir|--project|--port|--public-url|--containerd-root|--catalog-origin|--catalog-ca|--channel|--version)
             [ "$#" -ge 2 ] || fail "Missing value for $1"
             case "$1" in
                 --dir) dir=$2 ;; --project) project=$2 ;; --port) port=$2 ;;
                 --public-url) public_url=$2 ;; --containerd-root) containerd=$2 ;;
                 --catalog-origin) origin=${2%/} ;; --catalog-ca) ca_file=$2 ;;
+                --channel)
+                    [ -z "$channel" ] || fail 'Specify --channel once'
+                    case "$2" in stable|rc) channel=$2 ;; *) fail 'Use --channel stable or rc' ;; esac
+                    explicit_selection=yes ;;
+                --version)
+                    [ -z "$requested_version" ] && [ -n "$2" ] || fail 'Specify one release version'
+                    requested_version=$2 explicit_selection=yes ;;
             esac
             shift ;;
         *) fail "Unknown option: $1" ;;
@@ -39,9 +47,55 @@ valid() {
 '*) return 1 ;; esac
     printf '%s\n' "$1" | LC_ALL=C grep -Eq "$2"
 }
+number='(0|[1-9][0-9]{0,15})'
+base_version_pattern="$number\.$number\.$number"
+if [ "$private_rc" = yes ]; then
+    [ "${channel:-rc}" = rc ] || fail '--test-rc requires the rc channel'
+    channel=rc
+fi
+if [ -n "$requested_version" ]; then
+    valid "$requested_version" "^${base_version_pattern}(-?rc[1-9][0-9]{0,15})?$" ||
+        fail 'Use --version X.Y.Z or X.Y.Z-rcN'
+    case "$requested_version" in
+        *rc*) version_channel=rc
+              requested_version=$(printf '%s\n' "$requested_version" | sed 's/-\{0,1\}rc/-rc/') ;;
+        *) version_channel=stable ;;
+    esac
+    [ "${channel:-$version_channel}" = "$version_channel" ] || fail 'Version and channel disagree'
+    channel=$version_channel
+fi
+channel=${channel:-stable}
+
 origin_pattern='^https://[a-z0-9.-]+(:[0-9]{1,5})?$'
 digest_pattern='^sha256:[0-9a-f]{64}$'
 manager_pattern='^[a-z0-9][a-z0-9.:-]*/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
+resume_url=$public_url
+if [ "$ask" = yes ]; then
+    if [ -z "$public_url" ]; then
+        # The SSH server address or the source of the default route is local information.
+        detected=$(printf '%s\n' "${SSH_CONNECTION:-}" | awk '{print $3}')
+        if [ -z "$detected" ]; then
+            detected=$(ip -4 route get 192.0.2.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src"){print $(i+1); exit}}')
+        fi
+        if [ -z "$detected" ]; then
+            detected=$(hostname -I 2>/dev/null | awk '{print $1}')
+        fi
+        case "$detected" in *:*) detected="[$detected]" ;; esac
+        printf 'DVT host or origin [%s]: ' "${detected:-localhost}" >&2
+        IFS= read -r reply </dev/tty || fail 'Use an interactive terminal or --non-interactive'
+        public_url=${reply:-${detected:-localhost}}
+        if [ -n "$reply" ]; then resume_url=$reply; fi
+    fi
+    if [ -z "$dir" ]; then
+        printf 'Installation directory [/var/lib/dvt]: ' >&2
+        IFS= read -r dir </dev/tty || fail 'Use an interactive terminal or --non-interactive'
+    fi
+fi
+dir=${dir:-/var/lib/dvt}
+case "$public_url" in ''|http://*|https://*) ;; *) public_url=http://$public_url ;; esac
+case "$resume_url" in ''|http://*|https://*) ;; *) resume_url=http://$resume_url ;; esac
+public_url_pattern='^https?://([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(:[0-9]{1,5})?/?$'
+[ -z "$public_url" ] || valid "$public_url" "$public_url_pattern" || fail 'Enter an IP, hostname or HTTP(S) origin'
 valid "$dir" '^/[a-zA-Z0-9_./-]+$' && [ "$dir" != / ] || fail 'Use a canonical data directory'
 [ "$(realpath -m -- "$dir")" = "$dir" ] || fail 'Use a canonical data directory without symlinks'
 [ "$(uname -m)" = x86_64 ] || fail 'The installer requires Linux amd64'
@@ -97,15 +151,11 @@ docker_ready() { docker info >/dev/null 2>&1 && docker compose version >/dev/nul
 
 install_docker() {
     docker_ready && return
-    printf '%s\n' 'Docker Engine and Compose are required. Installation uses Docker’s signed APT repository.'
-    if [ "$apt" != yes ]; then
-        [ "$ask" = yes ] && [ -t 1 ] || fail 'Approve Docker installation with --install-docker'
-        printf 'Install Docker Engine and Compose? [y/N] ' >&2
-        IFS= read -r reply </dev/tty || fail 'Docker installation needs explicit consent'
-        case "$reply" in y|Y) ;; *) fail 'Docker installation needs explicit consent' ;; esac
-    fi
-    apt-get update
-    apt-get install -y ca-certificates curl gpg
+    [ "$ask" = yes ] || [ "$apt" = yes ] || fail 'Approve Docker installation with --install-docker'
+    printf '%s\n' 'Installing Docker Engine and Compose…'
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -qq update
+    apt-get -qq install -y ca-certificates curl gpg >/dev/null
     curl --disable --proto '=https' --fail --silent --show-error --max-time 30 \
         --max-filesize 65536 --output "$work/docker.asc" "https://download.docker.com/linux/$distro/gpg"
     mkdir -m 700 "$work/gnupg"
@@ -118,8 +168,8 @@ install_docker() {
     install -m 644 "$work/docker.asc" /etc/apt/keyrings/dvt-docker.asc
     printf '%s\n' "deb [arch=amd64 signed-by=/etc/apt/keyrings/dvt-docker.asc] https://download.docker.com/linux/$distro $codename stable" \
         | install -m 644 /dev/stdin /etc/apt/sources.list.d/dvt-docker.list
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    apt-get -qq update
+    apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
     docker_ready || fail 'Docker Engine or Compose remains unavailable'
 }
 
@@ -139,8 +189,9 @@ storage_paths() {
                 fail 'Use --containerd-root for this Docker image store'
             [ "$(tr '\000' '\n' <"/proc/$containerd_pid/cmdline")" = /usr/bin/containerd ] ||
                 fail 'Use --containerd-root for this Docker image store'
-            containerd=$(/usr/bin/containerd config dump |
-                awk -F '[ \t]*=[ \t]*' '$1=="root" {gsub(/[\047"]/, "", $2); print $2}')
+            /usr/bin/containerd config dump >"$work/containerd.conf" 2>"$work/containerd.err" ||
+                { cat "$work/containerd.err" >&2; fail 'Cannot read containerd configuration'; }
+            containerd=$(awk -F '[ \t]*=[ \t]*' '$1=="root" {gsub(/[\047"]/, "", $2); print $2}' "$work/containerd.conf")
         fi
         path_check "$containerd"
         [ -d "$containerd" ] || fail 'Containerd backing directory is missing'
@@ -177,7 +228,7 @@ UNIT
         mv -T -- "$unit_tmp" "$unit"
     fi
     systemctl daemon-reload
-    systemctl enable "dvt-bootstrap-$project.service"
+    systemctl --quiet enable "dvt-bootstrap-$project.service"
 }
 
 run_bootstrap() {
@@ -221,13 +272,23 @@ case "$mode" in
     *) fail 'Unknown managed action' ;;
 esac
 path_check "$dir"
+check_saved_selection() {
+    protected "$control/launch-host.conf" '0:600:regular file'
+    saved_pin=$(sed -n '6p' "$control/launch-host.conf")
+    saved_version=${saved_pin%% *}
+    [ -n "$saved_version" ] || fail 'Existing installation has no saved selection. Omit release options to resume.'
+    case "$saved_version" in *-rc*) saved_channel=rc ;; *) saved_channel=stable ;; esac
+    [ "$1" = "$saved_channel" ] && { [ -z "$2" ] || [ "$2" = "$saved_version" ]; } ||
+        fail 'Existing installation has a different release selection. Use the wizard to change versions.'
+}
 if [ "$mode" = dispatch ]; then
     if [ ! -e "$control" ] && [ ! -L "$control" ]; then
         exit 73
     fi
     protected "$control" '0:700:directory'
     protected "$control/host-launch.sh" '0:700:regular file'
-    exec /bin/sh "$control/host-launch.sh" repeat "$dir" "$@"
+    if [ -n "${8:-}" ]; then check_saved_selection "$8" "${9:-}"; fi
+    exec /bin/sh "$control/host-launch.sh" repeat "$dir" "$1" "$2" "$3" "$4" "$5" "$6" "$7"
 fi
 
 if [ "$mode" = new ]; then
@@ -266,19 +327,19 @@ if [ "$mode" = new ] && [ ! -e "$control" ] && [ ! -L "$control" ]; then
         ! \( -name '.bootstrap-partial-*' -type d \) -print -quit)" ]; then
         fail 'The selected data directory is not empty'
     fi
-    if [ "$ask" = yes ] && [ -z "$public_url" ]; then
-        printf 'Public DVT origin [http://localhost] ' >&2
-        IFS= read -r public_url </dev/tty
-    fi
     if [ -n "$public_url" ]; then
-        valid "$public_url" '^https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?/?$' ||
+        valid "$public_url" '^https?://([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(:[0-9]{1,5})?/?$' ||
             fail 'Enter the separate public HTTP(S) origin of DVT'
     fi
     install_docker
     storage_paths
-    docker pull --platform linux/amd64 "$manager"
+    printf '%s\n' 'Downloading the installation manager…'
+    docker pull --quiet --platform linux/amd64 "$manager" >/dev/null
     install -d -m 700 -- "$dir"
     printf '%s\n' "$project" "$manager" "$docker_root" "$containerd" "$port" >"$work/launch-host.conf"
+    if [ -n "${10:-}" ]; then
+        printf '%s %s\n' "${11}" "${12}" >>"$work/launch-host.conf"
+    fi
     set -- --managed --project "$project" --port "$port" --manager "$manager" \
         --public-url "${public_url:-http://localhost}" \
         --release-catalog-config /run/dvt-launch/catalog.json
@@ -303,7 +364,10 @@ valid "$expected" '^[0-9a-f]{64}$' &&
 {
     IFS= read -r project && IFS= read -r manager && IFS= read -r docker_root &&
         IFS= read -r containerd && IFS= read -r port || fail 'Invalid saved instance metadata'
-    if IFS= read -r extra; then fail 'Invalid saved instance metadata'; fi
+    if IFS= read -r pin; then
+        valid "$pin" '^[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)? sha256:[0-9a-f]{64}$' || fail 'Invalid saved release pin'
+        if IFS= read -r extra; then fail 'Invalid saved instance metadata'; fi
+    fi
 } <"$control/launch-host.conf"
 valid "$project" '^[a-z0-9][a-z0-9_-]{0,63}$' && ref_ok "$manager" ||
     fail 'Invalid saved project or manager pin'
@@ -314,6 +378,7 @@ if [ "$mode" = repeat ] || [ "$mode" = new ]; then
     [ -z "$1" ] || [ "$1" = "$project" ] || fail 'A different project is already stored'
     [ -z "$2" ] || [ "$2" = "$port" ] || fail 'A different HTTPS port is already stored'
     [ -z "$4" ] || [ "$4" = "$containerd" ] || fail 'A different containerd root is already stored'
+    if [ "$mode" = new ] && [ -n "${10:-}" ]; then check_saved_selection "${10}" "${11}"; fi
     ask=$5
     pair=$7
     if [ -n "$3" ]; then set -- --managed --public-url "$3"; else set -- --managed; fi
@@ -343,16 +408,18 @@ case "$distro:$codename" in
     debian:trixie|ubuntu:noble) ;;
     *) fail 'The installer requires an official supported distribution codename' ;;
 esac
+selection_channel=
+if [ "$explicit_selection" = yes ]; then selection_channel=$channel; fi
 if [ -e "$dir" ]; then
     result=0
     as_root /bin/sh -c "$runtime" dvt-runtime dispatch "$dir" \
-        "$project" "$port" "$public_url" "$containerd" "$ask" "$apt" "$pair" || result=$?
+        "$project" "$port" "$resume_url" "$containerd" "$ask" "$apt" "$pair" "$selection_channel" "$requested_version" || result=$?
     [ "$result" -eq 73 ] || exit "$result"
 fi
 
 valid "$origin" "$origin_pattern" || fail 'Select a valid HTTPS catalog'
-if [ "$origin" = "$public_origin" ] && { [ "$channel" = rc ] || [ -n "$ca_file" ]; }; then
-    fail 'RC and extra CA require an explicitly selected private catalog'
+if [ "$origin" = "$public_origin" ] && { [ "$private_rc" = yes ] || [ -n "$ca_file" ]; }; then
+    fail '--test-rc and extra CA require an explicitly selected private catalog'
 fi
 umask 077
 tmp=$(mktemp -d /tmp/dvt-install.XXXXXX)
@@ -363,12 +430,18 @@ fetch() {
     if [ -n "$ca_file" ]; then set -- --cacert "$ca_file" "$@"; fi
     curl --disable --proto '=https' --max-time 30 --fail --silent --show-error "$@"
 }
+set -- --data-urlencode "channel=$channel"
+if [ -n "$requested_version" ]; then set -- "$@" --data-urlencode "version=$requested_version"; fi
 status=$(fetch --max-filesize 65536 --output "$tmp/catalog.json" --dump-header "$tmp/headers" \
     --write-out '%{http_code}' --header 'Accept: application/vnd.dvt.install+json' \
     --get --data-urlencode "distribution=$distro" --data-urlencode "distribution_version=$version" \
-    --data-urlencode 'platform=linux/amd64' --data-urlencode "channel=$channel" \
-    "$origin/api/v1/dvt/releases/install") ||
-    fail 'No approved initial release or HTTPS catalog/certificate is unavailable'
+    --data-urlencode 'platform=linux/amd64' "$@" \
+    "$origin/api/v1/dvt/releases/install") || {
+    if [ "$status" = 404 ]; then
+        fail "No approved initial release for $distro $version ($channel${requested_version:+, $requested_version})"
+    fi
+    fail 'HTTPS catalog/certificate is unavailable'
+}
 [ "$status" = 200 ] || fail 'The HTTPS catalog did not return an approved initial release'
 
 header() {
@@ -400,6 +473,8 @@ if [ "$channel" = rc ]; then version_pattern=$version_pattern'-rc[0-9]{1,16}'; f
     valid "$asset_origin" "$origin_pattern" && valid "$asset_size" '^[1-9][0-9]{0,6}$' &&
     [ "$asset_size" -le 1048576 ] && valid "$manager" "$manager_pattern" ||
     fail 'Invalid installation descriptor'
+[ -z "$requested_version" ] || [ "$selected" = "$requested_version" ] ||
+    fail "Catalog returned $selected instead of requested version $requested_version"
 case "$asset_url" in "$asset_origin/"?*) ;; *) fail 'Invalid HTTPS bootstrap origin' ;; esac
 valid "$asset_url" '^https://[a-z0-9.:-]+/[a-zA-Z0-9._~/%-]+$' ||
     fail 'Invalid HTTPS bootstrap URL'
@@ -416,8 +491,7 @@ if [ -n "$ca_file" ]; then
     [ "$(wc -c <"$ca_file")" -le 32768 ] || fail 'The private catalog CA is too large'
     catalog_ca=$(cat -- "$ca_file")
 fi
-printf 'Approved %s release %s (%s)\n' "$channel" "$selected" "$manifest"
 as_root /bin/sh -c "$runtime" dvt-runtime new "$dir" \
     "$runtime" "$manager" "$asset_digest" "$asset_size" "$catalog" "$catalog_hash" "$catalog_ca" \
     "$project" "$port" "$public_url" "$containerd" "$ask" "$apt" "$pair" "$distro" "$codename" \
-    <"$tmp/host_bootstrap.py"
+    "$selection_channel" "$selected" "$manifest" <"$tmp/host_bootstrap.py"

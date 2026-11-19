@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { candidateRequest } from './candidateApi.js'
 
 export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
-  const [channel, setChannel] = useState('stable')
+  const pinnedVersion = settings.initial_release_version
+  const [channel, setChannel] = useState(pinnedVersion?.includes('-rc') ? 'rc' : 'stable')
   const [catalog, setCatalog] = useState(null)
   const [version, setVersion] = useState('')
   const [confirmed, setConfirmed] = useState(false)
@@ -57,7 +58,7 @@ export default function CandidateReleaseForm({ settings, disabled, onSubmit }) {
         <p>Работает DVT {catalog.source.version}, схема базы {catalog.source.revision}.</p>
       )}
       <label className="field">Канал релиза
-        <select value={channel} onChange={(event) => {
+        <select value={channel} disabled={Boolean(pinnedVersion)} onChange={(event) => {
           setCatalog(null)
           setMessage('')
           setConfirmed(false)

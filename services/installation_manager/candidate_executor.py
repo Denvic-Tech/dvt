@@ -39,6 +39,7 @@ from .host_bootstrap import (
     check_image,
     docker,
     init_container,
+    manager_origin,
 )
 from .infrastructure.operation_store import FORMAT_VERSION, OperationStore
 from .infrastructure.staging_artifacts import artifact_directory, read_artifact, write_artifact
@@ -161,14 +162,25 @@ def _check_host(config: dict, staging: Path) -> None:
 
 def _probe(config: dict, store: OperationStore, operation_id: UUID, claim_id: UUID) -> None:
     auth = CandidateAuth(config)
-    tls = auth.probe_tls()
+    direct = config.get("manager_http") is True
+    tls = None if direct else auth.probe_tls()
     headers = {"Host": auth.host, "Authorization": f"Bearer {auth.machine}"}
     path = f"/api/operations/{operation_id}"
     response_limit = 256 * 1024
     deadline = time.monotonic() + 70
     while time.monotonic() < deadline:
         try:
-            connection = _ManagerConnection(config["address"], config["port"], tls)
+            if direct:
+                bind = ipaddress.ip_address(config["address"])
+                if bind.is_unspecified:
+                    probe_ip = "::1" if bind.version == 6 else "127.0.0.1"
+                elif bind.is_loopback:
+                    probe_ip = str(bind)
+                else:
+                    raise ValueError("The manager probe requires a local listener")
+                connection = http.client.HTTPConnection(probe_ip, config["port"], timeout=3)
+            else:
+                connection = _ManagerConnection(config["address"], config["port"], tls)
             with contextlib.closing(connection):
                 connection.request("GET", path, headers=headers)
                 with connection.getresponse() as response:
@@ -267,7 +279,7 @@ def execute(config: dict, store: OperationStore, operation_id: UUID) -> None:
                             "source_image": old,
                             "target_image": target,
                             "executor_image": config["executor"],
-                            "origin": f"https://localhost:{config['port']}",
+                            "origin": manager_origin(config),
                         }
                     ),
                 )
