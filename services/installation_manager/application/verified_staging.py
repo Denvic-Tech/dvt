@@ -232,7 +232,6 @@ class VerifiedStaging:
         platform = check_platform(
             info,
             self.docker.compose_version(deadline),
-            self.paths.os_release,
             manifest.environment,
             profile,
         )

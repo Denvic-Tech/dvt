@@ -27,6 +27,7 @@ from services.installation_manager.domain.release_manifest import (
     digest_of,
     strict_json,
 )
+from services.installation_manager import host_bootstrap
 from services.installation_manager.host_bootstrap import bootstrap_images
 from services.installation_manager.infrastructure.release_verification import (
     KEY_CONTEXT,
@@ -38,8 +39,10 @@ FIXTURE = ROOT / "tests/data/installation_manager/verified_staging/manifest.json
 
 
 @pytest.fixture
-def package(tmp_path):
+def package(tmp_path, request):
     release = strict_json(FIXTURE.read_bytes())["payload"]
+    if distributions := getattr(request, "param", None):
+        release["environment"]["distributions"] = distributions
     source = (ROOT / COMPOSE).read_bytes()
     services = yaml.safe_load(source)["services"]
     inventory = {
@@ -116,6 +119,7 @@ def test_production_packager_rejects_invalid_image_set(package, problem):
         pinned_compose((ROOT / COMPOSE).read_bytes(), inventory, isolated=False)
 
 
+@pytest.mark.parametrize("package", [None, {"debian": ["12"]}], indirect=True)
 def test_acceptance_requires_all_exact_vm_results_and_evidence(package, tmp_path):
     args, inventory = package
     content = (args.output_dir / "manifest.json").read_bytes()
@@ -137,8 +141,8 @@ def test_acceptance_requires_all_exact_vm_results_and_evidence(package, tmp_path
             case["evidence"] = {"synthetic.txt": digest_of(note.read_bytes())}
             if case_id == "AT-09":
                 case["restore_target"] = {
-                    "vm": "restore-clean", "distribution": "ubuntu",
-                    "distribution_version": "24.04", "platform": "linux/amd64",
+                    "vm": "restore-clean", "distribution": "fedora",
+                    "distribution_version": "43", "platform": "linux/amd64",
                     "compose_version": "100.0.0", "docker_version": "100.0.0",
                 }
     result = acceptance.issue_receipt(content, manifest, matrix, tmp_path, "123")
@@ -146,6 +150,15 @@ def test_acceptance_requires_all_exact_vm_results_and_evidence(package, tmp_path
         "format_version": 1, "result": "passed", "version": manifest.version,
         "run_id": "gitlab-pipeline-123", "manifest_digest": digest_of(content),
     }
+    additional = deepcopy(matrix)
+    extra_run = {
+        **deepcopy(matrix["runs"][0]), "vm": "extra-vm", "distribution": "fedora",
+        "distribution_version": "43",
+    }
+    extra_run["cases"] = {"AT-01": extra_run["cases"]["AT-01"]}
+    additional["runs"].append(extra_run)
+    assert acceptance.issue_receipt(content, manifest, additional, tmp_path, "123") == result
+
     missing = deepcopy(matrix)
     missing["runs"].pop()
     with pytest.raises(ValueError, match="missing for a declared VM profile"):
@@ -164,6 +177,32 @@ def test_acceptance_requires_all_exact_vm_results_and_evidence(package, tmp_path
     note.write_bytes(b"Tampered evidence")
     with pytest.raises(ValueError, match="Evidence digest mismatch"):
         acceptance.issue_receipt(content, manifest, matrix, tmp_path, "123")
+
+
+def test_bootstrap_catalog_configuration_without_os_release(tmp_path):
+    catalog_file = tmp_path / "catalog.json"
+    catalog_file.write_bytes(canonical_json({"origin": "https://catalog.example.test"}))
+
+    catalog = host_bootstrap._catalog_config(catalog_file, tmp_path / "missing-os-release")
+
+    assert catalog["origin"] == "https://catalog.example.test"
+    assert catalog["platform"] == "linux/amd64"
+
+
+def test_docker_preparation_tries_apt_for_debian_12(tmp_path, monkeypatch):
+    os_release = tmp_path / "os-release"
+    os_release.write_text('ID=debian\nVERSION_ID="12"\nVERSION_CODENAME=bookworm\n')
+    monkeypatch.setattr(host_bootstrap, "host_os_release", lambda: os_release)
+    monkeypatch.setattr(host_bootstrap, "docker_ready", lambda: False)
+    apt_command = ["apt-get", "update"]
+
+    def fail_at_apt(command):
+        assert command == apt_command
+        raise subprocess.CalledProcessError(100, command)
+
+    monkeypatch.setattr(host_bootstrap, "command", fail_at_apt)
+    with pytest.raises(subprocess.CalledProcessError):
+        host_bootstrap.install_docker(allowed=True, interactive=False)
 
 
 def test_catalog_bootstrap_can_use_one_approved_manager_digest():

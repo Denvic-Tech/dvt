@@ -93,16 +93,14 @@ public_url_pattern='^https?://([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(:[0-9]{1,5})?/?
 [ -z "$public_url" ] || valid "$public_url" "$public_url_pattern" || fail 'Enter an IP, hostname or HTTP(S) origin'
 valid "$dir" '^/[a-zA-Z0-9_./-]+$' && [ "$dir" != / ] || fail 'Use a canonical data directory'
 [ "$(realpath -m -- "$dir")" = "$dir" ] || fail 'Use a canonical data directory without symlinks'
-[ "$(uname -m)" = x86_64 ] || fail 'The installer requires Linux amd64'
+host_os_release=/etc/os-release
+if [ ! -r "$host_os_release" ]; then host_os_release=/usr/lib/os-release; fi
 os_value() {
-    awk -F= -v key="$1" '$1==key { gsub(/"/, "", $2); print $2 }' /etc/os-release
+    [ ! -r "$host_os_release" ] ||
+        awk -F= -v key="$1" '$1==key { gsub(/"/, "", $2); print $2; exit }' "$host_os_release"
 }
 distro=$(os_value ID)
 version=$(os_value VERSION_ID)
-case "$distro:$version" in
-    debian:13|ubuntu:24.04) ;;
-    *) fail 'The installer supports Debian 13 and Ubuntu 24.04' ;;
-esac
 
 # This root-owned shim is persisted atomically with the verified bootstrap.
 runtime=$(cat <<'ROOT_SH'
@@ -154,6 +152,8 @@ local_image_pin() {
 install_docker() {
     docker_ready && return
     [ "$ask" = yes ] || [ "$apt" = yes ] || fail 'Approve Docker installation with --install-docker'
+    valid "$distro" '^[a-z0-9][a-z0-9._-]*$' && valid "$codename" '^[a-z0-9][a-z0-9._-]*$' ||
+        fail 'Docker APT setup needs a distribution ID and codename. Install Docker manually or correct os-release.'
     printf '%s\n' 'Installing Docker Engine and Compose…'
     export DEBIAN_FRONTEND=noninteractive
     apt-get -qq update
@@ -261,12 +261,16 @@ run_bootstrap() {
         set -- -i -t "$@"
         terminal=/dev/tty
     fi
+    if [ -f /etc/os-release ]; then
+        set -- --mount 'type=bind,src=/etc/os-release,dst=/run/dvt-host-os,readonly' "$@"
+    elif [ -f /usr/lib/os-release ]; then
+        set -- --mount 'type=bind,src=/usr/lib/os-release,dst=/run/dvt-host-os,readonly' "$@"
+    fi
     docker run --rm --pull=never --platform linux/amd64 --network host --entrypoint python3 \
         --label com.docker.compose.project= --label com.docker.compose.service= \
         --mount "type=bind,src=$dir,dst=$dir" \
         --mount "type=bind,src=$docker_root,dst=$docker_root,readonly" \
         --mount 'type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock' \
-        --mount 'type=bind,src=/etc/os-release,dst=/run/dvt-host-os,readonly' \
         "$@" <"$terminal"
 }
 
@@ -277,10 +281,6 @@ shift 2
 case "$mode" in
     local|local-discover|local-repeat|new|discover|dispatch|repeat|resume|maintenance|maintenance-extend|maintenance-defer|cancel-preparation|recover-manager|return-to-source|restore-start) ;;
     *) fail 'Unknown managed action' ;;
-esac
-case "$mode" in
-    local|local-*) ;;
-    *) [ -d /run/systemd/system ] || fail 'Use sudo on the systemd host' ;;
 esac
 path_check "$dir"
 check_saved_selection() {
@@ -571,10 +571,6 @@ as_root() {
 }
 
 codename=$(os_value VERSION_CODENAME)
-case "$distro:$codename" in
-    debian:trixie|ubuntu:noble) ;;
-    *) fail 'The installer requires an official supported distribution codename' ;;
-esac
 selection_channel=
 if [ "$explicit_selection" = yes ]; then selection_channel=$channel; fi
 if [ "$wizard" = yes ] || { [ -z "$local_image" ] && [ -e "$dir" ]; }; then
@@ -602,13 +598,16 @@ fetch() {
 }
 set -- --data-urlencode "channel=$channel"
 if [ -n "$requested_version" ]; then set -- "$@" --data-urlencode "version=$requested_version"; fi
+# Keep sending legacy query fields when available for older private catalogs.
+if [ -n "$distro" ] && [ -n "$version" ]; then
+    set -- "$@" --data-urlencode "distribution=$distro" --data-urlencode "distribution_version=$version"
+fi
 status=$(fetch --max-filesize 65536 --output "$tmp/catalog.json" --dump-header "$tmp/headers" \
     --write-out '%{http_code}' --header 'Accept: application/vnd.dvt.install+json' \
-    --get --data-urlencode "distribution=$distro" --data-urlencode "distribution_version=$version" \
-    --data-urlencode 'platform=linux/amd64' "$@" \
+    --get --data-urlencode 'platform=linux/amd64' "$@" \
     "$origin/api/v1/dvt/releases/install") || {
     if [ "$status" = 404 ]; then
-        fail "No approved initial release for $distro $version ($channel${requested_version:+, $requested_version})"
+        fail "No approved initial release ($channel${requested_version:+, $requested_version})"
     fi
     fail 'HTTPS catalog/certificate is unavailable'
 }

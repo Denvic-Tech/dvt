@@ -10,7 +10,6 @@ import hashlib
 import ipaddress
 import json
 import os
-import platform
 import re
 import shutil
 import signal
@@ -38,6 +37,24 @@ STATE = ".installation-state"
 WIZARD_PROTOCOL = 1
 LAUNCH_DIGEST = "launch-bootstrap.sha256"
 HOST_OS_RELEASE = Path("/run/dvt-host-os")
+
+
+def host_os_release() -> Path:
+    path = Path("/etc/os-release")
+    return path if path.is_file() else Path("/usr/lib/os-release")
+
+
+def read_os_release(path: Path) -> dict[str, str]:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+    release = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if separator:
+            release[key] = value.strip('"')
+    return release
 
 
 def command(args, *, check=True, timeout=180):
@@ -200,11 +217,10 @@ def _launch(config, operation_id, action="candidate-executor"):
         raise ValueError("Docker image store has changed since host preparation")
     if action == "candidate-executor":
         restore_initial_manager(config, operation_id)
-    mounts = [
-        mount(config["data"]),
-        mount(SOCKET),
-        mount("/etc/os-release", "/run/dvt-host-os", readonly=True),
-    ]
+    mounts = [mount(config["data"]), mount(SOCKET)]
+    os_release = host_os_release()
+    if os_release.is_file():
+        mounts.append(mount(str(os_release), str(HOST_OS_RELEASE), readonly=True))
     for directory in dict.fromkeys([config["docker_root"], config["containerd_root"]]):
         if directory:
             mounts.append(mount(directory, readonly=True))
@@ -337,14 +353,13 @@ def install_docker(allowed, interactive):
     ):
         raise ValueError("Docker preparation needs explicit permission (--install-docker)")
     # Use Docker's key only after matching the published primary fingerprint.
-    distro = dict(
-        line.split("=", 1)
-        for line in Path("/etc/os-release").read_text().splitlines()
-        if "=" in line
-    )
-    name, codename = distro["ID"].strip('"'), distro["VERSION_CODENAME"].strip('"')
-    if (name, codename) not in {("debian", "trixie"), ("ubuntu", "noble")}:
-        raise ValueError("Docker preparation supports Debian 13 and Ubuntu 24.04")
+    distro = read_os_release(host_os_release())
+    name, codename = distro.get("ID", ""), distro.get("VERSION_CODENAME", "")
+    if not all(re.fullmatch(r"[a-z0-9][a-z0-9._-]*", value) for value in (name, codename)):
+        raise ValueError(
+            "Docker APT setup needs a distribution ID and codename. "
+            "Install Docker manually or correct os-release."
+        )
     with tempfile.TemporaryDirectory() as folder:
         key = Path(folder) / "docker.asc"
         command(["apt-get", "update"])
@@ -510,7 +525,7 @@ WantedBy=multi-user.target
     command(["systemctl", "enable", unit.name])
 
 
-def _catalog_config(path, os_release=Path("/etc/os-release")):
+def _catalog_config(path, os_release=None):
     with Path(path).open("rb") as source:
         raw = source.read(65537)
     if len(raw) > 65536:
@@ -568,20 +583,12 @@ def _catalog_config(path, os_release=Path("/etc/os-release")):
         )
     ):
         raise ValueError("The DVT release trust document is invalid")
-    distro = dict(
-        line.split("=", 1)
-        for line in os_release.read_text().splitlines()
-        if "=" in line
-    )
-    distribution = distro.get("ID", "").strip('"')
-    version = distro.get("VERSION_ID", "").strip('"')
-    if not distribution or not version:
-        raise ValueError("The host Linux distribution or version is unknown")
+    distro = read_os_release(os_release if os_release is not None else host_os_release())
     return {
         **settings,
         "platform": "linux/amd64",
-        "distribution": distribution,
-        "distribution_version": version,
+        "distribution": distro.get("ID", ""),
+        "distribution_version": distro.get("VERSION_ID", ""),
     }
 
 
@@ -708,7 +715,7 @@ def bootstrap(args):
     if local_ui_image and not (local_images and contained):
         raise ValueError("Use the contained local-image bootstrap to select a local UI")
     catalog_file = getattr(args, "release_catalog_config", None)
-    os_release = HOST_OS_RELEASE if contained else Path("/etc/os-release")
+    os_release = HOST_OS_RELEASE if contained else host_os_release()
     catalog = _catalog_config(catalog_file, os_release) if catalog_file else None
     catalog_ca_path = getattr(args, "release_catalog_ca", None)
     catalog_ca = None
@@ -1076,13 +1083,10 @@ def main():
         if args.local_images and (args.action != "bootstrap" or not args.contained):
             raise ValueError("Local images are only supported by the contained test bootstrap")
         os.umask(0o077)
-        if os.geteuid() or not sys.platform.startswith("linux") or platform.machine() != "x86_64":
-            raise ValueError("This candidate requires root on Linux amd64")
-        if args.contained:
-            if not HOST_OS_RELEASE.is_file() or (args.action == "bootstrap" and not args.managed):
-                raise ValueError("Use the managed launcher with the host distribution bind mount")
-        elif not Path("/run/systemd/system").is_dir():
-            raise ValueError("The host must run systemd")
+        if os.geteuid():
+            raise ValueError("This candidate requires root")
+        if args.contained and args.action == "bootstrap" and not args.managed:
+            raise ValueError("Use the managed launcher for the contained bootstrap")
         if args.action == "wizard-intent":
             if not args.contained:
                 raise ValueError("Use the managed installer to read the installation intent")
