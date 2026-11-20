@@ -26,8 +26,6 @@ class CandidateAuth:
         self.origin = manager_origin(config)
         self.host = self.origin.split("://", 1)[1]
         self.secure = self.origin.startswith("https://")
-        self.origins = frozenset(config.get("manager_origins") or [self.origin])
-        self.hosts = {origin.split("://", 1)[1] for origin in self.origins}
         self.cookie = f"{'__Host-' if self.secure else ''}dvt-{config['instance']}"
         self.machine = self._read("machine-token").decode("ascii")
         self._key = self._read("session-key")
@@ -100,9 +98,10 @@ class CandidateAuth:
         except ValueError:
             return False
 
-    def same_origin(self, request: Request) -> bool:
-        origin = request.headers.get("origin")
-        return origin in self.origins and origin.split("://", 1)[1] == request.headers.get("host")
+    @staticmethod
+    def same_origin(request: Request) -> bool:
+        host = request.headers.get("host")
+        return bool(host) and request.headers.get("origin") == f"{request.scope['scheme']}://{host}"
 
     def csrf(self, request: Request) -> None:
         if (

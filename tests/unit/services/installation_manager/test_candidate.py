@@ -96,7 +96,7 @@ def test_anonymous_api_and_bad_browser_origin_cannot_control_candidate(candidate
         "/api/config", "/api/secrets", "/api/operations", "/api/operations/active", "/api/releases",
     ):
         assert client.get(url).status_code == 401
-    assert client.get("/health", headers={"Host": "evil.example:8888"}).status_code == 421
+    assert client.get("/api/operations", headers={"Host": "manager.example:8888"}).status_code == 401
     assert client.post("/api/session", json={"code": code}).status_code == 403
     assert (
         client.post(
@@ -636,32 +636,62 @@ def test_resume_restores_only_an_approved_manager_for_empty_early_online_install
     else:
         assert checked == applied == []
 
-def test_wizard_aliases_require_matching_browser_origin(candidate):
-    config, _, _ = candidate
-    config.update(manager_http=True, manager_origins=[
-        "http://192.0.2.8:8888", "http://localhost:8888",
-    ])
-    app = create_app(config, candidate[1], None)
-    auth = CandidateAuth(config)
-    code = auth.issue_pairing()
-    client = TestClient(app, base_url="http://localhost:8888")
-    for origin in ["http://192.0.2.8:8888", "http://other.invalid:8888"]:
-        assert client.post("/api/session", json={"code": code}, headers={
-            "Origin": origin, "X-DVT-CSRF": "1",
-        }).status_code == 403
-    for origin in config["manager_origins"]:
-        assert TestClient(app, base_url=origin).get("/health").is_success
-    assert client.get("/health", headers={"Host": "other.invalid:8888"}).status_code == 421
-    assert client.post("/api/session", json={"code": code}, headers={
-        "Origin": "http://localhost:8888", "X-DVT-CSRF": "1",
-    }).is_success
+
+@pytest.mark.parametrize("address", ["http://203.0.113.8:8888", "http://manager.example:9000"])
+def test_wizard_accepts_pairing_at_an_unlisted_address(candidate, tmp_path, address):
+    config, store, _ = candidate
+    config.update(
+        manager_http=True, manager_origins=["http://10.0.0.8:8888", "http://localhost:8888"],
+    )
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("Wizard", encoding="utf-8")
+    client = TestClient(create_app(config, store, static_dir), base_url=address)
+    assert client.get("/").text == "Wizard"
+    assert client.get("/api/operations").status_code == 401
+
+    code = CandidateAuth(config).issue_pairing()
+    for origin in (
+        config["manager_origins"][0], address.replace("http:", "https:"),
+        address.rsplit(":", 1)[0] + ":8080",
+    ):
+        response = client.post(
+            "/api/session", json={"code": code}, headers={"Origin": origin, "X-DVT-CSRF": "1"},
+        )
+        assert response.status_code == 403
+
+    headers = {"Origin": address, "X-DVT-CSRF": "1"}
+    assert client.post("/api/session", json={"code": code}, headers=headers).status_code == 200
+    operations = client.get("/api/operations", headers={"Origin": address})
+    assert operations.status_code == 200
+    assert operations.json() == []
+
+
+@pytest.mark.parametrize(("reply", "bind"), [
+    (b"<html>Unavailable</html>", "0.0.0.0"),
+    (b"10.0.0.8", "0.0.0.0"),
+    (b"224.0.0.1", "0.0.0.0"),
+    (b"8.8.8.8\n1.1.1.1", "0.0.0.0"),
+    (b"\xff", "0.0.0.0"),
+    (b" " * 64 + b"8.8.8.8", "0.0.0.0"),
+    (b"2606:4700:4700::1111", "0.0.0.0"),
+    (b"2606:4700:4700::1111%eth0", "::"),
+    (b"::ffff:8.8.8.8", "::"),
+])
+def test_wizard_ignores_unusable_ip_service_reply(tmp_path, reply, bind):
+    response = tmp_path / "wizard-public-ip"
+    response.write_bytes(reply)
+    assert host_bootstrap.wizard_public_url(response, bind) is None
 
 
 def test_first_install_handoff_survives_browser_close_and_replay(candidate, tmp_path, monkeypatch):
     config, temporary_store, _ = candidate
     source_control = tmp_path / host_bootstrap.CONTROL
-    config.update(wizard_temporary=True, manager_http=True,
-                  manager_origins=["http://localhost:8888"], default_install_dir="/var/lib/dvt")
+    config.update(
+        wizard_temporary=True, manager_http=True, default_install_dir="/var/lib/dvt",
+        manager_origins=["http://10.0.0.8:8888", "http://localhost:8888", "http://93.184.216.34:8888"],
+        public_url="http://93.184.216.34", public_urls=["http://93.184.216.34", "http://10.0.0.8"],
+    )
     selected = SimpleNamespace(pin=ReleasePin("stable", "sha256:" + "1" * 64))
     monkeypatch.setattr(operator_api, "select_release", lambda *_: (selected, None))
     client = TestClient(create_app(config, temporary_store, None), base_url="http://localhost:8888")
@@ -674,7 +704,11 @@ def test_first_install_handoff_survives_browser_close_and_replay(candidate, tmp_
     }
     key = {"Idempotency-Key": "wizard-handoff"}
     url = "/api/operator/operations"
-    assert client.get("/api/operator/settings", headers=MACHINE).json()["install_dir"] == "/var/lib/dvt"
+    settings = client.get("/api/operator/settings", headers=MACHINE).json()
+    assert settings["install_dir"] == "/var/lib/dvt"
+    assert settings["public_urls"] == ["http://93.184.216.34", "http://10.0.0.8"]
+    assert settings["app_origin"] == settings["public_urls"][0]
+    assert settings["app_port"] == 80
     assert client.post(url, headers={**MACHINE, **key}, json=data).status_code == 503
     assert temporary_store.active() is None and not destination.exists()
     handoff = source_control / "install-intent.json"
