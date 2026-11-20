@@ -671,6 +671,24 @@ def wizard_bind(host):
     return "0.0.0.0"
 
 
+def wizard_public_url(response: Path, bind_address: str) -> str | None:
+    try:
+        with response.open("rb") as stream:
+            raw = stream.read(65)
+        if len(raw) > 64 or b"%" in raw:
+            return None
+        ip = ipaddress.ip_address(raw.decode("ascii").strip())
+    except (OSError, ValueError):
+        return None
+    if ip.version != ipaddress.ip_address(bind_address).version:
+        return None
+    if not ip.is_global or ip.is_multicast or ip.is_reserved:
+        return None
+    if ip.version == 6 and (ip.is_site_local or ip.ipv4_mapped is not None):
+        return None
+    return f"http://[{ip}]" if ip.version == 6 else f"http://{ip}"
+
+
 def wizard_origins(public_url, host, port, address):
     hosts = (host, "localhost", urlsplit(public_url).hostname)
     origins = []
@@ -936,11 +954,15 @@ def bootstrap(args):
         if managed:
             config["manager_http"] = True
         if wizard_default:
+            external_url = wizard_public_url(Path(__file__).with_name("wizard-public-ip"), address)
+            if external_url:
+                config["public_urls"] = list(dict.fromkeys([external_url, public_url]))
+                config["public_url"] = external_url
             config.update(
                 wizard_temporary=True,
                 wizard_project=args.wizard_project,
                 default_install_dir=wizard_default,
-                manager_origins=wizard_origins(public_url, args.wizard_host, port, address),
+                manager_origins=wizard_origins(config["public_url"], args.wizard_host, port, address),
             )
         if wizard_config:
             config.update(manager_origins=wizard_config["manager_origins"], public_urls=public_urls)

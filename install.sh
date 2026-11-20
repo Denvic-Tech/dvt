@@ -432,7 +432,18 @@ if { [ "$mode" = new ] || [ "$mode" = local ]; } && [ ! -e "$control" ] && [ ! -
         if [ "$pair" != yes ] && { [ "$ask" != yes ] || [ ! -t 1 ]; }; then
             fail 'Use an interactive terminal or --new-pairing-token to start browser setup'
         fi
-        if [ -z "$public_url" ] && [ -n "$wizard_host" ]; then public_url=http://$wizard_host; fi
+        if [ -z "$public_url" ]; then
+            case "$wizard_host" in
+                *:*) ip_service=https://api6.ipify.org ;;
+                *)   ip_service=https://api.ipify.org ;;
+            esac
+            # The bootstrap validates this optional response against the actual bind family.
+            if curl --disable --proto '=https' --fail --silent --max-time 2 --max-filesize 64 \
+                --output "$work/ipify-response" "$ip_service"; then
+                mv -- "$work/ipify-response" "$work/wizard-public-ip"
+            fi
+            if [ -n "$wizard_host" ]; then public_url=http://$wizard_host; fi
+        fi
         docker run --rm --pull=never --platform linux/amd64 --network none --entrypoint python3 \
             "$manager" -c 'from services.installation_manager.host_bootstrap import WIZARD_PROTOCOL; assert WIZARD_PROTOCOL == 1' \
             >/dev/null 2>&1 || fail 'This approved manager does not support browser setup. Rerun with --dir for legacy installation.'

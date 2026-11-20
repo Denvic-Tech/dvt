@@ -69,9 +69,7 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
     operator = [Depends(auth.require_operator)]
 
     @app.middleware("http")
-    async def verified_origin(request: Request, call_next):
-        if request.headers.get("host") not in auth.hosts:
-            return JSONResponse({"detail": "Unknown manager address"}, status_code=421)
+    async def set_response_headers(request: Request, call_next):
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"

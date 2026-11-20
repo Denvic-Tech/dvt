@@ -169,7 +169,27 @@ class InstallLauncherTest(unittest.TestCase):
             f"LOCAL_UI_TAG = {LOCAL_UI_TAG!r}\nLOCAL_UI_PIN = {LOCAL_UI_PIN!r}\n"
             f"WITNESS = __import__('pathlib').Path({str(self.events)!r})\n"
         )
+        self.ip_reply = self.root / "ipify-reply"
+        self.ip_calls = self.root / "ipify-calls"
+        curl_fixture = f"""#!{sys.executable}
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+if args[-1] not in ("https://api.ipify.org", "https://api6.ipify.org"):
+    os.execv("/usr/bin/curl", ["curl", *args])
+with Path({str(self.ip_calls)!r}).open("a") as calls:
+    print(args[-1], file=calls)
+reply = Path({str(self.ip_reply)!r})
+output = Path(args[args.index("--output") + 1])
+if not reply.exists():
+    output.write_bytes(b"8.8.8.8")
+    sys.exit(28)  # Timeout after a partial transfer.
+output.write_bytes(reply.read_bytes())
+"""
         for name, content in (
+            ("curl", curl_fixture),
             ("docker", f"#!{sys.executable}\n" + definitions + DOCKER_FIXTURE),
             ("systemctl", "#!/bin/sh\nexit 0\n"),
         ):
@@ -300,9 +320,18 @@ class InstallLauncherTest(unittest.TestCase):
         )
 
     def test_wizard_creates_final_directory_after_submission_and_resumes_without_dir(self):
+        self.ip_reply.write_text("93.184.216.34\n")
         self._exercise_wizard(
             self.launch_command("--new-pairing-token", wizard=True),
             self.launch_command("--non-interactive", wizard=True),
+            external="93.184.216.34",
+        )
+
+    def test_explicit_public_url_skips_ip_lookup(self):
+        self._exercise_wizard(
+            self.launch_command("--new-pairing-token", "--public-url", "https://app.test", wizard=True),
+            self.launch_command("--non-interactive", wizard=True),
+            explicit_url="https://app.test",
         )
 
     def test_local_image_wizard_without_systemd(self):
@@ -320,6 +349,7 @@ class InstallLauncherTest(unittest.TestCase):
         )
 
     def test_wizard_resumes_after_interrupted_handoff(self):
+        self.ip_reply.write_bytes(b"<html>Service unavailable</html>")
         self._exercise_wizard(
             self.launch_command("--new-pairing-token", wizard=True),
             self.launch_command("--non-interactive", wizard=True),
@@ -328,13 +358,15 @@ class InstallLauncherTest(unittest.TestCase):
 
     @unittest.skipUnless(socket.has_ipv6, "An IPv6 socket is required")
     def test_wizard_publishes_ipv6_for_an_ipv6_ssh_connection(self):
+        self.ip_reply.write_text("2606:4700:4700::1111")
         self._exercise_wizard(
             self.launch_command("--new-pairing-token", wizard=True),
             self.launch_command("--non-interactive", wizard=True),
-            ipv6=True,
+            ipv6=True, external="[2606:4700:4700::1111]",
         )
 
-    def _exercise_wizard(self, launch, repeat, *, interrupt=False, ipv6=False):
+    def _exercise_wizard(self, launch, repeat, *, interrupt=False, ipv6=False, external=None,
+                         explicit_url=None):
         bind = "::" if ipv6 else "0.0.0.0"
         detected = "2001:db8::20" if ipv6 else "192.0.2.20"
         authority = f"[{detected}]" if ipv6 else detected
@@ -372,7 +404,10 @@ class InstallLauncherTest(unittest.TestCase):
                     self.assertNotEqual(temporary["port"], 8888)
                     self.assertTrue(temporary["wizard_temporary"])
                     self.assertEqual(temporary["address"], bind)
-                    self.assertEqual(temporary["public_url"], f"http://{authority}")
+                    expected_url = explicit_url or f"http://{external or authority}"
+                    self.assertEqual(temporary["public_url"], expected_url)
+                    if external:
+                        self.assertEqual(temporary["public_urls"], [expected_url, f"http://{authority}"])
                     request = {
                         "key": "install-intent",
                         "request": {
@@ -420,7 +455,15 @@ class InstallLauncherTest(unittest.TestCase):
         self.assertEqual(json.loads((final / "install-intent.json").read_bytes()), request)
         self.assertFalse(control.exists())
         self.assertEqual(config["address"], bind)
-        for host in ("localhost", authority):
+        if explicit_url:
+            self.assertFalse(self.ip_calls.exists())
+        else:
+            endpoint = "https://api6.ipify.org" if ipv6 else "https://api.ipify.org"
+            self.assertEqual(self.ip_calls.read_text().splitlines(), [endpoint])
+        hosts = ["localhost", authority]
+        if external or explicit_url:
+            hosts.append(external or urlsplit(explicit_url).hostname)
+        for host in hosts:
             link = f"http://{host}:{config['port']}/#pairing=" + "p" * 43
             self.assertIn(link, stdout)
             self.assertIn(link, resumed.stdout)
