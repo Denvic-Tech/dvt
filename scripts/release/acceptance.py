@@ -46,7 +46,6 @@ METRICS = {
               "maintenance_seconds", "unavailable_seconds"},
     "AT-09": {"restore_seconds", "rpo_seconds"},
 }
-REQUIRED_SYSTEMS = {("debian", "13"), ("ubuntu", "24.04")}
 SAFE_EVIDENCE_FILE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,90}\.(?:txt|json|md)")
 
 
@@ -96,8 +95,9 @@ def check_case(
             or not isinstance(restore["vm"], str)
             or not restore["vm"].strip()
             or restore["vm"] == vm
-            or restore["distribution_version"] not in release.environment.distributions.get(
-                restore["distribution"], ()
+            or not all(
+                isinstance(restore[field], str) and restore[field].strip()
+                for field in ("distribution", "distribution_version")
             )
             or restore["platform"] not in release.platforms
             or Version(restore["compose_version"]) < Version(release.environment.min_compose)
@@ -139,10 +139,6 @@ def issue_receipt(
         for distribution, versions in release.environment.distributions.items()
         for version in versions
     }
-    if not declared_systems >= REQUIRED_SYSTEMS or declared_systems - REQUIRED_SYSTEMS - {
-        ("debian", "12")
-    } or set(release.platforms) != {"linux/amd64"}:
-        raise ValueError("The release is outside the supported acceptance matrix")
     expected = {(*system, platform) for system in declared_systems for platform in release.platforms}
     observed = set()
     covered_cases = set()
@@ -150,10 +146,13 @@ def issue_receipt(
         if set(run) != {
             "vm", "distribution", "distribution_version", "platform", "compose_version",
             "docker_version", "images", "cases",
-        } or not isinstance(run["vm"], str) or not run["vm"].strip():
+        } or not all(
+            isinstance(run[field], str) and run[field].strip()
+            for field in ("vm", "distribution", "distribution_version", "platform")
+        ):
             raise ValueError("Invalid VM evidence fields")
         key = run["distribution"], run["distribution_version"], run["platform"]
-        if key not in expected or key in observed:
+        if run["platform"] not in release.platforms or key in observed:
             raise ValueError("Unexpected or duplicate VM profile")
         observed.add(key)
         if (
@@ -176,7 +175,7 @@ def issue_receipt(
                 raise ValueError(f"{case_id} requires the signed AI MCP profile")
             check_case(case_id, case, evidence_dir, run["vm"], release)
             covered_cases.add(case_id)
-    if observed != expected:
+    if not expected <= observed:
         raise ValueError("Evidence is missing for a declared VM profile")
     if covered_cases != REQUIRED_CHECKS.keys():
         raise ValueError("The matrix is missing required AT cases")

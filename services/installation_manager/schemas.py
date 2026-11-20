@@ -14,7 +14,7 @@ class InstallRequest(BaseModel):
     ai_mcp_enabled: bool = False
     ai_mcp_internal_secret: str = ""
     external_port: str = "80"
-    task_workers_count: int = Field(default=1, ge=1, le=64)
+    task_workers_count: int = Field(default=1, ge=1)
 
 
 class UpdateRequest(BaseModel):

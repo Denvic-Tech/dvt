@@ -102,6 +102,9 @@ class VerifiedStaging:
     paths: HostPaths
     preparer_version: str
     retry: RetryPolicy = field(default_factory=RetryPolicy)
+    http_manager: bool = False
+    local_ui_image: str | None = None
+    local_manager_image: str | None = None
 
     def prepare(
         self,
@@ -212,6 +215,7 @@ class VerifiedStaging:
                 manifest_url, MAX_MANIFEST_BYTES, cwd=directory, deadline=deadline
             )
         manifest = self.trust.verify(signed, pin)
+        self.store.log_message(operation.id, f"Проверена подпись манифеста DVT {manifest.version}")
         if manifest.channel == "rc" and values.pop("DVT_ALLOW_PRERELEASE", "").lower() != "true":
             raise incompatible(
                 "A release candidate requires explicit consent in the saved configuration"
@@ -228,7 +232,6 @@ class VerifiedStaging:
         platform = check_platform(
             info,
             self.docker.compose_version(deadline),
-            self.paths.os_release,
             manifest.environment,
             profile,
         )
@@ -252,6 +255,22 @@ class VerifiedStaging:
             compose_path, identity.compose_project, profiles, env, deadline
         )
         check_model(current, identity, release, env, active=True)
+        local_ui = (
+            self.local_ui_image
+            if operation.request.kind is OperationKind.INSTALL and bundle is None else None
+        )
+        if local_ui:
+            if not self.docker.local_image(local_ui, platform, deadline, allow_index=True):
+                raise invalid_package("The local UI image is unavailable")
+            current["services"]["ui"]["image"] = local_ui
+        local_manager = (
+            self.local_manager_image
+            if operation.request.kind is OperationKind.INSTALL and bundle is None else None
+        )
+        if local_manager:
+            if local_manager != bootstrap_image:
+                raise invalid_package("The local manager differs from the approved bootstrap manager")
+            current["services"]["installation_manager"]["image"] = local_manager
         require_bootstrap_manager = (
             operation.request.kind is OperationKind.INSTALL
             and bundle is None
@@ -266,11 +285,15 @@ class VerifiedStaging:
             deadline,
             bootstrap_image=bootstrap_image,
             require_bootstrap_manager=require_bootstrap_manager,
+            http_manager=self.http_manager,
         )
         images = {
             img.reference: img
             for name, img in release.images.items()
-            if bundle is not None or name in plan.image_references
+            if bundle is not None or (
+                name in plan.image_references and not (name == "ui" and local_ui)
+                and not (name == "installation_manager" and local_manager)
+            )
         }
         if bundle is None:
             self.docker.check_registries(set(images), info)
@@ -301,9 +324,13 @@ class VerifiedStaging:
             deadline,
         )
         check_filesystems(budgets)
+        self.store.log_message(operation.id, "Проверено свободное место для установки")
         if bundle is None:
+            self.store.log_message(operation.id, f"Образы для загрузки: {len(missing)}")
             for image in missing:
+                self.store.log_message(operation.id, f"Загрузка образа {image.reference}")
                 self.docker.pull(image.reference, platform, deadline)
+                self.store.log_message(operation.id, f"Образ получен: {image.reference}")
         else:
             import_offline_images(bundle, self.docker, deadline)
             check_offline_extensions(
@@ -337,6 +364,7 @@ class VerifiedStaging:
                 deadline,
                 bootstrap_image=bootstrap_image,
                 require_bootstrap_manager=require_bootstrap_manager,
+                http_manager=self.http_manager,
             )
             != plan
         ):
@@ -428,18 +456,8 @@ class VerifiedStaging:
         manifest: ReleaseManifest,
         values: dict[str, str],
     ):
-        limits = manifest.environment
-        env, profiles = effective_config(
-            values,
-            identity,
-            operation.request,
-            manifest.version,
-            limits.base.max_task_workers,
-        )
-        profile = selected_profile(limits, profiles)
-        if int(env["DVT_TASK_WORKERS_COUNT"]) > profile.max_task_workers:
-            raise incompatible("The selected worker count exceeds the enabled profile limit")
-        return profile, env, profiles
+        env, profiles = effective_config(values, identity, operation.request, manifest.version)
+        return selected_profile(manifest.environment, profiles), env, profiles
 
     def _asset(
         self,

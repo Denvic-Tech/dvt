@@ -194,9 +194,7 @@ def _preflight_fresh(args, data: Path, bundle: OfflineBundle, values: dict[str, 
     if Version(_preparer_version()) < Version(release.compatibility.minimum_preparer_version):
         raise incompatible("The current preparer is too old for this offline release")
     request = OperationRequest(OperationKind.INSTALL, bundle.pin, bundle_id=bundle.id)
-    prepared, profiles = effective_config(
-        values, identity, request, release.version, release.environment.base.max_task_workers,
-    )
+    prepared, profiles = effective_config(values, identity, request, release.version)
     resources = selected_profile(release.environment, profiles)
     check_bundle_host(bundle, Path("/etc/os-release"), profiles, "linux/amd64")
     if (
@@ -234,7 +232,7 @@ def _preflight_fresh(args, data: Path, bundle: OfflineBundle, values: dict[str, 
         bundle.directory, bundle.directory, containerd_root=containerd,
     )
     detected = check_platform(
-        info, local.compose_version(deadline), paths.os_release, release.environment, resources
+        info, local.compose_version(deadline), release.environment, resources
     )
     distribution = release.platforms[detected]
     compose = bundle.directory / "compose.yaml"
@@ -333,6 +331,7 @@ def _prepare(
     try:
         staged = VerifiedStaging(
             store, trust, LocalOnly(), local, paths, _preparer_version(),
+            http_manager=config.get("manager_http") is True,
         ).prepare(
             operation.id, "", observed=observed, applied=observed.pin if observed else None,
             bootstrap_image=manager.decode().strip() if manager is not None else None,
@@ -386,8 +385,7 @@ def run(args) -> dict:
                     bundle.release.environment, tuple(bundle.index["profiles"])
                 )
                 platform = check_platform(
-                    info, local.compose_version(deadline), paths.os_release,
-                    bundle.release.environment, resources,
+                    info, local.compose_version(deadline), bundle.release.environment, resources,
                 )
                 missing = {
                     image.reference: image for image in platform_release.images.values()

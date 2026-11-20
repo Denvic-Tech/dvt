@@ -38,16 +38,17 @@ def get_operator_manager() -> InstallationManagerClient | None:
         return None
     directory = Path("/run/dvt-operator")
     token = (directory / "gateway-token").read_text(encoding="ascii").strip()
-    ca = ssl.create_default_context(cafile=directory / "ca.pem")
+    direct = urlsplit(origin).scheme == "http"
+    ca = True if direct else ssl.create_default_context(cafile=directory / "ca.pem")
     return InstallationManagerClient(
-        base_url="https://installation_manager:8000",
+        base_url=f"{'http' if direct else 'https'}://installation_manager:8000",
         request_timeout_sec=max(config.INSTALLATION_MANAGER.REQUEST_TIMEOUT_SEC, 30),
         summary_timeout_sec=config.SYSTEM_STATE.STATUS_REQUEST_TIMEOUT_SEC,
         operator_journal=True,
         verify=ca, trust_env=False, headers={
             "Host": urlsplit(origin).netloc, "Authorization": f"Bearer {token}",
         },
-        request_extensions={"sni_hostname": "localhost"},
+        request_extensions={} if direct else {"sni_hostname": "localhost"},
     )
 
 

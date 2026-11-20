@@ -7,27 +7,31 @@ export PATH
 fail() { printf 'DVT installer: %s\n' "$*" >&2; exit 1; }
 public_origin=https://dvt.distribution.denvic.tech
 origin=$public_origin
-channel= requested_version= explicit_selection=no private_rc=no ca_file= dir=/var/lib/dvt project= port= public_url= containerd=
+channel= requested_version= explicit_selection=no private_rc=no ca_file= dir= project= port= public_url= containerd=
+local_image= local_ui_image=
 ask=yes apt=no pair=no
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -h|--help)
-            printf '%s\n' 'Launch the HTTPS DVT installer' \
+            printf '%s\n' 'Launch the DVT installation manager' \
                 '  --dir PATH --project NAME --port PORT --public-url ORIGIN --containerd-root PATH' \
                 '  --non-interactive --install-docker --new-pairing-token' \
                 '  --channel stable|rc --version X.Y.Z[-rcN] (first installation)' \
-                '  --catalog-origin HTTPS_ORIGIN --catalog-ca FILE --test-rc'
+                '  --catalog-origin HTTPS_ORIGIN --catalog-ca FILE --test-rc' \
+                '  --local-image IMAGE [--local-ui-image IMAGE] (disposable Docker host, local checkout)'
             exit 0 ;;
         -n|--non-interactive) ask=no ;;
         --install-docker) apt=yes ;;
         --new-pairing-token) pair=yes ;;
         --test-rc) private_rc=yes ;;
-        --dir|--project|--port|--public-url|--containerd-root|--catalog-origin|--catalog-ca|--channel|--version)
+        --dir|--project|--port|--public-url|--containerd-root|--catalog-origin|--catalog-ca|--channel|--version|--local-image|--local-ui-image)
             [ "$#" -ge 2 ] || fail "Missing value for $1"
             case "$1" in
                 --dir) dir=$2 ;; --project) project=$2 ;; --port) port=$2 ;;
                 --public-url) public_url=$2 ;; --containerd-root) containerd=$2 ;;
                 --catalog-origin) origin=${2%/} ;; --catalog-ca) ca_file=$2 ;;
+                --local-image) [ -n "$2" ] || fail 'Specify a local Docker image'; local_image=$2 ;;
+                --local-ui-image) [ -n "$2" ] || fail 'Specify a local UI image'; local_ui_image=$2 ;;
                 --channel)
                     [ -z "$channel" ] || fail 'Specify --channel once'
                     case "$2" in stable|rc) channel=$2 ;; *) fail 'Use --channel stable or rc' ;; esac
@@ -65,22 +69,38 @@ if [ -n "$requested_version" ]; then
     channel=$version_channel
 fi
 channel=${channel:-stable}
+[ -z "$local_ui_image" ] || [ -n "$local_image" ] || fail '--local-ui-image requires --local-image'
+if [ -n "$local_image" ]; then project=${project:-dvt-local}; fi
 
 origin_pattern='^https://[a-z0-9.-]+(:[0-9]{1,5})?$'
 digest_pattern='^sha256:[0-9a-f]{64}$'
 manager_pattern='^[a-z0-9][a-z0-9.:-]*/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
+resume_url=$public_url
+wizard=no
+if [ -z "$dir" ]; then wizard=yes; fi
+detected=$(printf '%s\n' "${SSH_CONNECTION:-}" | awk '{print $3}')
+if [ -z "$detected" ]; then
+    detected=$(ip -4 route get 192.0.2.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src"){print $(i+1); exit}}')
+fi
+if [ -z "$detected" ]; then
+    detected=$(hostname -I 2>/dev/null | awk '{print $1}')
+fi
+case "$detected" in *:*) detected="[$detected]" ;; esac
+dir=${dir:-/var/lib/dvt}
+case "$public_url" in ''|http://*|https://*) ;; *) public_url=http://$public_url ;; esac
+case "$resume_url" in ''|http://*|https://*) ;; *) resume_url=http://$resume_url ;; esac
+public_url_pattern='^https?://([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(:[0-9]{1,5})?/?$'
+[ -z "$public_url" ] || valid "$public_url" "$public_url_pattern" || fail 'Enter an IP, hostname or HTTP(S) origin'
 valid "$dir" '^/[a-zA-Z0-9_./-]+$' && [ "$dir" != / ] || fail 'Use a canonical data directory'
 [ "$(realpath -m -- "$dir")" = "$dir" ] || fail 'Use a canonical data directory without symlinks'
-[ "$(uname -m)" = x86_64 ] || fail 'The installer requires Linux amd64'
+host_os_release=/etc/os-release
+if [ ! -r "$host_os_release" ]; then host_os_release=/usr/lib/os-release; fi
 os_value() {
-    awk -F= -v key="$1" '$1==key { gsub(/"/, "", $2); print $2 }' /etc/os-release
+    [ ! -r "$host_os_release" ] ||
+        awk -F= -v key="$1" '$1==key { gsub(/"/, "", $2); print $2; exit }' "$host_os_release"
 }
 distro=$(os_value ID)
 version=$(os_value VERSION_ID)
-case "$distro:$version" in
-    debian:13|ubuntu:24.04) ;;
-    *) fail 'The installer supports Debian 13 and Ubuntu 24.04' ;;
-esac
 
 # This root-owned shim is persisted atomically with the verified bootstrap.
 runtime=$(cat <<'ROOT_SH'
@@ -122,17 +142,22 @@ file_digest() { sha256sum -- "$1" | cut -d ' ' -f 1; }
 docker() { command docker --host unix:///var/run/docker.sock "$@"; }
 docker_ready() { docker info >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; }
 
+local_image_pin() {
+    reference=$(docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' -- "$1") ||
+        fail "Local image is unavailable: $1"
+    ref_ok "$reference" || fail "The local image needs a repository digest: $1"
+    printf '%s\n' "$reference"
+}
+
 install_docker() {
     docker_ready && return
-    printf '%s\n' 'Docker Engine and Compose are required. Installation uses Docker’s signed APT repository.'
-    if [ "$apt" != yes ]; then
-        [ "$ask" = yes ] && [ -t 1 ] || fail 'Approve Docker installation with --install-docker'
-        printf 'Install Docker Engine and Compose? [y/N] ' >&2
-        IFS= read -r reply </dev/tty || fail 'Docker installation needs explicit consent'
-        case "$reply" in y|Y) ;; *) fail 'Docker installation needs explicit consent' ;; esac
-    fi
-    apt-get update
-    apt-get install -y ca-certificates curl gpg
+    [ "$ask" = yes ] || [ "$apt" = yes ] || fail 'Approve Docker installation with --install-docker'
+    valid "$distro" '^[a-z0-9][a-z0-9._-]*$' && valid "$codename" '^[a-z0-9][a-z0-9._-]*$' ||
+        fail 'Docker APT setup needs a distribution ID and codename. Install Docker manually or correct os-release.'
+    printf '%s\n' 'Installing Docker Engine and Compose…'
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -qq update
+    apt-get -qq install -y ca-certificates curl gpg >/dev/null
     curl --disable --proto '=https' --fail --silent --show-error --max-time 30 \
         --max-filesize 65536 --output "$work/docker.asc" "https://download.docker.com/linux/$distro/gpg"
     mkdir -m 700 "$work/gnupg"
@@ -145,8 +170,8 @@ install_docker() {
     install -m 644 "$work/docker.asc" /etc/apt/keyrings/dvt-docker.asc
     printf '%s\n' "deb [arch=amd64 signed-by=/etc/apt/keyrings/dvt-docker.asc] https://download.docker.com/linux/$distro $codename stable" \
         | install -m 644 /dev/stdin /etc/apt/sources.list.d/dvt-docker.list
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    apt-get -qq update
+    apt-get -qq install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
     docker_ready || fail 'Docker Engine or Compose remains unavailable'
 }
 
@@ -159,6 +184,7 @@ storage_paths() {
     drivers=$(docker info --format '{{range .DriverStatus}}{{index . 0}}={{index . 1}}{{println}}{{end}}')
     if printf '%s\n' "$drivers" | grep -Fxq 'driver-type=io.containerd.snapshotter.v1'; then
         if [ -z "$containerd" ]; then
+            [ "$mode" != local ] || fail 'Supply the local Docker image store path with --containerd-root'
             docker_pid=$(systemctl show --property=MainPID --value docker.service)
             containerd_pid=$(systemctl show --property=MainPID --value containerd.service)
             [ -r "/proc/$docker_pid/cmdline" ] && [ -r "/proc/$containerd_pid/cmdline" ] &&
@@ -166,8 +192,9 @@ storage_paths() {
                 fail 'Use --containerd-root for this Docker image store'
             [ "$(tr '\000' '\n' <"/proc/$containerd_pid/cmdline")" = /usr/bin/containerd ] ||
                 fail 'Use --containerd-root for this Docker image store'
-            containerd=$(/usr/bin/containerd config dump |
-                awk -F '[ \t]*=[ \t]*' '$1=="root" {gsub(/[\047"]/, "", $2); print $2}')
+            /usr/bin/containerd config dump >"$work/containerd.conf" 2>"$work/containerd.err" ||
+                { cat "$work/containerd.err" >&2; fail 'Cannot read containerd configuration'; }
+            containerd=$(awk -F '[ \t]*=[ \t]*' '$1=="root" {gsub(/[\047"]/, "", $2); print $2}' "$work/containerd.conf")
         fi
         path_check "$containerd"
         [ -d "$containerd" ] || fail 'Containerd backing directory is missing'
@@ -204,7 +231,7 @@ UNIT
         mv -T -- "$unit_tmp" "$unit"
     fi
     systemctl daemon-reload
-    systemctl enable "dvt-bootstrap-$project.service"
+    systemctl --quiet enable "dvt-bootstrap-$project.service"
 }
 
 run_bootstrap() {
@@ -216,7 +243,7 @@ run_bootstrap() {
     if [ -n "$containerd" ] && [ "$call" = bootstrap ]; then
         set -- "$@" --containerd-root "$containerd"
     fi
-    if [ "$ask" != yes ] || [ "$call" != bootstrap ]; then
+    if [ "$ask" != yes ] || [ "$call" != bootstrap ] || [ -n "${wizard_data:-}" ]; then
         set -- "$@" --non-interactive
     fi
     set -- "$manager" "$base/host_bootstrap.py" "$call" --contained --dir "$dir" "$@"
@@ -226,25 +253,33 @@ run_bootstrap() {
     if [ "$base" = /run/dvt-launch ]; then
         set -- --mount "type=bind,src=$work,dst=$base,readonly" "$@"
     fi
+    if [ -n "${wizard_source:-}" ]; then
+        set -- --mount "type=bind,src=$wizard_source,dst=$wizard_source,readonly" "$@"
+    fi
     terminal=/dev/null
-    if [ "$ask" = yes ] && [ "$call" = bootstrap ]; then
+    if [ "$ask" = yes ] && [ "$call" = bootstrap ] && [ -z "${wizard_data:-}" ]; then
         set -- -i -t "$@"
         terminal=/dev/tty
     fi
+    if [ -f /etc/os-release ]; then
+        set -- --mount 'type=bind,src=/etc/os-release,dst=/run/dvt-host-os,readonly' "$@"
+    elif [ -f /usr/lib/os-release ]; then
+        set -- --mount 'type=bind,src=/usr/lib/os-release,dst=/run/dvt-host-os,readonly' "$@"
+    fi
     docker run --rm --pull=never --platform linux/amd64 --network host --entrypoint python3 \
+        --label com.docker.compose.project= --label com.docker.compose.service= \
         --mount "type=bind,src=$dir,dst=$dir" \
         --mount "type=bind,src=$docker_root,dst=$docker_root,readonly" \
         --mount 'type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock' \
-        --mount 'type=bind,src=/etc/os-release,dst=/run/dvt-host-os,readonly' \
         "$@" <"$terminal"
 }
 
-[ "$(id -u)" = 0 ] && [ -d /run/systemd/system ] || fail 'Use sudo on the systemd host'
+[ "$(id -u)" = 0 ] || fail 'Use sudo on the Docker host'
 [ "$#" -ge 2 ] || fail 'Use ACTION and the canonical data directory'
 mode=$1 dir=$2 control=$2/.bootstrap
 shift 2
 case "$mode" in
-    new|dispatch|repeat|resume|maintenance|maintenance-extend|maintenance-defer|cancel-preparation|recover-manager|return-to-source|restore-start) ;;
+    local|local-discover|local-repeat|new|discover|dispatch|repeat|resume|maintenance|maintenance-extend|maintenance-defer|cancel-preparation|recover-manager|return-to-source|restore-start) ;;
     *) fail 'Unknown managed action' ;;
 esac
 path_check "$dir"
@@ -257,6 +292,70 @@ check_saved_selection() {
     [ "$1" = "$saved_channel" ] && { [ -z "$2" ] || [ "$2" = "$saved_version" ]; } ||
         fail 'Existing installation has a different release selection. Use the wizard to change versions.'
 }
+take_lock() {
+    path_check /run/dvt-bootstrap
+    install -d -m 700 /run/dvt-bootstrap
+    exec 9>/run/dvt-bootstrap/bootstrap.lock
+    flock -x 9
+}
+
+wizard_down() {
+    docker compose --project-name "$wizard_project" --project-directory "$wizard_data" \
+        --env-file /dev/null --file "$wizard_data/.bootstrap/bootstrap.compose.yaml" down
+}
+
+recover_wizard() {
+    wizard_data=$1
+    valid "$wizard_data" '^/tmp/dvt-launch\.[a-zA-Z0-9]+/wizard$' || fail 'Invalid saved wizard location'
+    if [ -e "$wizard_data" ] || [ -L "$wizard_data" ]; then
+        path_check "$wizard_data"
+        protected "$wizard_data" '0:700:directory'
+        protected "$wizard_data/.bootstrap/bootstrap.compose.yaml" '0:600:regular file'
+        wizard_project=dvt-wizard-$(printf "%s" "$wizard_data" | sha256sum | cut -c1-16)
+        wizard_down
+        rm -rf -- "$(dirname -- "$wizard_data")"
+    fi
+}
+
+repeat=repeat
+if [ "$mode" = discover ] || [ "$mode" = local-discover ]; then
+    take_lock
+    lookup_project=${1:-dvt}
+    valid "$lookup_project" '^[a-z0-9][a-z0-9_-]{0,63}$' || fail 'Invalid Compose project'
+    lookup_unit=/etc/systemd/system/dvt-bootstrap-$lookup_project.service
+    lookup_record=/etc/dvt-bootstrap/$lookup_project
+    if [ -e "$lookup_record" ] || [ -L "$lookup_record" ]; then
+        path_check /etc/dvt-bootstrap
+        protected "$lookup_record" '0:600:regular file'
+        {
+            IFS= read -r saved_mode && IFS= read -r saved_dir && IFS= read -r saved_wizard ||
+                fail 'Invalid saved wizard directory'
+        } <"$lookup_record"
+        case "$mode:$saved_mode" in
+            discover:new) ;;
+            local-discover:local) repeat=local-repeat ;;
+            *) fail 'The saved directory belongs to a different launch mode' ;;
+        esac
+        path_check "$saved_dir"
+        dir=$saved_dir control=$saved_dir/.bootstrap
+        recover_wizard "$saved_wizard"
+        if [ ! -e "$control" ] && [ ! -L "$control" ]; then
+            rm -f -- "$lookup_record"
+            exit 73
+        fi
+    elif [ "$mode" = local-discover ]; then
+        exit 73
+    elif [ -e "$lookup_unit" ] || [ -L "$lookup_unit" ]; then
+        protected "$lookup_unit" '0:644:regular file'
+        saved_dir=$(sed -n 's|^ExecStart=/bin/sh [^ ]*/\.bootstrap/host-launch\.sh resume \([^ ]*\)$|\1|p' "$lookup_unit")
+        path_check "$saved_dir"
+        dir=$saved_dir control=$saved_dir/.bootstrap
+        [ -d "$control" ] || fail 'The data directory from the resume unit is unavailable'
+    fi
+    flock -u 9
+    exec 9>&-
+    mode=dispatch
+fi
 if [ "$mode" = dispatch ]; then
     if [ ! -e "$control" ] && [ ! -L "$control" ]; then
         exit 73
@@ -264,13 +363,20 @@ if [ "$mode" = dispatch ]; then
     protected "$control" '0:700:directory'
     protected "$control/host-launch.sh" '0:700:regular file'
     if [ -n "${8:-}" ]; then check_saved_selection "$8" "${9:-}"; fi
-    exec /bin/sh "$control/host-launch.sh" repeat "$dir" "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+    exec /bin/sh "$control/host-launch.sh" "$repeat" "$dir" "$1" "$2" "$3" "$4" "$5" "$6" "$7"
 fi
 
-if [ "$mode" = new ]; then
+if [ "$mode" = new ] || [ "$mode" = local ]; then
     shim=$1 manager=$2 digest=$3 size=$4 catalog=$5 catalog_hash=$6 catalog_ca=$7
     shift 7
-    ref_ok "$manager" || fail 'Invalid pinned manager'
+    if [ "$mode" = local ]; then
+        local_image=$1 local_ui_image=$2
+        shift 2
+        docker_ready || fail 'Prepare Docker on the test host before bootstrap'
+        manager=$(local_image_pin "$local_image")
+        if [ -n "$local_ui_image" ]; then local_ui_image=$(local_image_pin "$local_ui_image"); fi
+    fi
+    ref_ok "$manager" || fail 'The manager image needs a repository digest'
     work=$(mktemp -d /tmp/dvt-launch.XXXXXX)
     trap 'rm -rf -- "$work"' 0
     trap 'exit 1' HUP INT TERM
@@ -287,34 +393,52 @@ if [ "$mode" = new ]; then
     fi
 fi
 
-path_check /run/dvt-bootstrap
-install -d -m 700 /run/dvt-bootstrap
-exec 9>/run/dvt-bootstrap/bootstrap.lock
-flock -x 9
+take_lock
 
-if [ "$mode" = new ] && [ ! -e "$control" ] && [ ! -L "$control" ]; then
+if [ "$mode" = local ] && { [ -e "$control" ] || [ -L "$control" ]; }; then
+    fail 'Use a fresh data directory with --local-image'
+fi
+if { [ "$mode" = new ] || [ "$mode" = local ]; } && [ ! -e "$control" ] && [ ! -L "$control" ]; then
     project=${1:-dvt} port=${2:-8888} public_url=$3 containerd=$4 ask=$5 apt=$6 pair=$7 distro=$8 codename=$9
     valid "$project" '^[a-z0-9][a-z0-9_-]{0,63}$' || fail 'Invalid Compose project'
     valid "$port" '^[0-9]{1,5}$' && [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] ||
         fail 'Invalid HTTPS port (1024–65535)'
     unit=/etc/systemd/system/dvt-bootstrap-$project.service
     [ ! -e "$unit" ] && [ ! -L "$unit" ] || fail 'A resume unit already reserves this project'
+    if [ "${13:-no}" = yes ] && grep -Fxq 'WIZARD_PROTOCOL = 1' "$work/host_bootstrap.py"; then
+        wizard_data=$work/wizard
+        wizard_default=$dir
+        wizard_port=$2
+        wizard_host=${14:-}
+        dir=$wizard_data
+    fi
     if [ -d "$dir" ] && [ -n "$(find "$dir" -mindepth 1 -maxdepth 1 \
         ! \( -name '.bootstrap-partial-*' -type d \) -print -quit)" ]; then
         fail 'The selected data directory is not empty'
     fi
-    if [ "$ask" = yes ] && [ -z "$public_url" ]; then
-        printf 'Public DVT origin [http://localhost] ' >&2
-        IFS= read -r public_url </dev/tty
-    fi
     if [ -n "$public_url" ]; then
-        valid "$public_url" '^https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?/?$' ||
+        valid "$public_url" '^https?://([a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(:[0-9]{1,5})?/?$' ||
             fail 'Enter the separate public HTTP(S) origin of DVT'
     fi
-    install_docker
+    if [ "$mode" = new ]; then install_docker; fi
     storage_paths
-    docker pull --platform linux/amd64 "$manager"
-    install -d -m 700 -- "$dir"
+    if [ "$mode" = local ]; then
+        printf 'Using local installation manager %s\n' "$manager"
+    else
+        printf '%s\n' 'Downloading the installation manager…'
+        docker pull --quiet --platform linux/amd64 "$manager" >/dev/null
+    fi
+    if [ -n "${wizard_data:-}" ]; then
+        if [ "$pair" != yes ] && { [ "$ask" != yes ] || [ ! -t 1 ]; }; then
+            fail 'Use an interactive terminal or --new-pairing-token to start browser setup'
+        fi
+        if [ -z "$public_url" ] && [ -n "$wizard_host" ]; then public_url=http://$wizard_host; fi
+        docker run --rm --pull=never --platform linux/amd64 --network none --entrypoint python3 \
+            "$manager" -c 'from services.installation_manager.host_bootstrap import WIZARD_PROTOCOL; assert WIZARD_PROTOCOL == 1' \
+            >/dev/null 2>&1 || fail 'This approved manager does not support browser setup. Rerun with --dir for legacy installation.'
+    else
+        install -d -m 700 -- "$dir"
+    fi
     printf '%s\n' "$project" "$manager" "$docker_root" "$containerd" "$port" >"$work/launch-host.conf"
     if [ -n "${10:-}" ]; then
         printf '%s %s\n' "${11}" "${12}" >>"$work/launch-host.conf"
@@ -326,8 +450,72 @@ if [ "$mode" = new ] && [ ! -e "$control" ] && [ ! -L "$control" ]; then
         set -- "$@" --release-catalog-ca /run/dvt-launch/catalog-ca.pem
     fi
     if [ "$pair" = yes ]; then set -- "$@" --new-pairing-token; fi
+    if [ "$mode" = local ]; then
+        set -- "$@" --local-images
+        if [ -n "$local_ui_image" ]; then
+            set -- "$@" --local-ui-image "$local_ui_image"
+        fi
+    fi
+    if [ -n "${wizard_data:-}" ]; then
+        mkdir -m 700 "$wizard_data"
+        dir=$wizard_data
+        wizard_project=dvt-wizard-$(printf "%s" "$wizard_data" | sha256sum | cut -c1-16)
+        wizard_args="--wizard-auto-port"
+        if [ -n "$wizard_port" ]; then wizard_args=; fi
+        wizard_cleanup() {
+            if [ -z "${wizard_stopped:-}" ]; then wizard_down >/dev/null 2>&1 || :; fi
+            rm -rf -- "$work"
+        }
+        trap wizard_cleanup 0
+        run_bootstrap bootstrap /run/dvt-launch "$@" --wizard-default "$wizard_default" \
+            --wizard-host "$wizard_host" --wizard-project "$wizard_project" \
+            --wizard-show-pairing ${wizard_args:+$wizard_args}
+        wizard_control=$wizard_data/.bootstrap
+        port=$(cat -- "$wizard_control/wizard-port")
+        valid "$port" '^[0-9]{1,5}$' || fail 'The wizard did not choose a port'
+        rejected_key=
+        while :; do
+            if [ ! -f "$wizard_control/install-intent.json" ]; then sleep 1; continue; fi
+            selected=$(run_bootstrap wizard-intent /run/dvt-launch) || fail 'Invalid installation intent'
+            dir=${selected#* }
+            intent_key=${selected%% *}
+            if [ "$intent_key" = "$rejected_key" ]; then dir=$wizard_data; sleep 1; continue; fi
+            if (case "$dir/" in /tmp/*|/run/*|/var/tmp/*|/var/run/*|/proc/*|/sys/*|/dev/*) exit 1 ;; esac; \
+                path_check "$dir"; storage_paths; \
+                if [ -e "$dir" ]; then
+                    [ -d "$dir" ] && [ -z "$(find "$dir" -mindepth 1 -maxdepth 1 \
+                        ! \( -name '.bootstrap-partial-*' -type d \) -print -quit)" ]
+                fi) \
+                >"$work/path-error" 2>&1; then
+                break
+            fi
+            rejected_key=$intent_key
+            printf '{"key":"%s","detail":"Выберите пустой абсолютный каталог с безопасными правами доступа вне хранилища Docker."}\n' \
+                "$intent_key" >"$wizard_control/.install-error.new"
+            mv -T -- "$wizard_control/.install-error.new" "$wizard_control/install-error.json"
+            dir=$wizard_data
+        done
+        control=$dir/.bootstrap
+        wizard_source=$wizard_data
+        path_check /etc/dvt-bootstrap
+        install -d -m 700 /etc/dvt-bootstrap
+        record=$(mktemp /etc/dvt-bootstrap/.dvt-wizard-XXXXXX)
+        printf '%s\n' "$mode" "$dir" "$wizard_data" >"$record"
+        sync -f "$record"
+        mv -T -- "$record" "/etc/dvt-bootstrap/$project"
+        sync -f /etc/dvt-bootstrap
+        install -d -m 700 -- "$dir"
+        sed -i "5s/.*/$port/" "$work/launch-host.conf"
+        set -- "$@" --wizard-source "$wizard_source" --wizard-key "$intent_key" --port "$port"
+    fi
     run_bootstrap bootstrap /run/dvt-launch "$@"
-    install_unit
+    if [ "$mode" = new ]; then install_unit; fi
+    if [ -n "${wizard_source:-}" ]; then
+        wizard_down
+        wizard_stopped=yes
+        wizard_source=
+        run_bootstrap resume "$control"
+    fi
     exit
 fi
 
@@ -353,7 +541,7 @@ valid "$project" '^[a-z0-9][a-z0-9_-]{0,63}$' && ref_ok "$manager" ||
 path_check "$docker_root"
 if [ -n "$containerd" ]; then path_check "$containerd"; fi
 docker_ready || fail 'Docker or Compose is unavailable for the existing instance'
-if [ "$mode" = repeat ] || [ "$mode" = new ]; then
+if [ "$mode" = repeat ] || [ "$mode" = local-repeat ] || [ "$mode" = new ]; then
     [ -z "$1" ] || [ "$1" = "$project" ] || fail 'A different project is already stored'
     [ -z "$2" ] || [ "$2" = "$port" ] || fail 'A different HTTPS port is already stored'
     [ -z "$4" ] || [ "$4" = "$containerd" ] || fail 'A different containerd root is already stored'
@@ -363,7 +551,7 @@ if [ "$mode" = repeat ] || [ "$mode" = new ]; then
     if [ -n "$3" ]; then set -- --managed --public-url "$3"; else set -- --managed; fi
     if [ "$pair" = yes ]; then set -- "$@" --new-pairing-token; fi
     run_bootstrap bootstrap "$control" "$@"
-    install_unit
+    if [ "$mode" != local-repeat ]; then install_unit; fi
 else
     if [ "$mode" = resume ]; then
         [ "$#" -eq 0 ] || fail 'resume takes only the data directory'
@@ -383,16 +571,15 @@ as_root() {
 }
 
 codename=$(os_value VERSION_CODENAME)
-case "$distro:$codename" in
-    debian:trixie|ubuntu:noble) ;;
-    *) fail 'The installer requires an official supported distribution codename' ;;
-esac
 selection_channel=
 if [ "$explicit_selection" = yes ]; then selection_channel=$channel; fi
-if [ -e "$dir" ]; then
+if [ "$wizard" = yes ] || { [ -z "$local_image" ] && [ -e "$dir" ]; }; then
     result=0
-    as_root /bin/sh -c "$runtime" dvt-runtime dispatch "$dir" \
-        "$project" "$port" "$public_url" "$containerd" "$ask" "$apt" "$pair" "$selection_channel" "$requested_version" || result=$?
+    dispatch=dispatch
+    if [ "$wizard" = yes ]; then dispatch=discover; fi
+    if [ -n "$local_image" ]; then dispatch=local-discover; fi
+    as_root /bin/sh -c "$runtime" dvt-runtime "$dispatch" "$dir" \
+        "$project" "$port" "$resume_url" "$containerd" "$ask" "$apt" "$pair" "$selection_channel" "$requested_version" || result=$?
     [ "$result" -eq 73 ] || exit "$result"
 fi
 
@@ -411,13 +598,16 @@ fetch() {
 }
 set -- --data-urlencode "channel=$channel"
 if [ -n "$requested_version" ]; then set -- "$@" --data-urlencode "version=$requested_version"; fi
+# Keep sending legacy query fields when available for older private catalogs.
+if [ -n "$distro" ] && [ -n "$version" ]; then
+    set -- "$@" --data-urlencode "distribution=$distro" --data-urlencode "distribution_version=$version"
+fi
 status=$(fetch --max-filesize 65536 --output "$tmp/catalog.json" --dump-header "$tmp/headers" \
     --write-out '%{http_code}' --header 'Accept: application/vnd.dvt.install+json' \
-    --get --data-urlencode "distribution=$distro" --data-urlencode "distribution_version=$version" \
-    --data-urlencode 'platform=linux/amd64' "$@" \
+    --get --data-urlencode 'platform=linux/amd64' "$@" \
     "$origin/api/v1/dvt/releases/install") || {
     if [ "$status" = 404 ]; then
-        fail "No approved initial release for $distro $version ($channel${requested_version:+, $requested_version})"
+        fail "No approved initial release ($channel${requested_version:+, $requested_version})"
     fi
     fail 'HTTPS catalog/certificate is unavailable'
 }
@@ -459,19 +649,33 @@ valid "$asset_url" '^https://[a-z0-9.:-]+/[a-zA-Z0-9._~/%-]+$' ||
     fail 'Invalid HTTPS bootstrap URL'
 [ -s "$tmp/catalog.json" ] && [ "sha256:$(sha256sum "$tmp/catalog.json" | cut -d ' ' -f 1)" = "$catalog_hash" ] ||
     fail 'Invalid catalog policy digest'
-status=$(fetch --max-filesize "$asset_size" --output "$tmp/host_bootstrap.py" --write-out '%{http_code}' "$asset_url") ||
-    fail 'Approved bootstrap unavailable or has the wrong size'
-[ "$status" = 200 ] && [ "$(wc -c <"$tmp/host_bootstrap.py")" -eq "$asset_size" ] &&
-    [ "sha256:$(sha256sum "$tmp/host_bootstrap.py" | cut -d ' ' -f 1)" = "$asset_digest" ] ||
-    fail 'The approved bootstrap failed its signed size or digest check'
+if [ -n "$local_image" ]; then
+    bootstrap_source=$(dirname -- "$0")/services/installation_manager/host_bootstrap.py
+    [ -f "$bootstrap_source" ] || fail 'Run --local-image from a checkout containing host_bootstrap.py'
+    cp -- "$bootstrap_source" "$tmp/host_bootstrap.py"
+    asset_size=$(wc -c <"$tmp/host_bootstrap.py")
+    [ "$asset_size" -le 1048576 ] || fail 'The local bootstrap is too large'
+    asset_digest=sha256:$(sha256sum "$tmp/host_bootstrap.py" | cut -d ' ' -f 1)
+else
+    status=$(fetch --max-filesize "$asset_size" --output "$tmp/host_bootstrap.py" --write-out '%{http_code}' "$asset_url") ||
+        fail 'Approved bootstrap unavailable or has the wrong size'
+    [ "$status" = 200 ] && [ "$(wc -c <"$tmp/host_bootstrap.py")" -eq "$asset_size" ] &&
+        [ "sha256:$(sha256sum "$tmp/host_bootstrap.py" | cut -d ' ' -f 1)" = "$asset_digest" ] ||
+        fail 'The approved bootstrap failed its signed size or digest check'
+fi
 catalog=$(cat -- "$tmp/catalog.json")
 catalog_ca=
 if [ -n "$ca_file" ]; then
     [ "$(wc -c <"$ca_file")" -le 32768 ] || fail 'The private catalog CA is too large'
     catalog_ca=$(cat -- "$ca_file")
 fi
-printf 'Approved %s release %s (%s)\n' "$channel" "$selected" "$manifest"
-as_root /bin/sh -c "$runtime" dvt-runtime new "$dir" \
+launch_mode=new
+set -- "$project" "$port" "$public_url" "$containerd" "$ask" "$apt" "$pair" "$distro" "$codename" \
+    "$selection_channel" "$selected" "$manifest" "$wizard" "$detected"
+if [ -n "$local_image" ]; then
+    launch_mode=local
+    set -- "$local_image" "$local_ui_image" "$@"
+fi
+as_root /bin/sh -c "$runtime" dvt-runtime "$launch_mode" "$dir" \
     "$runtime" "$manager" "$asset_digest" "$asset_size" "$catalog" "$catalog_hash" "$catalog_ca" \
-    "$project" "$port" "$public_url" "$containerd" "$ask" "$apt" "$pair" "$distro" "$codename" \
-    "$selection_channel" "$selected" "$manifest" <"$tmp/host_bootstrap.py"
+    "$@" <"$tmp/host_bootstrap.py"

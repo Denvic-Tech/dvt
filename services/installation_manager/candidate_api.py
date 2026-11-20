@@ -24,6 +24,7 @@ from .application.recovery import (
 from .candidate_auth import SESSION_TTL, CandidateAuth
 from .catalog_api import catalog_router
 from .domain.operation_state import (
+    ArtifactKind,
     Operation,
     OperationConflict,
     OperationEvent,
@@ -35,6 +36,7 @@ from .domain.operation_state import (
 )
 from .host_bootstrap import candidate, launch
 from .infrastructure.operation_store import FORMAT_VERSION, OperationStore
+from .infrastructure.staging_artifacts import artifact_directory
 
 
 class CandidatePin(BaseModel):
@@ -68,7 +70,7 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
 
     @app.middleware("http")
     async def verified_origin(request: Request, call_next):
-        if request.headers.get("host") != auth.host:
+        if request.headers.get("host") not in auth.hosts:
             return JSONResponse({"detail": "Unknown manager address"}, status_code=421)
         response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
@@ -98,7 +100,7 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
             cookie,
             max_age=SESSION_TTL,
             httponly=True,
-            secure=True,
+            secure=auth.secure,
             samesite="strict",
         )
         return {"status": "paired"}
@@ -140,8 +142,16 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
             except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
                 if action is not Action.RESUME:
                     raise HTTPException(409, "The executor could not accept the action") from None
+                if operation.request.kind is OperationKind.INSTALL:
+                    directory = artifact_directory(store, ArtifactKind.STAGING, operation.id)
+                    (directory / "launch-failed").touch(mode=0o600)
+                    store.log_message(operation.id, "Не удалось запустить исполнитель установки")
                 # The operation remains committed and is resumable by ID or at boot.
                 return snapshot(operation)
+            if operation.request.kind is OperationKind.INSTALL:
+                (store.artifact_path(ArtifactKind.STAGING, operation.id) / "launch-failed").unlink(
+                    missing_ok=True,
+                )
         return snapshot(store.get(operation.id) or operation)
 
     @app.get("/api/operations/candidate", dependencies=operator)
@@ -150,6 +160,8 @@ def create_app(config: dict, store: OperationStore, static_dir: Path | None) -> 
 
     @app.post("/api/operations", status_code=202, dependencies=operator)
     def admit(data: Admission, key: Annotated[str, Header(alias="Idempotency-Key")]) -> Snapshot:
+        if config.get("wizard_temporary"):
+            raise HTTPException(409, "Сначала укажите параметры установки.")
         release = ReleasePin(data.release.release_id, data.release.manifest_digest)
         if release != pin:
             raise HTTPException(422, "The request does not select the approved candidate")

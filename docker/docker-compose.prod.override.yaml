@@ -37,7 +37,7 @@
 
   gateway:
     image: dvt/gateway:latest
-    build: &gateway-prod-build
+    build:
       context: .
       dockerfile: services/gateway/docker/prod.Dockerfile
       additional_contexts:
@@ -57,7 +57,6 @@
 
   migrate:
     image: dvt/gateway:latest
-    build: *gateway-prod-build
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-prod}
     volumes:

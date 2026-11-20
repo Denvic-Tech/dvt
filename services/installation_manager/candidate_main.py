@@ -81,8 +81,13 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
     os.umask(0o077)
     config = load_host(data)
     directory = data / CONTROL
+    tls = {}
+    if (
+        action in {"candidate-init", "candidate-inspect", "candidate-web"}
+        and config.get("manager_http") is not True
+    ):
+        tls = _tls(directory)
     if action == "candidate-init":
-        _tls(directory)
         OperationStore.for_host(data).establish_identity(_identity(config))
         for name, contents in (
             ("machine-token", secrets.token_urlsafe(32).encode()),
@@ -92,8 +97,7 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
                 atomic_write(directory / name, contents)
         return
     store = _store(config)
-    if action == "candidate-inspect":
-        _tls(directory)
+    if action in {"candidate-inspect", "candidate-inspect-wizard"}:
         CandidateAuth(config)
         sys.stdout.write(f"{FORMAT_VERSION}\n")
         return
@@ -124,7 +128,7 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
         path = Path(os.environ.get("UPDATE_SERVICE_STATIC_DIR", "/static"))
         app = create_app(config, store, path)
         uvicorn.run(
-            app, host="0.0.0.0", port=8000, access_log=False, proxy_headers=False, **_tls(directory)
+            app, host="0.0.0.0", port=8000, access_log=False, proxy_headers=False, **tls
         )
     else:
         raise ValueError("Unknown installation manager mode")

@@ -7,9 +7,9 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import ipaddress
 import json
 import os
-import platform
 import re
 import shutil
 import signal
@@ -34,8 +34,27 @@ DOCKER_ENV = {
 UNIT_DIR = Path("/etc/systemd/system")
 CONTROL = ".bootstrap"
 STATE = ".installation-state"
+WIZARD_PROTOCOL = 1
 LAUNCH_DIGEST = "launch-bootstrap.sha256"
 HOST_OS_RELEASE = Path("/run/dvt-host-os")
+
+
+def host_os_release() -> Path:
+    path = Path("/etc/os-release")
+    return path if path.is_file() else Path("/usr/lib/os-release")
+
+
+def read_os_release(path: Path) -> dict[str, str]:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+    release = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if separator:
+            release[key] = value.strip('"')
+    return release
 
 
 def command(args, *, check=True, timeout=180):
@@ -198,11 +217,10 @@ def _launch(config, operation_id, action="candidate-executor"):
         raise ValueError("Docker image store has changed since host preparation")
     if action == "candidate-executor":
         restore_initial_manager(config, operation_id)
-    mounts = [
-        mount(config["data"]),
-        mount(SOCKET),
-        mount("/etc/os-release", "/run/dvt-host-os", readonly=True),
-    ]
+    mounts = [mount(config["data"]), mount(SOCKET)]
+    os_release = host_os_release()
+    if os_release.is_file():
+        mounts.append(mount(str(os_release), str(HOST_OS_RELEASE), readonly=True))
     for directory in dict.fromkeys([config["docker_root"], config["containerd_root"]]):
         if directory:
             mounts.append(mount(directory, readonly=True))
@@ -218,6 +236,10 @@ def _launch(config, operation_id, action="candidate-executor"):
         "host",
         "--name",
         name,
+        "--label",
+        "com.docker.compose.project=",
+        "--label",
+        "com.docker.compose.service=",
         "--label",
         f"dvt.executor.instance={config['instance']}",
         "--label",
@@ -299,7 +321,7 @@ def image_store(info):
 
 
 def check_port(address, port):
-    with socket.socket() as probe:
+    with socket.socket(socket.AF_INET6 if ":" in address else socket.AF_INET) as probe:
         probe.bind((address, port))
 
 
@@ -331,14 +353,13 @@ def install_docker(allowed, interactive):
     ):
         raise ValueError("Docker preparation needs explicit permission (--install-docker)")
     # Use Docker's key only after matching the published primary fingerprint.
-    distro = dict(
-        line.split("=", 1)
-        for line in Path("/etc/os-release").read_text().splitlines()
-        if "=" in line
-    )
-    name, codename = distro["ID"].strip('"'), distro["VERSION_CODENAME"].strip('"')
-    if (name, codename) not in {("debian", "trixie"), ("ubuntu", "noble")}:
-        raise ValueError("Docker preparation supports Debian 13 and Ubuntu 24.04")
+    distro = read_os_release(host_os_release())
+    name, codename = distro.get("ID", ""), distro.get("VERSION_CODENAME", "")
+    if not all(re.fullmatch(r"[a-z0-9][a-z0-9._-]*", value) for value in (name, codename)):
+        raise ValueError(
+            "Docker APT setup needs a distribution ID and codename. "
+            "Install Docker manually or correct os-release."
+        )
     with tempfile.TemporaryDirectory() as folder:
         key = Path(folder) / "docker.asc"
         command(["apt-get", "update"])
@@ -396,11 +417,12 @@ def install_docker(allowed, interactive):
 
 def manager_compose(config, image):
     data = Path(config["data"])
+    mounts = (data,) if config.get("wizard_temporary") else (data, Path(SOCKET))
     return {
         "services": {
             "installation_manager": {
                 "image": image,
-                "restart": "unless-stopped",
+                "restart": "no" if config.get("wizard_temporary") else "unless-stopped",
                 "ports": [
                     {
                         "target": 8000,
@@ -412,7 +434,7 @@ def manager_compose(config, image):
                 "command": ["candidate-web", str(data)],
                 "volumes": [
                     {"type": "bind", "source": str(p), "target": str(p)}
-                    for p in (data, Path(SOCKET))
+                    for p in mounts
                 ],
             },
         },
@@ -425,7 +447,7 @@ def apply_manager(config, image, path):
     docker(
         "compose",
         "--project-name",
-        config["project"],
+        config.get("wizard_project", config["project"]),
         "--project-directory",
         config["data"],
         "--env-file",
@@ -464,6 +486,10 @@ def init_container(config, action):
         "--pull=never",
         "--network",
         "none",
+        "--label",
+        "com.docker.compose.project=",
+        "--label",
+        "com.docker.compose.service=",
         "--mount",
         mount(config["data"]),
         config["manager"],
@@ -499,7 +525,7 @@ WantedBy=multi-user.target
     command(["systemctl", "enable", unit.name])
 
 
-def _catalog_config(path, os_release=Path("/etc/os-release")):
+def _catalog_config(path, os_release=None):
     with Path(path).open("rb") as source:
         raw = source.read(65537)
     if len(raw) > 65536:
@@ -557,20 +583,12 @@ def _catalog_config(path, os_release=Path("/etc/os-release")):
         )
     ):
         raise ValueError("The DVT release trust document is invalid")
-    distro = dict(
-        line.split("=", 1)
-        for line in os_release.read_text().splitlines()
-        if "=" in line
-    )
-    distribution = distro.get("ID", "").strip('"')
-    version = distro.get("VERSION_ID", "").strip('"')
-    if not distribution or not version:
-        raise ValueError("The host Linux distribution or version is unknown")
+    distro = read_os_release(os_release if os_release is not None else host_os_release())
     return {
         **settings,
         "platform": "linux/amd64",
-        "distribution": distribution,
-        "distribution_version": version,
+        "distribution": distro.get("ID", ""),
+        "distribution_version": distro.get("VERSION_ID", ""),
     }
 
 
@@ -587,34 +605,31 @@ def bootstrap_images(args, *, catalog):
     return args.manager, args.candidate, args.executor
 
 
-def managed_tls(directory):
-    ca, ca_key, cert, key, request, extensions = (
-        directory / name for name in ("ca.pem", "ca.key", "cert.pem", "key.pem", "host.csr", "host.ext")
-    )
-    extensions.write_text(
-        "basicConstraints=critical,CA:FALSE\n"
-        "keyUsage=critical,digitalSignature,keyEncipherment\n"
-        "extendedKeyUsage=serverAuth\n"
-        "subjectAltName=DNS:localhost,IP:127.0.0.1\n"
-    )
-    command([
-        "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "3650",
-        "-subj", "/CN=DVT local installation CA",
-        "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
-        "-addext", "keyUsage=critical,keyCertSign,cRLSign",
-        "-keyout", str(ca_key), "-out", str(ca),
-    ])
-    command([
-        "openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
-        "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(request),
-    ])
-    command([
-        "openssl", "x509", "-req", "-in", str(request), "-CA", str(ca), "-CAkey", str(ca_key),
-        "-set_serial", f"0x{os.urandom(16).hex()}", "-sha256", "-days", "825",
-        "-extfile", str(extensions), "-out", str(cert),
-    ])
-    command(["openssl", "verify", "-CAfile", str(ca), "-verify_hostname", "localhost", str(cert)])
-    return {name: path.read_bytes() for name, path in (("cert", cert), ("key", key), ("ca", ca))}
+def manager_origin(config):
+    if config.get("manager_origins"):
+        return config["manager_origins"][0]
+    if config.get("manager_http") is True:
+        host = urlsplit(config["public_url"]).hostname
+        authority = f"[{host}]" if ":" in host else host
+        return f"http://{authority}:{config['port']}"
+    return f"https://localhost:{config['port']}"
+
+
+def manager_bind(host):
+    if host == "localhost":
+        return "127.0.0.1"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", host):
+            raise ValueError("Invalid manager hostname") from None
+        return "0.0.0.0"
+    if address.is_unspecified or address.is_multicast:
+        raise ValueError("Enter the server address used by the browser")
+    if address.is_loopback:
+        return str(address)
+    # A cloud public IP may be translated to a different address on this host.
+    return "::" if address.version == 6 else "0.0.0.0"
 
 
 def print_managed_access(data, port):
@@ -631,15 +646,76 @@ def print_managed_access(data, port):
     print("  " + ":".join(fingerprint[i:i + 2] for i in range(0, len(fingerprint), 2)).upper())
 
 
+def wizard_intent(directory):
+    path = directory / CONTROL / "install-intent.json"
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+        raise ValueError("Invalid installation intent file")
+    content = path.read_bytes()
+    value = json.loads(content)
+    key = value["key"]
+    request = value["request"]
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", key) or request["kind"] != "install":
+        raise ValueError("Invalid installation intent")
+    return key, request, content
+
+
+def wizard_bind(host):
+    if host and ":" in host:
+        try:
+            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as listener:
+                listener.bind(("::", 0))
+        except OSError:
+            pass
+        else:
+            return "::"
+    return "0.0.0.0"
+
+
+def wizard_origins(public_url, host, port, address):
+    hosts = (host, "localhost", urlsplit(public_url).hostname)
+    origins = []
+    for value in hosts:
+        if not value:
+            continue
+        hostname = value.strip("[]")
+        with contextlib.suppress(ValueError):
+            if ipaddress.ip_address(hostname).version != ipaddress.ip_address(address).version:
+                continue
+        authority = f"[{hostname}]" if ":" in hostname else hostname
+        origin = f"http://{authority}:{port}"
+        if origin not in origins:
+            origins.append(origin)
+    return origins
+
+
 def bootstrap(args):
     from uuid import uuid4
 
     data = safe_path(args.dir)
+    wizard_default = getattr(args, "wizard_default", None)
+    wizard_source = getattr(args, "wizard_source", None)
+    wizard_config = None
+    if wizard_source:
+        wizard_source = safe_path(wizard_source)
+        wizard_config = load_host(wizard_source)
+        key, request, intent = wizard_intent(wizard_source)
+        if (
+            not wizard_config.get("wizard_temporary")
+            or key != args.wizard_key
+            or request["install_dir"] != str(data)
+        ):
+            raise ValueError("Installation intent changed before handoff")
+        public_urls = request["public_urls"]
+        args.public_url = public_urls[0]
     config_path = data / CONTROL / "host.json"
     prior = load_host(data) if config_path.exists() else None
     contained = getattr(args, "contained", False)
+    local_images = getattr(args, "local_images", False)
+    local_ui_image = getattr(args, "local_ui_image", None)
+    if local_ui_image and not (local_images and contained):
+        raise ValueError("Use the contained local-image bootstrap to select a local UI")
     catalog_file = getattr(args, "release_catalog_config", None)
-    os_release = HOST_OS_RELEASE if contained else Path("/etc/os-release")
+    os_release = HOST_OS_RELEASE if contained else host_os_release()
     catalog = _catalog_config(catalog_file, os_release) if catalog_file else None
     catalog_ca_path = getattr(args, "release_catalog_ca", None)
     catalog_ca = None
@@ -759,7 +835,6 @@ def bootstrap(args):
             )
         ):
             raise ValueError("The selected data directory is not empty")
-        check_port("127.0.0.1", port)
         if docker_ready():
             check_project(project)
         manager, candidate_image, executor = bootstrap_images(args, catalog=catalog)
@@ -782,12 +857,28 @@ def bootstrap(args):
         ):
             raise ValueError("Expected a public DVT HTTP(S) origin")
         _ = url.port
-        if managed:
-            with tempfile.TemporaryDirectory(prefix="dvt-tls-", dir="/tmp") as folder:
-                tls = managed_tls(Path(folder))
-        else:
-            tls = {name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")}
-        local_images = getattr(args, "local_images", False)
+        address = manager_bind(url.hostname) if managed else "127.0.0.1"
+        if wizard_config:
+            address = wizard_config["address"]
+            port = wizard_config["port"]
+        if wizard_default:
+            address = wizard_bind(args.wizard_host)
+            if args.wizard_auto_port:
+                family = socket.AF_INET6 if address == "::" else socket.AF_INET
+                with socket.socket(family, socket.SOCK_STREAM) as listener:
+                    try:
+                        listener.bind((address, port))
+                    except OSError:
+                        listener.bind((address, 0))
+                        port = listener.getsockname()[1]
+        if local_images and managed and address == "127.0.0.1":
+            # Docker Desktop forwards to the disposable host's bridge interface.
+            address = "0.0.0.0"
+        if not wizard_source:
+            check_port(address, port)
+        tls = {} if managed else {
+            name: Path(getattr(args, name)).read_bytes() for name in ("cert", "key", "ca")
+        }
         if local_images or contained:
             if not docker_ready():
                 raise ValueError("Prepare Docker on the host before bootstrap")
@@ -822,14 +913,16 @@ def bootstrap(args):
             raise ValueError("Choose separate data, temporary and backup directories")
         for img in dict.fromkeys([manager, candidate_image, executor]):
             check_image(img, pull=not local_images)
+        if local_ui_image:
+            check_image(local_ui_image)
         data.mkdir(mode=0o700, parents=True, exist_ok=True)
         control = data / CONTROL
         config = {
             "version": 1,
-            "instance": str(uuid4()),
+            "instance": wizard_config["instance"] if wizard_config else str(uuid4()),
             "data": str(data),
             "project": project,
-            "address": "127.0.0.1",
+            "address": address,
             "port": port,
             "public_url": public_url,
             "manager": manager,
@@ -840,6 +933,21 @@ def bootstrap(args):
             "temporary": str(temporary),
             "backup": str(backup),
         }
+        if managed:
+            config["manager_http"] = True
+        if wizard_default:
+            config.update(
+                wizard_temporary=True,
+                wizard_project=args.wizard_project,
+                default_install_dir=wizard_default,
+                manager_origins=wizard_origins(public_url, args.wizard_host, port, address),
+            )
+        if wizard_config:
+            config.update(manager_origins=wizard_config["manager_origins"], public_urls=public_urls)
+        if local_images and wizard_config:
+            config["local_manager_image"] = manager
+        if local_ui_image:
+            config["local_ui_image"] = local_ui_image
         if catalog is not None:
             config["release_catalog"] = catalog
         with tempfile.TemporaryDirectory(prefix=".bootstrap-partial-", dir=data) as folder:
@@ -853,6 +961,23 @@ def bootstrap(args):
                 atomic_write(staging / LAUNCH_DIGEST, launch_digest.encode("ascii"))
                 for name, mode in (("host-launch.sh", 0o700), ("launch-host.conf", 0o600)):
                     atomic_write(staging / name, launch_source.with_name(name).read_bytes(), mode)
+            if wizard_default:
+                atomic_write(staging / "wizard-port", str(port).encode())
+            if wizard_source:
+                source = wizard_source / CONTROL
+                for name in ("session-key", "pairing.json"):
+                    origin = source / name
+                    if name == "pairing.json" and not origin.exists():
+                        continue
+                    info = origin.lstat()
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_uid
+                        or stat.S_IMODE(info.st_mode) != 0o600
+                    ):
+                        raise PermissionError("Invalid wizard session file")
+                    atomic_write(staging / name, origin.read_bytes())
+                atomic_write(staging / "install-intent.json", intent)
             atomic_write(staging / "current-manager", config["manager"].encode())
             atomic_write(staging / config_path.name, json.dumps(config).encode())
             staging.rename(control)
@@ -863,14 +988,34 @@ def bootstrap(args):
                 os.close(dir_fd)
         for path in (temporary, backup):
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        init_container(config, "candidate-init")
-        if not contained:
-            install_unit(data, config)
-        apply_manager(config, config["manager"], control / "bootstrap.compose.yaml")
+        if not wizard_source:
+            init_container(config, "candidate-init")
+            if not contained:
+                install_unit(data, config)
+            apply_manager(config, config["manager"], control / "bootstrap.compose.yaml")
+    if wizard_source:
+        print(f"Manager: {manager_origin(config)}", flush=True)
+        return
+    if wizard_default:
+        if not args.wizard_show_pairing:
+            return
+        token = init_container(config, "candidate-pair")
+        for origin in config["manager_origins"]:
+            print(f"Manager: {origin}/#pairing={token}", flush=True)
+        return
     if getattr(args, "quiet", False):
         return
-    print(f"Manager: https://localhost:{config['port']} (127.0.0.1)")
-    print(f"Instance: {config['instance']} · {data} · {config['project']}")
+    if config.get("manager_http") is True:
+        origins = config.get("manager_origins") or [manager_origin(config)]
+        suffix = ""
+        if (sys.stdout.isatty() and not args.non_interactive) or (
+            config.get("manager_origins") and args.new_pairing_token
+        ):
+            suffix = "/#pairing=" + init_container(config, "candidate-pair")
+        for origin in origins:
+            print(f"Manager: {origin}{suffix}")
+        return
+    print(f"Manager: {manager_origin(config)}")
     if managed:
         print_managed_access(data, config["port"])
     if not prior or args.new_pairing_token:
@@ -899,7 +1044,7 @@ def main():
     parser.add_argument(
         "action",
         choices=[
-            "bootstrap", "resume", "maintenance", "maintenance-extend", "maintenance-defer",
+            "bootstrap", "wizard-intent", "resume", "maintenance", "maintenance-extend", "maintenance-defer",
             "cancel-preparation", "recover-manager", "return-to-source", "restore-start",
         ],
     )
@@ -924,23 +1069,44 @@ def main():
         parser.add_argument(f"--{key}")
     for key in ("non-interactive", "install-docker", "new-pairing-token", "managed", "contained"):
         parser.add_argument(f"--{key}", action="store_true")
+    parser.add_argument("--local-images", action="store_true")
+    parser.add_argument("--local-ui-image")
+    parser.add_argument("--wizard-default")
+    parser.add_argument("--wizard-host")
+    parser.add_argument("--wizard-project")
+    parser.add_argument("--wizard-auto-port", action="store_true")
+    parser.add_argument("--wizard-show-pairing", action="store_true")
+    parser.add_argument("--wizard-source")
+    parser.add_argument("--wizard-key")
     args = parser.parse_args()
     try:
+        if args.local_images and (args.action != "bootstrap" or not args.contained):
+            raise ValueError("Local images are only supported by the contained test bootstrap")
         os.umask(0o077)
-        if os.geteuid() or not sys.platform.startswith("linux") or platform.machine() != "x86_64":
-            raise ValueError("This candidate requires root on Linux amd64")
-        if args.contained:
-            if not HOST_OS_RELEASE.is_file() or (args.action == "bootstrap" and not args.managed):
-                raise ValueError("Use the managed launcher with the host distribution bind mount")
-        elif not Path("/run/systemd/system").is_dir():
-            raise ValueError("The host must run systemd")
-        if args.action != "bootstrap":
+        if os.geteuid():
+            raise ValueError("This candidate requires root")
+        if args.contained and args.action == "bootstrap" and not args.managed:
+            raise ValueError("Use the managed launcher for the contained bootstrap")
+        if args.action == "wizard-intent":
+            if not args.contained:
+                raise ValueError("Use the managed installer to read the installation intent")
+            data = safe_path(args.dir)
+            if not load_host(data).get("wizard_temporary"):
+                raise ValueError("The manager is not running in initial setup")
+            key, request, _ = wizard_intent(data)
+            path = request["install_dir"]
+            if not re.fullmatch(r"/[a-zA-Z0-9_./-]+", path):
+                path = "/"
+            print(key, path)
+        elif args.action != "bootstrap":
             config = load_host(safe_path(args.dir))
             operation = active_id(config)
             if args.action == "resume":
                 if operation:
                     launch(config, operation)
                 elif args.contained:
+                    if (Path(config["data"]) / CONTROL / "install-intent.json").is_file():
+                        init_container(config, "candidate-init")
                     start_verified_manager(config)
             else:
                 if not args.operation_id or args.operation_id != operation:

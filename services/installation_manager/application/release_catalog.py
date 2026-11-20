@@ -183,10 +183,7 @@ class ReleaseCatalog:
         return CatalogSnapshot(error=reason)
 
     def supports_host(self, release: CatalogRelease) -> bool:
-        host = self.host
-        return release.platforms.count(host.platform) == 1 and (
-            host.distribution_version in release.distributions.get(host.distribution, ())
-        )
+        return release.platforms.count(self.host.platform) == 1
 
     def paths(
         self, snapshot: CatalogSnapshot, observed: SourceFacts | None, *, allow_rc: bool = False
@@ -245,13 +242,8 @@ class ReleaseCatalog:
             or schema.target_revision != row.target_revision
         ):
             raise invalid_package("The selected catalog entry differs from the signed manifest")
-        if (
-            host.platform not in manifest.platforms
-            or host.distribution_version not in manifest.environment.distributions.get(
-                host.distribution, ()
-            )
-        ):
-            raise incompatible("The selected release does not support the observed platform")
+        if host.platform not in manifest.platforms:
+            raise incompatible("The selected release does not provide images for the observed platform")
         if observed is None:
             compatible = schema.initial_install
         else:

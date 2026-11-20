@@ -34,7 +34,7 @@ class Settings:
     standalone: bool
     static_dir: Path | None
     task_worker_service: str = "task-worker"
-    self_service_name: str = "update-service"
+    self_service_name: str = "installation_manager"
 
     @property
     def dev_mode(self) -> bool:
@@ -67,4 +67,5 @@ def load_settings() -> Settings:
         update_mode=os.getenv("UPDATE_SERVICE_MODE", "pull"),
         standalone=os.getenv("UPDATE_SERVICE_STANDALONE", "false").lower() in _TRUE_TOKENS,
         static_dir=Path(static_dir_raw) if static_dir_raw else None,
+        self_service_name=os.getenv("UPDATE_SERVICE_SELF_NAME", Settings.self_service_name)
     )

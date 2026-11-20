@@ -16,8 +16,17 @@ export async function candidateRequest(path, { method = 'GET', data, key } = {})
   throw error
 }
 
+const candidateInstanceKey = 'dvt-candidate-instance'
 export const candidateOperationKey = 'dvt-candidate-operation'
 export const candidateRequestKey = 'dvt-candidate-request'
+
+export function syncCandidateInstance(instanceId, storage = sessionStorage) {
+  if (storage.getItem(candidateInstanceKey) === instanceId) return false
+  storage.removeItem(candidateOperationKey)
+  storage.removeItem(candidateRequestKey)
+  storage.setItem(candidateInstanceKey, instanceId)
+  return true
+}
 
 export async function confirmCandidateAdmission(path, storage = sessionStorage) {
   const saved = storage.getItem(candidateRequestKey)

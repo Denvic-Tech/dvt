@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { candidateRequest } from './candidateApi.js'
+import celebrate from './celebrate.js'
+import { Icon } from './Wizard.jsx'
 
 const stages = {
   admitted: 'Операция сохранена',
@@ -27,6 +30,7 @@ const labels = {
   restore_start: 'Запустить восстановленный DVT',
 }
 const failures = {
+  executor_unavailable: 'Не удалось запустить установку. Проверьте доступность Docker и повторите попытку.',
   distributor_unavailable: 'Distributor недоступен. Проверьте соединение с каталогом.',
   tls: 'Ошибка TLS. Проверьте доверенный CA, имя сервера и часы хоста.',
   registry_unavailable: 'Registry недоступен. Проверьте сеть и доступ к Registry.',
@@ -49,18 +53,16 @@ export const terminalStages = new Set(['succeeded', 'cancelled', 'failed'])
 const needsConfirmation = new Set(['apply', 'return_to_source', 'restore_start'])
 const gib = (bytes) => (bytes / 1024 ** 3).toFixed(2)
 
-export default function CandidateOperation({ operation, disabled, act }) {
+function OperationActions({ operation, disabled, act }) {
   const [confirmation, setConfirmation] = useState(null)
   const { plan } = operation
+  if (!operation.actions?.length && !operation.failure) return null
+  if (operation.kind === 'install' && ['admitted', 'preparing', 'prepared'].includes(operation.stage)
+      && !operation.failure) return null
   return (
-    <section className="card operator-form" aria-label="Операция">
-      <h2>{operation.kind === 'install' ? 'Установка' : 'Операция DVT'} {operation.version}</h2>
-      <dl className="operator-facts">
-        <dt>ID операции</dt><dd><code>{operation.id}</code></dd>
-        <dt>Последняя подтверждённая стадия</dt><dd aria-live="polite">{stages[operation.stage] ?? operation.stage}</dd>
-        {operation.failure && <><dt>Причина</dt><dd role="alert">{failureMessage(operation.failure)}</dd></>}
-      </dl>
-      {plan && <details open={operation.stage === 'prepared'}>
+    <section className="wizard-card operator-form" aria-label="Действия">
+      {operation.failure && <p role="alert">{failureMessage(operation.failure)}</p>}
+      {plan && operation.kind !== 'install' && <details open={operation.stage === 'prepared'}>
         <summary>План операции</summary>
         <dl className="operator-facts">
           {plan.source_version && <><dt>Фактическая версия и схема</dt><dd>{plan.source_version} · {plan.source_revision}</dd></>}
@@ -106,4 +108,190 @@ export default function CandidateOperation({ operation, disabled, act }) {
       </a>
     </section>
   )
+}
+
+const installStages = [
+  ['Подготовка', ['admitted']],
+  ['Загрузка образов', ['preparing', 'prepared']],
+  ['Настройка базы данных', ['migrating']],
+  ['Запуск сервисов', ['applying']],
+  ['Проверка доступности', ['verifying', 'resuming']],
+]
+const updateStages = [
+  ['Подготовка', ['admitted', 'preparing', 'prepared']],
+  ['Окно обслуживания', ['maintenance']],
+  ['Резервная копия', ['backup']],
+  ...installStages.slice(2),
+]
+const recoveryStages = [
+  ['Подготовка', ['admitted', 'preparing', 'prepared']],
+  ['Восстановление', ['recovering', 'recovery_required']],
+  ['Проверка доступности', ['verifying', 'resuming']],
+]
+const operationDisplay = {
+  install: { title: 'Установка DVT', success: 'DVT установлен', label: 'установки', rows: installStages },
+  update: { title: 'Обновление DVT', success: 'DVT обновлён', label: 'обновления', rows: updateStages },
+  manager_recovery: {
+    title: 'Восстановление доступа к мастеру', success: 'Доступ к мастеру восстановлен',
+    label: 'восстановления доступа', rows: recoveryStages,
+  },
+  restore: {
+    title: 'Восстановление DVT', success: 'DVT восстановлен',
+    label: 'восстановления', rows: recoveryStages,
+  },
+}
+const stateLabels = { pending: 'В ожидании', active: 'Выполняется', done: 'Готово', failed: 'Ошибка' }
+const timeFormat = new Intl.DateTimeFormat('ru-RU', { timeStyle: 'medium' })
+const formatTime = (line) => line.at ? timeFormat.format(new Date(line.at)) : ''
+
+function useOperationFeed(id) {
+  const [entries, setEntries] = useState([])
+  const [checkpoints, setCheckpoints] = useState([])
+  useEffect(() => {
+    if (!id) return
+    let stopped = false
+    let timer
+    let eventCursor = 0
+    let logCursor = 0
+    async function poll() {
+      const [events, logs] = await Promise.allSettled([
+        candidateRequest(`/operations/${id}/events?after=${eventCursor}`),
+        candidateRequest(`/operator/operations/${id}/log?after=${logCursor}&limit=100`),
+      ])
+      if (stopped) return
+      if (events.status === 'fulfilled' && events.value.length) {
+        eventCursor = events.value.at(-1).cursor
+        setCheckpoints((previous) => [...previous, ...events.value.map((event) => event.checkpoint?.stage ?? event.stage).filter(Boolean)])
+      }
+      if (logs.status === 'fulfilled' && logs.value.lines.length) {
+        logCursor = logs.value.next_cursor
+        setEntries((previous) => [...previous, ...logs.value.lines])
+      }
+      const hasMore = logs.value?.lines.length === 100 || events.value?.length === 100
+      timer = setTimeout(poll, hasMore ? 0 : 1000)
+    }
+    poll()
+    return () => { stopped = true; clearTimeout(timer) }
+  }, [id])
+  return { entries, checkpoints }
+}
+
+function downloadLogs(text) {
+  const link = document.createElement('a')
+  const url = URL.createObjectURL(new Blob([text + '\n'], { type: 'text/plain;charset=utf-8' }))
+  link.href = url
+  link.download = 'dvt-installation.log'
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+async function copyLogs(text, button) {
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(text); return true }
+    catch { /* HTTP installations can use selection-based copying. */ }
+  }
+  const buffer = document.createElement('textarea')
+  buffer.className = 'sr'
+  buffer.value = text
+  document.body.append(buffer)
+  buffer.select()
+  try { return document.execCommand('copy') }
+  finally { buffer.remove(); button.focus() }
+}
+
+export default function CandidateOperation({ operation, disabled, act, settings, openSetup, onBack }) {
+  const { entries, checkpoints } = useOperationFeed(operation.id)
+  const following = useRef(true)
+  const [copyStatus, setCopyStatus] = useState('')
+  const terminal = useRef(null)
+  const open = useRef(null)
+  const heading = useRef(null)
+  const celebrated = useRef(false)
+  const copyTimer = useRef(null)
+  const installation = operation.kind === 'install'
+  const success = operation.stage === 'succeeded'
+  const display = operationDisplay[operation.kind] ?? operationDisplay.update
+  const title = success ? display.success : display.title
+  const terminalMessage = ['failed', 'cancelled'].includes(operation.stage) ? stages[operation.stage] : ''
+  const text = entries.map((line) => line.at ? `[${formatTime(line)}] ${line.message}` : line.message).join('\n')
+  const setupPending = installation && success && !settings?.installed
+  const canOpen = success && settings?.app_origin && !setupPending
+
+  useEffect(() => { heading.current?.focus() }, [])
+  useEffect(() => () => clearTimeout(copyTimer.current), [])
+  useEffect(() => {
+    if (following.current && terminal.current) terminal.current.scrollTop = terminal.current.scrollHeight
+  }, [entries])
+  useEffect(() => {
+    if (canOpen && open.current && !celebrated.current) {
+      celebrate(open.current)
+      celebrated.current = true
+    }
+  }, [canOpen])
+
+  async function copy(event) {
+    const copied = await copyLogs(text, event.currentTarget).catch(() => false)
+    setCopyStatus(copied ? 'copied' : 'error')
+    clearTimeout(copyTimer.current)
+    if (copied) copyTimer.current = setTimeout(() => setCopyStatus(''), 1800)
+  }
+
+  const { rows } = display
+  const current = rows.findIndex(([, ids]) => ids.includes(operation.stage))
+  const lastObserved = rows.findLastIndex(([, ids]) => ids.some((id) => checkpoints.includes(id)))
+  const failed = ['failed', 'recovery_required'].includes(operation.stage)
+  const recovering = ['recovering', 'recovery_required'].includes(operation.stage)
+  return <>
+    <div className="heading">
+      <h1 tabIndex={-1} ref={heading}>{title}</h1>
+      {canOpen && (settings.setup_required
+        ? <button ref={open} id="open-dvt" className="primary" disabled={disabled} onClick={openSetup}>Открыть DVT</button>
+        : <a ref={open} id="open-dvt" className="primary" href={settings.app_origin} target="_blank" rel="noopener noreferrer">Открыть DVT</a>)}
+    </div>
+    {terminalMessage && <p className="banner banner-info" role="status">{terminalMessage}</p>}
+    <div className="columns">
+      <section className="wizard-card">
+        <div className="panel-head"><h2>Журнал {display.label}</h2>
+          <div className="tools">
+            <button type="button" className="icon-btn" aria-label="Скопировать логи"
+              title="Скопировать логи" disabled={!entries.length} onClick={copy}><Icon name={copyStatus === 'copied' ? 'check' : 'copy'} /></button>
+            <button type="button" className="icon-btn" aria-label="Скачать логи"
+              title="Скачать логи" disabled={!entries.length} onClick={() => downloadLogs(text)}><Icon name="download" /></button>
+          </div>
+        </div>
+        <div ref={terminal} className="terminal" role="log" aria-live="off" aria-label="Логи" tabIndex={0}
+          onScroll={(event) => {
+            const box = event.currentTarget
+            following.current = box.scrollTop + box.clientHeight >= box.scrollHeight - 8
+          }}>
+          {!entries.length && <span>Ожидание вывода…</span>}
+          {entries.map((line) => <div key={line.cursor} className="log-line">
+            {line.at && <time dateTime={line.at}>{formatTime(line)}</time>}
+            <span className={line.at ? '' : 'log-message'}>{line.message}</span>
+          </div>)}
+        </div>
+        {copyStatus === 'error' && <p className="banner banner-error" role="alert">Не удалось скопировать логи.</p>}
+        <span className="sr" role="status">{copyStatus === 'copied' ? 'Логи скопированы' : ''}</span>
+      </section>
+      <section className="wizard-card">
+        <div className="panel-head"><h2>Этапы {display.label}</h2></div>
+        <ol className="wizard-stages">
+          {rows.map(([label], index) => {
+            const status = success || index < (current >= 0 ? current : lastObserved) ? 'done'
+              : failed && (current === index || (!recovering && index === Math.max(lastObserved, 0))) ? 'failed'
+                : current === index || (!operation.id && index === 0) ? 'active' : 'pending'
+            return <li className={`stage ${status}`} key={label}>
+              <span className="mark" aria-hidden="true" /><div><strong>{label}</strong><small>{stateLabels[status]}</small></div>
+            </li>
+          })}
+          {recovering && current < 0 && <li className={`stage ${failed ? 'failed' : 'active'}`}>
+            <span className="mark" aria-hidden="true" /><div><strong>Восстановление</strong><small>{stages[operation.stage]}</small></div>
+          </li>}
+        </ol>
+      </section>
+    </div>
+    {operation.id && <OperationActions operation={operation} disabled={disabled} act={act} />}
+    {terminalStages.has(operation.stage) && !setupPending && !settings?.setup_required &&
+      <div className="operator-actions"><button className="btn" onClick={onBack}>Назад</button></div>}
+  </>
 }
