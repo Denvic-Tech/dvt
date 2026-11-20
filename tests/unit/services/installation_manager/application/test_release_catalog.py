@@ -88,10 +88,10 @@ def release(tmp_path):
     return manifest
 
 
-def client(path, network, *, trust=True):
+def client(path, network, *, trust=True, host=HOST):
     verifier = TrustPolicy({"beta-root": ROOT.public_key().public_bytes_raw()})
     return ReleaseCatalog(
-        data=path, origin=ORIGIN, host=HOST, download=network.get,
+        data=path, origin=ORIGIN, host=host, download=network.get,
         verify=verifier.verify if trust else None,
     )
 
@@ -150,6 +150,21 @@ def test_recommend_intermediate_stable_from_actual_revision_and_keep_rc_opt_in(t
     with pytest.raises(StagingError, match="explicit consent"):
         catalog.select(rc, advanced)
     assert catalog.select(rc, advanced, allow_rc=True).pin.release_id == "rc"
+
+
+@pytest.mark.parametrize("distribution,version", [("debian", "12"), ("", "")])
+def test_catalog_selects_signed_release_outside_declared_distributions(
+    tmp_path, release, distribution, version,
+):
+    row, raw = offer(release)
+    host = CatalogHost("linux/amd64", distribution, version)
+    catalog = client(tmp_path, Network((row, raw)), host=host)
+    snapshot = catalog.refresh()
+    paths = catalog.paths(snapshot, observed=None)
+
+    selected = catalog.select(paths[row["version"]][-1], observed=None)
+
+    assert selected.pin.manifest_digest == row["manifest_digest"]
 
 
 def test_catalog_cannot_authorize_a_transition_or_substitute_untrusted_content(tmp_path, release):

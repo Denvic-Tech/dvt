@@ -115,11 +115,10 @@ def _check_host(config: dict, staging: Path) -> None:
         temporary=Path(config["temporary"]),
         backup=Path(config["backup"]),
         containerd_root=Path(config["containerd_root"]) if config["containerd_root"] else None,
-        os_release=Path("/run/dvt-host-os"),
     )
     env = Environment.model_validate(
         {
-            "distributions": {"debian": ["13"], "ubuntu": ["24.04"]},
+            "distributions": {},
             "min_docker": "28.0.0",
             "min_compose": "2.24.0",
             "pull_parallelism": 1,
@@ -141,7 +140,6 @@ def _check_host(config: dict, staging: Path) -> None:
     check_platform(
         info,
         docker("compose", "version", "--short").stdout.strip(),
-        paths.os_release,
         env,
         env.base,
     )

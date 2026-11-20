@@ -181,6 +181,7 @@ class InstallLauncherTest(unittest.TestCase):
         self.received = []
         self.queries = []
         self.failure = None
+        self.launcher = LAUNCHER
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(inner):
@@ -188,7 +189,7 @@ class InstallLauncherTest(unittest.TestCase):
                 location = urlsplit(inner.path)
                 path = location.path
                 if path == "/dvt/install.sh":
-                    content = LAUNCHER.read_bytes()
+                    content = self.launcher.read_bytes()
                 elif path == "/api/v1/dvt/releases/install":
                     self.received.append(path)
                     args = parse_qs(location.query)
@@ -201,9 +202,6 @@ class InstallLauncherTest(unittest.TestCase):
                         return
                     assert args["channel"] == ["rc"]
                     assert args["platform"] == ["linux/amd64"]
-                    assert (args["distribution"][0], args["distribution_version"][0]) in {
-                        ("debian", "13"), ("ubuntu", "24.04"),
-                    }
                     asset = "/bootstrap.py"
                     if self.failure == "redirect":
                         asset = "/redirect.py"
@@ -491,6 +489,38 @@ class InstallLauncherTest(unittest.TestCase):
         self.assertEqual(self.queries[0]["channel"], ["rc"])
         good = self.launch("--version", "1.24.0-rc4", legacy_rc=False)
         self.assertEqual(good.returncode, 0, good.stderr)
+
+    def launcher_with_os_release(self, os_release, content=None):
+        if content is not None:
+            os_release.write_text(content)
+        self.launcher = self.root / "install.sh"
+        self.launcher.write_text(
+            LAUNCHER.read_text(encoding="utf-8")
+            .replace("host_os_release=/etc/os-release", f"host_os_release={os_release}")
+            .replace("host_os_release=/usr/lib/os-release", f"host_os_release={os_release}"),
+            encoding="utf-8",
+        )
+
+    def test_unlisted_host_installs_through_catalog(self):
+        self.launcher_with_os_release(
+            self.root / "os-release", 'ID=debian\nVERSION_ID="12"\nVERSION_CODENAME=bookworm\n',
+        )
+
+        result = self.launch()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.queries[0]["distribution"], ["debian"])
+        self.assertEqual(self.queries[0]["distribution_version"], ["12"])
+        self.assertEqual((self.data / "manager-witness").read_text(), MANAGER)
+
+    def test_install_catalog_query_without_os_release(self):
+        self.launcher_with_os_release(self.root / "missing-os-release")
+
+        result = self.launch()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("distribution", self.queries[0])
+        self.assertNotIn("distribution_version", self.queries[0])
 
     def test_default_requests_only_stable_and_conflicts_fail_locally(self):
         self.failure = "not-ready"

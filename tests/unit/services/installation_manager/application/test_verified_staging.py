@@ -135,7 +135,14 @@ class Docker:
         self.binding_collision = False
 
     def info(self, _deadline):
-        return {"DockerRootDir": "/var/lib/docker"}
+        return {
+            "DockerRootDir": "/var/lib/docker",
+            "OSType": "linux",
+            "Architecture": "x86_64",
+            "ServerVersion": "29.0.0",
+            "NCPU": 4,
+            "MemTotal": 8 * 1024**3,
+        }
 
     def compose_version(self, _deadline):
         return "5.7.1"
@@ -239,7 +246,9 @@ def setup(tmp_path, monkeypatch):
         HostPaths(tmp_path, tmp_path, os_release=tmp_path / "os-release"),
         "1.23.0",
     )
-    monkeypatch.setattr(verified_staging, "check_platform", lambda *_: "linux/amd64")
+    monkeypatch.setattr(staging_host.os, "sched_getaffinity", lambda _: {0, 1, 2, 3}, raising=False)
+    sysconf = {"SC_PHYS_PAGES": 8 * 1024**3 // 4096, "SC_PAGE_SIZE": 4096}
+    monkeypatch.setattr(staging_host.os, "sysconf", sysconf.__getitem__, raising=False)
     monkeypatch.setattr(verified_staging, "require_writable", lambda *_: None)
     monkeypatch.setattr(verified_staging, "storage_budgets", lambda *_: [])
     monkeypatch.setattr(verified_staging, "check_filesystems", lambda *_: None)
@@ -396,7 +405,8 @@ def test_validation_failures_block_before_image_pulls(setup, monkeypatch, failur
         artifact = "compose.yaml" if failure == "compose" else "bootstrap.sh"
         service.downloader.content[f"{ORIGIN}/{artifact}"] += b"bad"
     elif failure == "platform":
-        monkeypatch.setattr(verified_staging, "check_platform", lambda *_: "linux/arm64")
+        info = service.docker.info(None)
+        monkeypatch.setattr(service.docker, "info", lambda _: {**info, "Architecture": "aarch64"})
     elif failure == "version":
         service = replace(service, preparer_version="1.0.0")
     elif failure == "mcp":

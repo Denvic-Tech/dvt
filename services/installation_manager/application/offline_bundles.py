@@ -232,7 +232,7 @@ def _preflight_fresh(args, data: Path, bundle: OfflineBundle, values: dict[str, 
         bundle.directory, bundle.directory, containerd_root=containerd,
     )
     detected = check_platform(
-        info, local.compose_version(deadline), paths.os_release, release.environment, resources
+        info, local.compose_version(deadline), release.environment, resources
     )
     distribution = release.platforms[detected]
     compose = bundle.directory / "compose.yaml"
@@ -385,8 +385,7 @@ def run(args) -> dict:
                     bundle.release.environment, tuple(bundle.index["profiles"])
                 )
                 platform = check_platform(
-                    info, local.compose_version(deadline), paths.os_release,
-                    bundle.release.environment, resources,
+                    info, local.compose_version(deadline), bundle.release.environment, resources,
                 )
                 missing = {
                     image.reference: image for image in platform_release.images.values()

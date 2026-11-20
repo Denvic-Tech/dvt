@@ -1,10 +1,8 @@
-"""Observe the supported Linux host and account for staging storage."""
+"""Observe the Docker host and account for staging storage."""
 
 from __future__ import annotations
 
 import os
-import platform
-import shlex
 import socket
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,25 +63,14 @@ def selected_profile(environment: Environment, profiles: tuple[str, ...]) -> Res
 def check_platform(
     info: dict,
     compose_version: str,
-    host_os_release: Path,
     env: Environment,
     profile: ResourceProfile,
 ) -> str:
     try:
-        release = {}
-        for line in host_os_release.read_text(encoding="utf-8").splitlines():
-            key, _, value = line.partition("=")
-            if key in {"ID", "VERSION_ID"}:
-                (release[key],) = shlex.split(value)
-        arch = {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
-        if (
-            info["OSType"] != "linux"
-            or info["Architecture"] not in (arch, platform.machine())
-            or release["VERSION_ID"] not in env.distributions.get(release["ID"], [])
-        ):
-            raise incompatible(
-                "The executor OS or Docker architecture is outside the release matrix"
-            )
+        if info["OSType"] != "linux":
+            raise incompatible("Docker must be running in Linux container mode")
+        docker_arch = info["Architecture"]
+        arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(docker_arch, docker_arch)
         if Version(info["ServerVersion"]) < Version(env.min_docker) or Version(
             compose_version
         ) < Version(env.min_compose):
@@ -97,7 +84,7 @@ def check_platform(
             )
     except (AttributeError, KeyError, OSError, TypeError, ValueError):
         raise incompatible(
-            "Could not establish executor OS, resources or local Docker version"
+            "Could not establish the Docker platform, version or host resources"
         ) from None
     return f"linux/{arch}"
 
