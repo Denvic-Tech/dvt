@@ -141,6 +141,8 @@ def test_recommend_intermediate_stable_from_actual_revision_and_keep_rc_opt_in(t
     source = SourceFacts("1.23.0", "0068")
     stable = catalog.paths(snapshot, source)
     assert [row.version for row in stable["1.25.0"]] == ["1.24.0", "1.25.0"]
+    selection = catalog.select_route(snapshot, stable["1.25.0"][-1], source)
+    assert (selection.pin, *selection.following) == tuple(row.pin for row in stable["1.25.0"])
     assert "1.25.0-rc2" not in stable
     assert "1.25.0-rc2" in catalog.paths(snapshot, source, allow_rc=True)
     with pytest.raises(StagingError, match="different compatible release"):

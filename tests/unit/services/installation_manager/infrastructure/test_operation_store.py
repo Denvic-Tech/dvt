@@ -101,6 +101,54 @@ def store(tmp_path: Path) -> OperationStore:
     return store
 
 
+def test_chained_update_retains_public_id_and_next_pin_across_restart(store, tmp_path):
+    request = replace(_request(), config_id=uuid4())
+    final = ReleasePin("dvt-1.26.0", _TARGET)
+    root = store.admit(request, idempotency_key="skip-one", following=(final,))
+    with store.claim(root.id) as owner:
+        for stage in (
+            OperationStage.PREPARING, OperationStage.PREPARED, OperationStage.MAINTENANCE,
+            OperationStage.BACKUP,
+        ):
+            owner.checkpoint(Checkpoint(stage))
+        owner.checkpoint(Checkpoint(OperationStage.BACKUP, observation=Observation(backup_id=root.id)))
+        for stage in (
+            OperationStage.MIGRATING, OperationStage.APPLYING, OperationStage.VERIFYING,
+            OperationStage.RESUMING, OperationStage.SUCCEEDED,
+        ):
+            owner.checkpoint(Checkpoint(stage, CheckpointOutcome.VERIFIED))
+    restarted = OperationStore.for_host(tmp_path)
+    child = restarted.active()
+    assert child.id != root.id
+    assert child.request.release == final
+    assert child.request.config_id == request.config_id
+    assert restarted.route_root(child.id) == root.id
+    assert restarted.current_step(root.id) == child
+    assert restarted.by_idempotency_key("skip-one").id == root.id
+    with pytest.raises(OperationConflict):
+        restarted.admit(_request(), idempotency_key="another-upgrade")
+    restarted.log_message(child.id, "Second hop")
+    assert restarted.log_lines(root.id, after=0, limit=100)[-1]["message"] == "Second hop"
+    with restarted.claim(child.id) as owner:
+        owner.checkpoint(Checkpoint(OperationStage.CANCELLED))
+    assert restarted.active() is None
+    assert restarted.current_step(root.id).stage is OperationStage.CANCELLED
+
+
+def test_prepared_legacy_request_resumes_with_its_saved_target_offline(store, tmp_path, monkeypatch):
+    from services.installation_manager.application import update_route
+
+    root = store.admit(
+        replace(_request(), release=update_route.BASELINE), idempotency_key="legacy-ui",
+    )
+    target = ReleasePin("dvt-1.26.0", _TARGET)
+    store.attach_route(root.id, (target,), uuid4())
+    reopened = OperationStore.for_host(tmp_path)
+    monkeypatch.setattr(update_route, "configured_catalog", lambda _: pytest.fail("reselected target"))
+    update_route.attach_legacy_route({}, reopened, root, "1.26.0", target.manifest_digest, {})
+    assert reopened.route_target(root.id) == target
+
+
 def test_identity_is_immutable_and_equal_replay_does_not_write(tmp_path):
     store = OperationStore.for_host(tmp_path)
     with pytest.raises(IdentityNotEstablished):

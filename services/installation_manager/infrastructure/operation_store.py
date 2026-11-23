@@ -200,6 +200,11 @@ class OperationStore:
         self._lock = self._directory / "executor.lock"
         prepare_database(self._database)
         with self._connect(write=True, initialize=True) as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS update_route_steps (
+                root_id TEXT NOT NULL REFERENCES operations(id),
+                position INTEGER NOT NULL, step_id TEXT NOT NULL UNIQUE, request TEXT NOT NULL,
+                PRIMARY KEY(root_id, position)
+            )""")
             db.execute("""CREATE TABLE IF NOT EXISTS operator_log (
                 cursor INTEGER PRIMARY KEY, operation_id TEXT NOT NULL REFERENCES operations(id),
                 at TEXT NOT NULL, message TEXT NOT NULL
@@ -335,8 +340,9 @@ class OperationStore:
     def log_lines(self, operation_id: UUID, *, after: int, limit: int) -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT cursor, at, message FROM operator_log WHERE operation_id = ? "
-                "AND cursor > ? ORDER BY cursor LIMIT ?", (str(operation_id), after, limit),
+                "SELECT cursor, at, message FROM operator_log WHERE (operation_id = ? OR "
+                "operation_id IN (SELECT step_id FROM update_route_steps WHERE root_id = ?)) "
+                "AND cursor > ? ORDER BY cursor LIMIT ?", (str(operation_id), str(operation_id), after, limit),
             )
             return [dict(row) for row in rows]
 
@@ -399,7 +405,10 @@ class OperationStore:
             ).fetchone()
         return _decode_operation(row) if row is not None else None
 
-    def admit(self, request: OperationRequest, *, idempotency_key: str) -> Operation:
+    def admit(
+        self, request: OperationRequest, *, idempotency_key: str, operation_id: UUID | None = None,
+        following: tuple[ReleasePin, ...] = (),
+    ) -> Operation:
         """Atomically persist a new intent or return the existing intent on exact replay."""
         if type(request) is not OperationRequest:
             raise ValueError("Expected a typed operation request")
@@ -414,45 +423,143 @@ class OperationStore:
                 (key_hash,),
             ).fetchone()
             if existing is not None:
-                if existing["request"] != encoded:
+                saved = db.execute(
+                    "SELECT request FROM update_route_steps WHERE root_id=? AND position>0 ORDER BY position",
+                    (existing["id"],),
+                ).fetchall()
+                pins = tuple(ReleasePin(**json.loads(row[0])["release"]) for row in saved)
+                if existing["request"] != encoded or (following and pins != following) or (
+                    operation_id is not None and str(operation_id) != existing["id"]
+                ):
                     raise OperationConflict(UUID(existing["id"]))
                 return _decode_operation(existing)
             active = self._active(db)
             if active is not None:
                 raise OperationConflict(UUID(active["id"]))
 
-            now = datetime.now(UTC)
-            operation = Operation(
-                id=uuid4(),
-                instance_id=identity.instance_id,
-                request=request,
-                stage=OperationStage.ADMITTED,
-                admitted_at=now,
-                stage_started_at=now,
-                finished_at=None,
-                last_owner=None,
-                observation=Observation(),
+            operation = self._insert_operation(
+                db, operation_id or uuid4(), identity.instance_id, request, key_hash, encoded,
             )
-            db.execute(
-                """
-                INSERT INTO operations
-                    (id, instance_id, key_hash, request, stage, admitted_at, stage_started_at,
-                     observation)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(operation.id),
-                    str(operation.instance_id),
-                    key_hash,
-                    encoded,
-                    operation.stage,
-                    now.isoformat(),
-                    now.isoformat(),
-                    _encode(operation.observation),
-                ),
-            )
-            self._append_event(db, operation, EventKind.ADMITTED, now)
+            if following:
+                self._save_route(db, operation, following, request.config_id)
             return operation
+
+    def _insert_operation(
+        self, db: sqlite3.Connection, operation_id: UUID, instance_id: UUID,
+        request: OperationRequest, key_hash: str, encoded: str,
+    ) -> Operation:
+        now = datetime.now(UTC)
+        operation = Operation(
+            id=operation_id,
+            instance_id=instance_id,
+            request=request,
+            stage=OperationStage.ADMITTED,
+            admitted_at=now,
+            stage_started_at=now,
+            finished_at=None,
+            last_owner=None,
+            observation=Observation(),
+        )
+        db.execute(
+            """
+            INSERT INTO operations
+                (id, instance_id, key_hash, request, stage, admitted_at, stage_started_at,
+                 observation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(operation.id),
+                str(operation.instance_id),
+                key_hash,
+                encoded,
+                operation.stage,
+                now.isoformat(),
+                now.isoformat(),
+                _encode(operation.observation),
+            ),
+        )
+        self._append_event(db, operation, EventKind.ADMITTED, now)
+        return operation
+
+    @staticmethod
+    def _save_route(
+        db: sqlite3.Connection, root: Operation, following: tuple[ReleasePin, ...],
+        config_id: UUID | None,
+    ) -> None:
+        if root.request.kind is not OperationKind.UPDATE or not config_id:
+            raise ValueError("Update routes require a saved configuration")
+        requests = [
+            OperationRequest(OperationKind.UPDATE, pin, config_id=config_id) for pin in following
+        ]
+        rows = [(str(root.id), 0, str(root.id), _encode(root.request))]
+        rows.extend(
+            (str(root.id), position, str(uuid4()), _encode(request))
+            for position, request in enumerate(requests, start=1)
+        )
+        db.executemany(
+            "INSERT INTO update_route_steps(root_id, position, step_id, request) VALUES(?,?,?,?)",
+            rows,
+        )
+
+    def attach_route(self, root_id: UUID, following: tuple[ReleasePin, ...], config_id: UUID) -> None:
+        """Commit the continuation before a verified legacy import finishes."""
+        if not following:
+            return
+        with self._connect(write=True) as db:
+            saved = db.execute(
+                "SELECT request FROM update_route_steps WHERE root_id=? AND position>0 ORDER BY position",
+                (str(root_id),),
+            ).fetchall()
+            if saved:
+                if [ReleasePin(**json.loads(row[0])["release"]) for row in saved] != list(following):
+                    raise OperationConflict(root_id)
+                return
+            row = self._find(db, root_id)
+            if row is None or row["finished_at"] is not None:
+                raise OperationConflict(root_id)
+            self._save_route(db, _decode_operation(row), following, config_id)
+
+    def route_target(self, root_id: UUID) -> ReleasePin | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT request FROM update_route_steps WHERE root_id=? ORDER BY position DESC LIMIT 1",
+                (str(root_id),),
+            ).fetchone()
+            return ReleasePin(**json.loads(row["request"])["release"]) if row else None
+
+    def route_root(self, step_id: UUID) -> UUID:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT root_id FROM update_route_steps WHERE step_id=?", (str(step_id),),
+            ).fetchone()
+            return UUID(row[0]) if row else step_id
+
+    def current_step(self, root_id: UUID) -> Operation | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT o.* FROM update_route_steps s JOIN operations o ON o.id=s.step_id "
+                "WHERE s.root_id=? ORDER BY s.position DESC LIMIT 1", (str(root_id),),
+            ).fetchone()
+            if row is None:
+                row = self._find(db, root_id)
+            return _decode_operation(row) if row else None
+
+    def _advance_route(self, db: sqlite3.Connection, finished: Operation) -> None:
+        row = db.execute(
+            "SELECT next.step_id, next.request FROM update_route_steps current "
+            "JOIN update_route_steps next ON next.root_id=current.root_id "
+            "AND next.position=current.position+1 WHERE current.step_id=?",
+            (str(finished.id),),
+        ).fetchone()
+        if row is not None:
+            payload = json.loads(row["request"])
+            request = OperationRequest(
+                OperationKind.UPDATE, ReleasePin(**payload["release"]), config_id=UUID(payload["config_id"]),
+            )
+            self._insert_operation(
+                db, UUID(row["step_id"]), finished.instance_id, request,
+                "route:" + row["step_id"], row["request"],
+            )
 
     def executor_busy(self) -> bool:
         try:
@@ -541,6 +648,8 @@ class OperationStore:
                 checkpoint=checkpoint,
                 previous=previous if moved_stage else None,
             )
+            if stage is OperationStage.SUCCEEDED:
+                self._advance_route(db, operation)
             return operation
 
     @staticmethod

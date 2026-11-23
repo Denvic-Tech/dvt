@@ -1,0 +1,345 @@
+x-default-logging:
+  logging: &id001
+    driver: json-file
+    options:
+      max-size: ${DVT_DOCKER_LOG_MAX_SIZE:-50m}
+      max-file: ${DVT_DOCKER_LOG_MAX_FILE:-5}
+services:
+  postgres:
+    logging: *id001
+    image: docker.io/library/postgres@sha256:78745fdcd92f385ce305f04bfe270ddd7fbc81aa3e9cab5b741f3d5f341a50e5
+    container_name: dvt-postgres
+    environment:
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+    volumes:
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/data/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks:
+    - dvt-net
+  valkey:
+    logging: *id001
+    image: docker.io/valkey/valkey@sha256:7d7b5d759cc276a93f896fc5ce90da3ea79b00a2124361d4e88accf5daa83f29
+    container_name: dvt-valkey
+    environment:
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+    command: 'valkey-server --save "" --appendonly no --loglevel warning --requirepass
+      ${DVT_VALKEY_PASSWORD:-valkeypass}
+
+      '
+    volumes:
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/data/valkeydata:/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - valkey-cli -a "$$VALKEY_PASSWORD" ping | grep -q PONG || exit 1
+      interval: 5s
+      timeout: 120s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+    - dvt-net
+  migrate:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/gateway@sha256:fd285fe77473d5f50cf8a50208c2a18472fab7e516a18ca3233b5ef88af5f910
+    command:
+    - python3
+    - -m
+    - services.gateway.migrate
+    environment:
+      ENVIRONMENT: prod
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      FERNET_KEY: ${DVT_FERNET_KEY:?DVT_FERNET_KEY is required}
+      EXTENSIONS_DATA_DIR: ./extensions
+    volumes:
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/installation:/app/installation
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/extensions:/app/extensions
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+    networks:
+    - dvt-net
+  orchestrator:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/orchestrator@sha256:610f761714a21feb8c61de13a51088bee3db45d00ed282850e3fb16b49d9965c
+    container_name: dvt-orchestrator
+    environment:
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      MIGRATION_WAIT_TIMEOUT_SEC: ${DVT_MIGRATION_WAIT_TIMEOUT_SEC:-300}
+      ORCHESTRATOR_HOST: ${DVT_ORCHESTRATOR_INTERNAL_HOST:-0.0.0.0}
+      ORCHESTRATOR_PORT: ${DVT_ORCHESTRATOR_INTERNAL_PORT:-8250}
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+      CELERY_VISIBILITY_TIMEOUT_SEC: ${DVT_CELERY_VISIBILITY_TIMEOUT_SEC:-28800}
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_HOST:-gateway}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+      FERNET_KEY: ${DVT_FERNET_KEY:?DVT_FERNET_KEY is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+    - dvt-net
+  task-worker:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/task-worker@sha256:da0ba809e26d369ba32c2599a4499d6030985d243f7fcddceca41327e0d1a55c
+    environment:
+      LOG_TO_DB: ${DVT_LOG_TO_DB:-false}
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      MIGRATION_WAIT_TIMEOUT_SEC: ${DVT_MIGRATION_WAIT_TIMEOUT_SEC:-300}
+      GATEWAY_HOST: ${DVT_GATEWAY_HOST:-gateway}
+      GATEWAY_PORT: ${DVT_GATEWAY_PORT:-8000}
+      TASK_WORKER_HOST: ${DVT_TASK_WORKER_INTERNAL_HOST:-0.0.0.0}
+      TASK_WORKER_PORT: ${DVT_TASK_WORKER_INTERNAL_PORT:-8000}
+      DISABLE_STORE: ${DVT_DISABLE_STORE:-false}
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_HOST:-gateway}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+      GRPC_ENABLE_FORK_SUPPORT: true
+      GRPC_POLL_STRATEGY: epoll1
+      FERNET_KEY: ${DVT_FERNET_KEY:?DVT_FERNET_KEY is required}
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+      CELERY_VISIBILITY_TIMEOUT_SEC: ${DVT_CELERY_VISIBILITY_TIMEOUT_SEC:-28800}
+      EXTENSIONS_DATA_DIR: ./extensions
+    volumes:
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/installation:/app/installation
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/extensions:/app/extensions
+    deploy:
+      replicas: ${DVT_TASK_WORKERS_COUNT:-1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      orchestrator:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+    - dvt-net
+  project-scheduler:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/project-scheduler@sha256:7a28ccd32a458523c7842c1a3a9603303323ae14f61604f917cab6b2b23f9fed
+    container_name: dvt-project-scheduler
+    environment:
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      MIGRATION_WAIT_TIMEOUT_SEC: ${DVT_MIGRATION_WAIT_TIMEOUT_SEC:-300}
+      ORCHESTRATOR_HOST: ${DVT_ORCHESTRATOR_HOST:-orchestrator}
+      ORCHESTRATOR_PORT: ${DVT_ORCHESTRATOR_PORT:-8250}
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_INTERNAL_HOST:-0.0.0.0}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+      FERNET_KEY: ${DVT_FERNET_KEY:?DVT_FERNET_KEY is required}
+      PROJECT_SCHEDULER_HOST: 0.0.0.0
+      PROJECT_SCHEDULER_PORT: 8000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+    - dvt-net
+  installation_manager:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/installation_manager@sha256:5e53e5f847d9c29347ec8e43e571e7644877b7d7f59589d779becfa1ca150492
+    container_name: dvt-installation_manager
+    environment:
+      DVT_LIB_DIR: ${DVT_LIB_DIR:-/var/lib/dvt}
+      UPDATE_SERVICE_TARGET_SERVICES: orchestrator;task-worker;project-scheduler;gateway;dvt-ai-mcp;ui;proxy
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-dvt}
+      CONTAINER_REGISTRY_URL: ${CONTAINER_REGISTRY_URL:-cr.distribution.denvic.tech}
+      RAW_STORAGE_URL: ${RAW_STORAGE_URL:-https://raw.distribution.denvic.tech}
+      DVT_AI_MCP_ENABLED: ${DVT_AI_MCP_ENABLED:-false}
+      DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+    ports:
+    - ${DVT_INSTALLATION_MANAGER_BIND_ADDRESS:-0.0.0.0}:${DVT_INSTALLATION_MANAGER_EXTERNAL_PORT:-8888}:8000
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ${DVT_LIB_DIR:-/var/lib/dvt}:${DVT_INSTALLATION_MANAGER_DATA_TARGET:-/dvt-lib}
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+  gateway:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/gateway@sha256:fd285fe77473d5f50cf8a50208c2a18472fab7e516a18ca3233b5ef88af5f910
+    container_name: dvt-gateway
+    environment:
+      ENVIRONMENT: prod
+      LOG_TO_DB: ${DVT_LOG_TO_DB:-false}
+      POSTGRES_HOST: ${DVT_POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${DVT_POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${DVT_POSTGRES_USER:-dvt-user}
+      POSTGRES_PASSWORD: ${DVT_POSTGRES_PASSWORD:-dvt-password}
+      POSTGRES_DB: ${DVT_POSTGRES_DB:-DVT}
+      VALKEY_HOST: ${DVT_VALKEY_HOST:-valkey}
+      VALKEY_PORT: ${DVT_VALKEY_PORT:-6379}
+      VALKEY_PASSWORD: ${DVT_VALKEY_PASSWORD:-valkeypass}
+      VALKEY_DB: ${DVT_VALKEY_DB:-0}
+      CELERY_VISIBILITY_TIMEOUT_SEC: ${DVT_CELERY_VISIBILITY_TIMEOUT_SEC:-28800}
+      GATEWAY_HOST: ${DVT_GATEWAY_INTERNAL_HOST:-0.0.0.0}
+      GATEWAY_PORT: ${DVT_GATEWAY_INTERNAL_PORT:-8000}
+      ORCHESTRATOR_HOST: ${DVT_ORCHESTRATOR_HOST:-orchestrator}
+      ORCHESTRATOR_PORT: ${DVT_ORCHESTRATOR_PORT:-8250}
+      TASK_WORKER_HOST: ${DVT_TASK_WORKER_HOST:-task-worker}
+      TASK_WORKER_PORT: ${DVT_TASK_WORKER_PORT:-8000}
+      GRPC_FORWARD_SERVICE_HOST: ${DVT_GRPC_FORWARD_SERVICE_INTERNAL_HOST:-0.0.0.0}
+      GRPC_FORWARD_SERVICE_PORT: ${DVT_GRPC_FORWARD_SERVICE_PORT:-50561}
+      GRPC_FORWARD_SERVICE_TOKEN: ${DVT_GRPC_FORWARD_SERVICE_TOKEN:-forward-secret-token}
+      FERNET_KEY: ${DVT_FERNET_KEY:?DVT_FERNET_KEY is required}
+      JWT_ACCESS_TOKEN_SECRET_KEY: ${DVT_JWT_ACCESS_TOKEN_SECRET_KEY:-}
+      JWT_REFRESH_TOKEN_SECRET_KEY: ${DVT_JWT_REFRESH_TOKEN_SECRET_KEY:-}
+      JWT_ONETIME_TOKEN_SECRET_KEY: ${DVT_JWT_ONETIME_TOKEN_SECRET_KEY:-}
+      JWT_API_TOKEN_SECRET_KEY: ${DVT_JWT_API_TOKEN_SECRET_KEY:-}
+      CODE_HASH_SALT: ${DVT_CODE_HASH_SALT:-}
+      GATEWAY_ORIGINS: ${DVT_PUBLIC_URL}
+      GATEWAY_COOKIE_SECURE: ${DVT_COOKIE_SECURE:-false}
+      PROJECT_SCHEDULER_HOST: ${PROJECT_SCHEDULER_HOST:-project-scheduler}
+      PROJECT_SCHEDULER_PORT: ${PROJECT_SCHEDULER_PORT:-8000}
+      EXTENSIONS_DATA_DIR: ./extensions
+      DVT_ENABLE_AI_ANALYSIS: ${DVT_ENABLE_AI_ANALYSIS:-false}
+      DVT_AI_SERVICE_URL: ${DVT_AI_SERVICE_URL:-}
+      DVT_AI_SERVICE_API_KEY: ${DVT_AI_SERVICE_API_KEY:-}
+      DVT_AI_MCP_ENABLED: ${DVT_AI_MCP_ENABLED:-false}
+      DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - /app/scripts/health/check_gateway_health.py
+      interval: 5s
+      timeout: 60s
+      retries: 8
+      start_period: 60s
+    volumes:
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/installation:/app/installation
+    - ${DVT_LIB_DIR:-/var/lib/dvt}/extensions:/app/extensions
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+    - dvt-net
+  dvt-ai-mcp:
+    logging: *id001
+    profiles:
+    - ai-mcp
+    image: cr.distribution.denvic.tech/dvt/dvt-ai-mcp@sha256:8cfec6dad6f3656b846a86571b45f62e58ca53a94e1ed07234021ddebadf6e7e
+    container_name: dvt-ai-mcp
+    environment:
+      DVT_ENVIRONMENT: prod
+      DVT_PUBLIC_URL: ${DVT_PUBLIC_URL:-http://localhost}
+      DVT_AI_MCP_GATEWAY_URL: http://gateway:${DVT_GATEWAY_INTERNAL_PORT:-8000}
+      DVT_AI_MCP_INTERNAL_SECRET: ${DVT_AI_MCP_INTERNAL_SECRET:-}
+      DVT_AI_MCP_HOST: 0.0.0.0
+      DVT_AI_MCP_PORT: 8000
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready',
+        timeout=4).read()
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+    - dvt-net
+  ui:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/ui@sha256:32f863889d36a37a9b212401ca77ad66869563f0389510ae9a6c8b8d5cc424bc
+    container_name: dvt-ui
+    environment:
+      INACTIVE_TAB_SUFFIX: ${DVT_INACTIVE_TAB_SUFFIX:-DVT}
+    depends_on:
+    - gateway
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:80/
+      interval: 7s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+    - dvt-net
+  proxy:
+    logging: *id001
+    image: cr.distribution.denvic.tech/dvt/proxy@sha256:88f58df21fc111970ba2b07ed8cfe9ae2ca47c8c061fd10976fa5f40eb09882c
+    container_name: dvt-proxy
+    ports:
+    - ${DVT_EXTERNAL_PORT:-80}:80
+    environment:
+      GATEWAY_HOST: ${DVT_GATEWAY_HOST:-gateway}
+      GATEWAY_PORT: ${DVT_GATEWAY_PORT:-8000}
+      DVT_AI_MCP_ENABLED: ${DVT_AI_MCP_ENABLED:-false}
+      AI_MCP_HOST: ${DVT_AI_MCP_HOST:-dvt-ai-mcp}
+      AI_MCP_PORT: ${DVT_AI_MCP_PORT:-8000}
+      UI_HOST: ${DVT_UI_HOST:-ui}
+      UI_PORT: ${DVT_UI_PORT:-80}
+    depends_on:
+      gateway:
+        condition: service_healthy
+      ui:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+    - dvt-net
+networks:
+  dvt-net:
+    name: ${DVT_NETWORK_NAME:-dvt-net}
+    external: ${DVT_NETWORK_EXTERNAL:-true}

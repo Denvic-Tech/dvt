@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 from typing import BinaryIO
 from uuid import UUID
 
-from ..host_bootstrap import CONTROL, DOCKER_ENV, SOCKET, check_image, docker
+from ..domain.operation_state import ArtifactKind
+from ..domain.release_manifest import strict_json
+from ..host_bootstrap import CONTROL, DOCKER_ENV, SOCKET, check_image, container_name, docker
 from .maintenance_database import DATABASE_PROFILE, NO_OTHER_CONNECTIONS, frozen_sql
+from .operation_store import OperationStore
 from .staging_artifacts import read_artifact
 from .staging_docker import image_references
 
@@ -74,6 +78,44 @@ class ComposeMaintenanceHost:
         ):
             raise MaintenancePrerequisite("Unknown or active one-off container in the project")
         return [c for c in containers if _role(c) != "migrate"]
+
+    def _is_route_executor(self, container: dict) -> bool:
+        labels = _labels(container)
+        if (
+            labels.get("dvt.executor.instance") != self.config["instance"]
+            or container["Name"] != "/" + container_name(self.config)
+            or container["Image"] != check_image(self.config["executor"])
+        ):
+            return False
+        try:
+            launched_step = UUID(labels["dvt.executor.operation"])
+        except (KeyError, ValueError):
+            return False
+        if launched_step == self.operation_id:
+            return True
+        store = OperationStore.for_host(self.data)
+        if store.get(launched_step) is None:
+            return False
+        return store.route_root(launched_step) == store.route_root(self.operation_id)
+
+    def _is_legacy_supervisor(self, container: dict) -> bool:
+        label = _labels(container).get("tech.denvic.legacy-bridge.handoff")
+        if (
+            not label
+            or container["Name"] != f"/dvt-legacy-handoff-{label}"
+            or container["HostConfig"]["NetworkMode"] != "host"
+            or container["Image"] != check_image(self.config["executor"])
+        ):
+            return False
+        store = OperationStore.for_host(self.data)
+        root = store.route_root(self.operation_id)
+        staging = store.artifact_path(ArtifactKind.STAGING, root)
+        content = read_artifact(staging / "legacy-import.json", 256 * 1024)
+        if content is None:
+            return False
+        job_id = strict_json(content)["legacy_job_id"]
+        expected = hashlib.sha256(f"{self.config['project']}/{job_id}".encode()).hexdigest()[:24]
+        return label == expected
 
     def _verify_scope(self, containers: list[dict]) -> dict:
         roles = {_role(c) for c in containers}
@@ -163,12 +205,7 @@ class ComposeMaintenanceHost:
         allowed = {c["Id"] for c in containers}
         outsiders = docker("container", "ls", "--quiet", "--no-trunc").stdout.split()
         for c in _inspect(*(cid for cid in outsiders if cid not in allowed)):
-            labels = _labels(c)
-            if (
-                labels.get("dvt.executor.instance") == self.config["instance"]
-                and labels.get("dvt.executor.operation") == str(self.operation_id)
-                and c["Image"] == check_image(self.config["executor"])
-            ):
+            if self._is_route_executor(c) or self._is_legacy_supervisor(c):
                 continue
             if _networks(c) & _networks(database):
                 raise MaintenancePrerequisite("Another container shares the PostgreSQL network")
