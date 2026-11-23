@@ -15,10 +15,11 @@ from .application.legacy_adopt import _containers
 from .application.legacy_import import (
     APPLICATION,
     CORE,
-    SOURCE_REVISIONS,
     _backups,
     _old_model,
     _pin_fallback,
+    check_historical_migrator,
+    legacy_source_version,
 )
 from .application.legacy_transition import _read, _same_service
 from .domain.operation_state import InstanceIdentity
@@ -144,7 +145,8 @@ def restore_before_admission(data: Path, marker: dict, image: str) -> None:
     env, compose = (data / marker["backups"][key] for key in ("env", "compose"))
     model, values = _old_model(data, project, env, compose)
     roles = _containers(project)
-    if not roles.keys() >= CORE or roles.keys() - CORE - APPLICATION:
+    check_historical_migrator(roles, model["services"])
+    if not roles.keys() >= CORE or roles.keys() - CORE - APPLICATION - {"migrate"}:
         raise ValueError("Legacy services could not be confirmed for automatic recovery")
     [manager] = roles["installation_manager"]
     [postgres] = roles["postgres"]
@@ -162,12 +164,7 @@ def restore_before_admission(data: Path, marker: dict, image: str) -> None:
         ):
             raise ValueError("Legacy storage configuration changed")
     revision = ComposeMaintenanceHost.sql(postgres["Id"], "SELECT version_num FROM alembic_version")
-    version = values["DVT_VERSION"]
-    if (
-        revision not in SOURCE_REVISIONS.values()
-        or (version != "latest" and SOURCE_REVISIONS.get(version) != revision)
-    ):
-        raise ValueError("The database is no longer on the historical revision")
+    legacy_source_version(values["DVT_VERSION"], revision)
 
     pinned = _pin_fallback(model, values)
     if pinned is None:
@@ -179,7 +176,7 @@ def restore_before_admission(data: Path, marker: dict, image: str) -> None:
     if any(roles[role][0]["Image"] != images[role] for role in CORE):
         raise ValueError("Legacy infrastructure was replaced")
     for role, rows in roles.items():
-        if role in CORE:
+        if role in CORE or role == "migrate":
             continue
         for row in rows:
             labels = row["Config"]["Labels"]

@@ -1,6 +1,6 @@
 """Exercise the shipped legacy Gateway update endpoint against a staged raw Distributor.
 
-Run from a DVT checkout with the 1.22.0/1.23.0 tags. The DinD image needs dockerd,
+Run from a DVT checkout with the selected historical tag. The DinD image needs dockerd,
 Docker Compose, curl and a POSIX shell. The candidate raw origin and bridge image
 must be reachable from its daemon. All customer data is created inside that daemon.
 """
@@ -15,10 +15,11 @@ from uuid import uuid4
 
 from scripts.release.test_install_candidate import host_docker
 
+from services.installation_manager.application.legacy_import import SOURCE_REVISIONS
+
 ROOT = Path(__file__).resolve().parents[2]
 MANAGER = "cr.distribution.denvic.tech/dvt/installation_manager"
 DATA = "/var/lib/dvt"
-SOURCE_REVISIONS = {"1.22.0": "0061", "1.23.0": "0063"}
 
 
 def wait_for(probe, description, timeout):

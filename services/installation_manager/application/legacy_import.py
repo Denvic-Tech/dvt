@@ -85,7 +85,17 @@ ROLLBACK_STAGES = frozenset({
     OperationStage.PREPARING, OperationStage.PREPARED,
     OperationStage.MAINTENANCE, OperationStage.BACKUP,
 })
-SOURCE_REVISIONS = {"1.22.0": "0061", "1.23.0": "0063"}
+# These published versions can still be installed with the pre-journal manager.
+SOURCE_REVISIONS = {
+    "1.22.0": "0061",
+    "1.23.0": "0063",
+    "1.24.0-rc1": "0065",
+    "1.24.0-rc2": "0068",
+    "1.24.0-rc3": "0069",
+    "1.24.0-rc4": "0070",
+    "1.24.0-rc5": "0063",
+    **{f"1.24.0-rc{number}": "0070" for number in range(6, 13)},
+}
 CORE = {"postgres", "valkey", "installation_manager"}
 APPLICATION = (REQUIRED_SERVICES - CORE - {"migrate"}) | {"dvt-ai-mcp"}
 BRIDGE = "tech.denvic.legacy-bridge"
@@ -155,13 +165,36 @@ def _pgdata(data, source):
     return path
 
 
+def legacy_source_version(version: str, revision: str) -> str:
+    # A historical latest tag has no recoverable version after the old updater
+    # replaces its containers. Keep the alias and validate the observed schema.
+    if version == "latest":
+        if revision in SOURCE_REVISIONS.values():
+            return version
+    else:
+        version = version_tag(version)
+        if SOURCE_REVISIONS.get(version) == revision:
+            return version
+    raise ValueError("The legacy version and live database revision are unsupported")
+
+
+def check_historical_migrator(roles: dict, services: dict) -> None:
+    historical = roles.get("migrate", ())
+    if historical and (
+        "migrate" not in services or len(historical) != 1
+        or historical[0]["State"]["Status"] not in {"created", "exited"}
+    ):
+        raise ValueError("The historical Compose migrator is unexpected or active")
+
+
 def _source(data, project):
     env, compose = _backups(data)
     model, values = _old_model(data, project, env, compose)
     roles = _containers(project)
+    check_historical_migrator(roles, model["services"])
     if (
         not roles.keys() >= CORE
-        or roles.keys() - CORE - APPLICATION
+        or roles.keys() - CORE - APPLICATION - {"migrate"}
         or not roles.get("orchestrator")
         or roles["orchestrator"][0]["Config"]["Labels"].get(BRIDGE) != "1"
     ):
@@ -216,14 +249,7 @@ def _source(data, project):
         raise ValueError("The import requires a private local PostgreSQL bind")
     pgdata = _pgdata(data, mount.source)
     revision = ComposeMaintenanceHost.sql(pg["Id"], "SELECT version_num FROM alembic_version")
-    version = values.get("DVT_VERSION", "")
-    if version == "latest":
-        # The old latest selector persisted its alias, while the live schema is immutable.
-        version = next(
-            (version for version, head in SOURCE_REVISIONS.items() if head == revision), ""
-        )
-    if SOURCE_REVISIONS.get(version) != revision:
-        raise ValueError("The legacy version and live database revision are unsupported")
+    version = legacy_source_version(values.get("DVT_VERSION", ""), revision)
     database = ComposeMaintenanceHost.sql(pg["Id"], DATABASE_ID)
     if not re.fullmatch(r"[0-9]+:[0-9]+", database):
         raise ValueError("Could not establish the identity of the legacy database")
@@ -501,7 +527,7 @@ def _seal(config, host, saved):
     return pg["Id"]
 
 
-def _run_role(host, service):
+def _run_roles(host, *services):
     docker(
         "compose",
         "--project-name",
@@ -518,7 +544,7 @@ def _run_role(host, service):
         "--pull",
         "never",
         "--no-build",
-        service,
+        *services,
     )
 
 
@@ -633,18 +659,20 @@ def return_to_legacy(config, store, operation_id, *, legacy_job: dict | None = N
             "--remove-orphans",
             "--scale",
             f"task-worker={workers}",
-            *sorted(images.keys() - {"postgres", "valkey"}),
+            *sorted(images.keys() - {"postgres", "valkey", "migrate"}),
             timeout=200,
         )
         actual = _containers(config["project"])
+        check_historical_migrator(actual, model["services"])
         if (
-            actual.keys() != images.keys()
+            actual.keys() - {"migrate"} != images.keys() - {"migrate"}
             or actual["postgres"][0]["Id"] != pg["Id"]
             or actual["valkey"][0]["Id"] != valkey["Id"]
             or len(actual["task-worker"]) != workers
             or any(
                 row["Image"] != images[role] or not row["State"]["Running"]
                 for role, rows in actual.items()
+                if role != "migrate"
                 for row in rows
             )
         ):
@@ -666,7 +694,7 @@ def _migrate(host, saved, target_revision):
         (image,) = json.loads(docker("image", "inspect", host.plan["services"]["postgres"]).stdout)
         if f"PG_MAJOR={pg_major}" not in image["Config"]["Env"]:
             raise ValueError("The baseline would change the PostgreSQL major version")
-        _run_role(host, "postgres")
+        _run_roles(host, "postgres")
     stop = time.monotonic() + 100
     while time.monotonic() < stop:
         rows = _rows(host.config, host, saved)
@@ -680,11 +708,16 @@ def _migrate(host, saved, target_revision):
     if host.database_identity(pg_id) != saved["database"]:
         raise ValueError("The baseline PostgreSQL uses a different database")
     (migrate,) = rows.get("migrate", [None])
-    done = migrate and migrate["State"]["Status"] == "exited" and migrate["State"]["ExitCode"] == 0
-    if not done and (migrate is None or not migrate["State"]["Running"]):
+    finished_target = (
+        migrate is not None
+        and host.is_target("migrate", migrate)
+        and migrate["State"]["Status"] == "exited"
+        and migrate["State"]["ExitCode"] == 0
+    )
+    if not finished_target and (migrate is None or not migrate["State"]["Running"]):
         if host.sql(pg_id, ONLY_LOCAL_CLIENT) != "0":
             raise ValueError("A client is still connected to the legacy database")
-        _run_role(host, "migrate")
+        _run_roles(host, "migrate")
     stop = time.monotonic() + 900
     while time.monotonic() < stop:
         (migrate,) = _rows(host.config, host, saved).get("migrate", [None])
@@ -730,9 +763,9 @@ def execute(config, store, operation_id, probe):
                 operation.request.kind is not OperationKind.UPDATE
                 or operation.id != _operation_id(saved["legacy_job_id"], operation.instance_id)
                 or str(operation.instance_id) != config["instance"]
-                or SOURCE_REVISIONS.get(saved["source_version"]) != saved["source_revision"]
             ):
                 raise ValueError("The import plan does not belong to this installation")
+            legacy_source_version(saved["source_version"], saved["source_revision"])
             if stage is OperationStage.ADMITTED:
                 stage = owner.checkpoint(Checkpoint(OperationStage.PREPARING)).stage
             host, release, compose, env = _target(config, store, operation, directory, saved)
@@ -784,7 +817,7 @@ def execute(config, store, operation_id, probe):
                 stage = owner.checkpoint(Checkpoint(OperationStage.BACKUP)).stage
             if stage is OperationStage.BACKUP:
                 reason = FailureReason.MANAGER_UNAVAILABLE
-                _run_role(host, "installation_manager")
+                _run_roles(host, "installation_manager")
                 probe(config, store, operation_id, owner.record.claim_id)
                 reason = FailureReason.BACKUP
                 pg = _seal(config, host, saved)
@@ -841,8 +874,9 @@ def execute(config, store, operation_id, probe):
                         if any(row["State"]["Running"] for row in rows):
                             raise ValueError("A service outside the selected profile is active")
                         docker("container", "rm", *(row["Id"] for row in rows))
-                if not host.up():
-                    raise ValueError("Compose did not confirm startup of the baseline application")
+                # The target migrator has already succeeded. Start the other roles
+                # without rerunning it or waiting on Compose's dependency health gates.
+                _run_roles(host, *sorted(host.services.keys() - {"migrate"}))
                 stage = owner.checkpoint(Checkpoint(OperationStage.VERIFYING)).stage
             if stage in {OperationStage.VERIFYING, OperationStage.RESUMING}:
                 reason = FailureReason.PROFILE_UNHEALTHY
