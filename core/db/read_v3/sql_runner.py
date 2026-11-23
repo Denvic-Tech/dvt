@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
+import numpy as np
 import pandas as pd
 from sqlalchemy.engine import Connection, CursorResult, Engine
 
 from core.db.connect import build_clickhouse_client_kwargs, create_clickhouse_client
+
+# float64 represents every integer below this magnitude exactly.
+_FLOAT64_EXACT_INT_LIMIT = 2**53
 
 
 def execute_literal_sql(connection: Connection, sql: str) -> CursorResult:
@@ -46,7 +51,37 @@ class ReadV3SqlRunner(ABC):
         return []
 
 
+def _restore_exact_integers(df: pd.DataFrame, rows: Sequence[Sequence[object]]) -> None:
+    """Rebuild as ``Int64`` the integer columns that inference turned into lossy float64.
+
+    ``pd.DataFrame(rows)`` infers Python ints next to ``None`` as float64, which rounds values
+    of magnitude 2**53 and above. Only a float64 column holding such a value is looked at again;
+    it becomes ``Int64`` when every non-NULL value is exactly ``int`` and fits int64. Every other
+    column stays as inferred. Columns are addressed by position (names may repeat).
+    """
+    for position, dtype in enumerate(df.dtypes):
+        if dtype != np.dtype("float64"):
+            continue
+        if not np.any(np.abs(df.iloc[:, position].to_numpy()) >= _FLOAT64_EXACT_INT_LIMIT):
+            continue
+        values = [row[position] for row in rows]
+        if not all(value is None or type(value) is int for value in values):
+            continue
+        try:
+            exact = pd.array(values, dtype="Int64")
+        except (TypeError, ValueError, OverflowError):
+            continue
+        df.isetitem(position, exact)
+
+
 class SqlAlchemyReadV3SqlRunner(ReadV3SqlRunner):
+    def __init__(self, engine: Engine, *, exact_integers: bool = False) -> None:
+        """``exact_integers`` keeps 64-bit integers next to NULL exact (``Int64``) instead of
+        float64-rounded; the read executor's segment runner asks for it, other callers keep the
+        plain inferred frame."""
+        super().__init__(engine)
+        self.exact_integers = exact_integers
+
     def query_df(self, sql: str) -> pd.DataFrame:
         with self.engine.connect() as conn:
             result = execute_literal_sql(conn, sql)
@@ -54,7 +89,10 @@ class SqlAlchemyReadV3SqlRunner(ReadV3SqlRunner):
                 return pd.DataFrame()
             columns = list(result.keys())
             rows = result.fetchall()
-        return pd.DataFrame(rows, columns=columns)
+        df = pd.DataFrame(rows, columns=columns)
+        if self.exact_integers:
+            _restore_exact_integers(df, rows)
+        return df
 
 
 class ClickHouseReadV3SqlRunner(ReadV3SqlRunner):
@@ -80,11 +118,13 @@ class ClickHouseReadV3SqlRunner(ReadV3SqlRunner):
         ]
 
 
-def resolve_sql_runner(engine: Engine) -> ReadV3SqlRunner:
+def resolve_sql_runner(engine: Engine, *, exact_integers: bool = False) -> ReadV3SqlRunner:
+    """``exact_integers`` applies to the SQLAlchemy runner; the ClickHouse client keeps its
+    own dtypes."""
     dialect_name = (engine.dialect.name or "").lower()
     if "clickhouse" in dialect_name:
         return ClickHouseReadV3SqlRunner(engine)
-    return SqlAlchemyReadV3SqlRunner(engine)
+    return SqlAlchemyReadV3SqlRunner(engine, exact_integers=exact_integers)
 
 
 def read_sql_df(engine: Engine, sql: str) -> pd.DataFrame:

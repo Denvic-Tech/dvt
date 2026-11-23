@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import pandas as pd
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import text
@@ -715,3 +716,27 @@ def test_partition_grouping_rejects_oversized_as_is_value_before_reading(tmp_pat
             max_rows_per_partition=100,
             **STRICT_PARTITIONING_KWARGS,
         )
+
+
+def test_load_partition_keeps_64_bit_integers_next_to_null_exact(tmp_path) -> None:
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'big_ints.sqlite'}")
+    big = 2**53 + 1
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE read_v3_big (id INTEGER PRIMARY KEY, v BIGINT)"))
+        conn.execute(
+            text("INSERT INTO read_v3_big (id, v) VALUES (:id, :v)"),
+            [{"id": 1, "v": big}, {"id": 2, "v": None}, {"id": 3, "v": -big}],
+        )
+    plan = resolve_planner(mode="table").build_plan(
+        engine=engine,
+        table_name="read_v3_big",
+        columns=["id", "v"],
+        partition_col="id",
+        npartitions=1,
+        **STRICT_PARTITIONING_KWARGS,
+    )
+
+    df = resolve_executor(engine).load_partition(plan, plan.segments[0])
+
+    assert repr(df["v"].dtype) == "Int64Dtype()"
+    assert df["v"].tolist() == [big, pd.NA, -big]
