@@ -2,6 +2,8 @@ SQLAlchemy==2.0.42
 pydantic==2.11.5
 sqlmodel==0.0.24
 psycopg[binary]==3.2.3
+adbc-driver-manager==1.13.0
+adbc-driver-postgresql==1.13.0
 aiosqlite==0.20.0
 pyodbc==5.3.0
 alembic==1.16.1

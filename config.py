@@ -429,6 +429,10 @@ class OTHER:
     # WriteDataFrameToDBV4 into PostgreSQL over psycopg 3: write partitions through
     # COPY FROM STDIN (one transaction per partition); false keeps executemany INSERTs.
     DB_PG_COPY = os.getenv("DB_PG_COPY", "true").lower() in _TRUE_STATEMENT_TOKENS
+    # ReadTableFromDBV3/ReadQueryFromDBV3 from PostgreSQL: fetch segments through ADBC (Arrow,
+    # binary COPY) when adbc_driver_postgresql is installed and every column type is supported;
+    # false keeps psycopg text results for every segment. Output is the same either way.
+    DB_PG_ARROW_READ = os.getenv("DB_PG_ARROW_READ", "true").lower() in _TRUE_STATEMENT_TOKENS
     # WriteDataFrameToDBV4 into SQL Server over pyodbc: write partitions through pyodbc
     # fast_executemany with declared parameter types (one transaction per partition); false
     # keeps SQLAlchemy INSERTs.
