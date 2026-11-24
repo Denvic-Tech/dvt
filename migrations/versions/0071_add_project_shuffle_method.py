@@ -1,7 +1,7 @@
 """Add per-project Dask shuffle method.
 
-Revision ID: 0070
-Revises: 0069
+Revision ID: 0071
+Revises: 0070
 Create Date: 2026-11-19 00:00:00.000000
 
 """
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0070"
-down_revision: Union[str, Sequence[str], None] = "0069"
+revision: str = "0071"
+down_revision: Union[str, Sequence[str], None] = "0070"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
