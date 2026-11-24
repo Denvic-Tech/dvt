@@ -13,7 +13,13 @@ from src.pipeline import PipelineProcessor
 
 from . import metrics
 from .cli import BenchmarkOptions
-from .config import cli_global_input_overrides, merge_global_overrides, resolve_preset
+from .config import (
+    cli_global_input_overrides,
+    merge_global_overrides,
+    merge_node_overrides,
+    parse_node_sets,
+    resolve_preset,
+)
 from .matrix import load_matrix_cases
 from .nodes import register_benchmark_nodes
 from .recorder import BenchmarkRecorder
@@ -185,6 +191,8 @@ def run_benchmark_once(
     user_id = resolve_user_id(options.user_id)
     sample_interval = _resolve_effective_sample_interval(options)
     global_overrides = _resolve_global_overrides(options, extra_global_overrides=extra_global_overrides)
+    # Matrix case overrides win over ``--set`` for the same input.
+    node_overrides = merge_node_overrides(parse_node_sets(options.node_sets), node_overrides)
 
     run_paths = prepare_run_paths(
         pipeline_path=resolved_pipeline_path,

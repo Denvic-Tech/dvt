@@ -332,7 +332,7 @@
           ]
         },
         "metrics": {
-          "description": "Node-reported metrics (rows, mode, num_workers, pandas_bytes, table_action, ...).",
+          "description": "Node-reported metrics (rows, mode, num_workers, pandas_bytes, checksum, sorted_ok, table_action, store_bytes, frame_bytes, write_s, partitions, rows_a/checksum_b-style per-input metrics of BenchmarkMaterializeConcurrent, ...).",
           "type": "object",
           "properties": {
             "rows": {

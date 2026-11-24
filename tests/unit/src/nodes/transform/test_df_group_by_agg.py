@@ -163,6 +163,44 @@ def test_groupby_agg_without_group_columns_aggregates_whole_dataframe() -> None:
     assert int(result.loc[0, "category_nunique"]) == 2
 
 
+@pytest.mark.parametrize("npartitions", [128, 129, 130])
+@pytest.mark.parametrize("aggregate", [True, False], ids=["nunique", "without_aggregation"])
+def test_groupby_shuffle_keeps_every_group_around_the_int8_partition_boundary(
+    npartitions: int, aggregate: bool
+) -> None:
+    """nunique and the no-aggregation path shuffle into as many partitions as their input has.
+
+    Dask before 2026.6.0 lost groups at 129 partitions and raised OverflowError at 128/129
+    (dask#12430).
+    """
+    pdf = pd.DataFrame(
+        {
+            "group": [row % 2000 for row in range(6000)],
+            "value": [(row // 2000) * (row % 2) for row in range(6000)],
+        }
+    )
+    node = DataFrameGroupByAgg(
+        user_id="user",
+        project_id="project",
+        task_id="task",
+        node_id="node-groupby-boundary",
+        df=dd.from_pandas(pdf, npartitions=npartitions),
+        group_by_columns=["group"],
+        new_cols=["value_nunique"] if aggregate else None,
+        source_cols=["value"] if aggregate else None,
+        agg_funcs=["nunique"] if aggregate else None,
+    )
+    node.process()
+
+    assert node.output.npartitions == npartitions
+    result = node.output.compute().sort_values("group").reset_index(drop=True)
+    if aggregate:
+        expected = pdf.groupby("group")["value"].nunique().rename("value_nunique").reset_index()
+    else:
+        expected = pdf[["group"]].drop_duplicates().sort_values("group").reset_index(drop=True)
+    pd.testing.assert_frame_equal(result, expected)
+
+
 def test_groupby_agg_without_group_columns_and_without_aggs_fails_validation() -> None:
     node = DataFrameGroupByAgg(
         user_id="user",

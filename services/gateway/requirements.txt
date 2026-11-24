@@ -39,7 +39,7 @@ packaging==25.0
 msgpack==1.1.2
 
 pandas==3.0.0
-dvt-dask[complete]==2026.3.11
+dask[dataframe]==2026.8.0
 
 smbprotocol==1.16.1
 redis==6.4.0

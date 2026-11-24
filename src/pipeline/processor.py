@@ -5,6 +5,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import dask
+
 from core.hashing import get_hash
 from core.types import Metadata
 
@@ -969,6 +971,16 @@ class PipelineProcessor:
         return False, False, False, None
 
     async def process(self) -> ProcessResult:
+        shuffle_method = self.task.project_settings.shuffle_method
+        if shuffle_method is None:
+            return await self._run_pipeline()
+        # dask.config is process-global. Nodes build their graphs and sink nodes compute them
+        # inside this scope, so every shuffle of the run uses the project's method; the previous
+        # value comes back afterwards, so a reused process does not carry it into the next run.
+        with dask.config.set({"dataframe.shuffle.method": shuffle_method}):
+            return await self._run_pipeline()
+
+    async def _run_pipeline(self) -> ProcessResult:
         logger.debug(f"{self.__class__.__name__}: run started.")
         started_at = time.time()
 

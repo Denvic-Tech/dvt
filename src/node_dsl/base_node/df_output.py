@@ -3,12 +3,13 @@ from abc import ABC
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from functools import cached_property
+from functools import cached_property, partial
 from typing import Any
 
 import dask.dataframe as dd
 import pandas as pd
 
+from core import dask_lifecycle
 from core.hashing import get_hash
 from core.types import DataFrameMetadata, DataType
 from core.utils.dataframe_index import carry_physical_index, get_physical_index
@@ -80,31 +81,19 @@ class _NodeCallbacksCoordinator:
             self._active_operation_ids.discard(operation_id)
 
 
-def _get_part_no(partition_info: dict[str, Any] | None) -> int | None:
-    if not partition_info:
-        return None
-    part_no = partition_info.get("number")
-    return part_no if isinstance(part_no, int) else None
-
-
-
 def _on_operation_start(
-        _ddf_meta: pd.DataFrame,
-        operation_id: Any,
         *,
         callback_coordinator: _NodeCallbacksCoordinator,
-        **_: Any,
+        operation_id: Any,
 ) -> None:
     callback_coordinator.start_operation(operation_id)
 
 
 def _on_operation_end(
-        _ddf_meta: pd.DataFrame,
-        operation_id: Any,
         *,
         callback_coordinator: _NodeCallbacksCoordinator,
         partition_context: DDFPartitionCallbackContext,
-        **_: Any,
+        operation_id: Any,
 ) -> None:
     if partition_context.writer is not None:
         partition_context.writer.finish()
@@ -112,13 +101,10 @@ def _on_operation_end(
 
 
 def _on_operation_error(
-        _ddf_meta: pd.DataFrame,
-        operation_id: Any,
-        _exc: BaseException,
         *,
         callback_coordinator: _NodeCallbacksCoordinator,
         partition_context: DDFPartitionCallbackContext,
-        **_: Any,
+        operation_id: Any,
 ) -> None:
     if partition_context.writer is not None:
         partition_context.writer.abort()
@@ -127,20 +113,44 @@ def _on_operation_error(
 
 def _on_operation_partition(
         df_partition: pd.DataFrame,
-        _operation_id: Any,
+        part_no: int | None,
         *,
         partition_context: DDFPartitionCallbackContext,
-        partition_info: dict[str, Any] | None = None,
-        **_: Any,
 ) -> None:
-    part_no = _get_part_no(partition_info)
-
     if partition_context.writer is not None and part_no is not None:
         partition_context.writer.submit_partition(df_partition, part_no=part_no)
 
     if partition_context.progress_step is not None:
         with partition_context.progress_lock:
             partition_context.progress_step()
+
+
+def _output_lifecycle_handlers(
+        *,
+        callback_coordinator: _NodeCallbacksCoordinator,
+        partition_context: DDFPartitionCallbackContext,
+        operation_id: Any,
+) -> dask_lifecycle.OutputLifecycleHandlers:
+    return dask_lifecycle.OutputLifecycleHandlers(
+        on_start=partial(
+            _on_operation_start,
+            callback_coordinator=callback_coordinator,
+            operation_id=operation_id,
+        ),
+        on_end=partial(
+            _on_operation_end,
+            callback_coordinator=callback_coordinator,
+            partition_context=partition_context,
+            operation_id=operation_id,
+        ),
+        on_error=partial(
+            _on_operation_error,
+            callback_coordinator=callback_coordinator,
+            partition_context=partition_context,
+            operation_id=operation_id,
+        ),
+        on_partition=partial(_on_operation_partition, partition_context=partition_context),
+    )
 
 
 class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
@@ -420,16 +430,19 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
 
             total_npartitions = 0
             ddfs: list[DDFOutputMeta] = []
-            for _, field in self._output_field_instances.items():
-                output = getattr(self, field.attr_name)
-                if not isinstance(output, dd.DataFrame):
-                    continue
-                total_npartitions += output.npartitions
-                ddfs.append(DDFOutputMeta(
-                    attr_name=field.attr_name,
-                    npartitions=output.npartitions,
-                    ddf=output,
-                ))
+            # npartitions/divisions may run a nested Dask computation (sort/set_index quantiles):
+            # that is graph building, so upstream nodes report nothing from it.
+            with dask_lifecycle.suppress_lifecycle_events():
+                for _, field in self._output_field_instances.items():
+                    output = getattr(self, field.attr_name)
+                    if not isinstance(output, dd.DataFrame):
+                        continue
+                    total_npartitions += output.npartitions
+                    ddfs.append(DDFOutputMeta(
+                        attr_name=field.attr_name,
+                        npartitions=output.npartitions,
+                        ddf=output,
+                    ))
 
             cache: DataFrameExecutionCache | None = None
             generation_id: str | None = None
@@ -453,32 +466,29 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
                 on_finished=lambda: async_worker.run(self._node_finished()),
             )
             progress_lock = threading.Lock()
-            partition_dispatch_queue_size = max(
-                16,
-                min(512, max(total_npartitions, 1) * 2),
-            )
 
             self.total_steps = total_npartitions
             for ddf_output_meta in ddfs:
                 writer: DaskPartitionCacheWriter | None = None
                 if cache is not None and generation_id is not None:
                     try:
-                        await cache.begin_output_generation(
-                            project_id=self.project_id,
-                            node_id=self.node_id,
-                            output_name=ddf_output_meta.attr_name,
-                            generation_id=generation_id,
-                            node_runtime_fingerprint=self._dataframe_cache_runtime_fingerprint,
-                            meta=ddf_output_meta.ddf._meta,
-                            npartitions=ddf_output_meta.npartitions,
-                            known_divisions=ddf_output_meta.ddf.known_divisions,
-                            divisions=(
-                                tuple(ddf_output_meta.ddf.divisions)
-                                if ddf_output_meta.ddf.known_divisions
-                                else None
-                            ),
-                            physical_index=get_physical_index(ddf_output_meta.ddf),
-                        )
+                        with dask_lifecycle.suppress_lifecycle_events():
+                            await cache.begin_output_generation(
+                                project_id=self.project_id,
+                                node_id=self.node_id,
+                                output_name=ddf_output_meta.attr_name,
+                                generation_id=generation_id,
+                                node_runtime_fingerprint=self._dataframe_cache_runtime_fingerprint,
+                                meta=ddf_output_meta.ddf._meta,
+                                npartitions=ddf_output_meta.npartitions,
+                                known_divisions=ddf_output_meta.ddf.known_divisions,
+                                divisions=(
+                                    tuple(ddf_output_meta.ddf.divisions)
+                                    if ddf_output_meta.ddf.known_divisions
+                                    else None
+                                ),
+                                physical_index=get_physical_index(ddf_output_meta.ddf),
+                            )
                         writer = DaskPartitionCacheWriter(
                             cache=cache,
                             project_id=self.project_id,
@@ -502,26 +512,15 @@ class DFOutputBaseNode(BaseNode, ABC, metaclass=DFOutputNodeMeta):
                     progress_step=self.progress_step,
                     progress_lock=progress_lock,
                 )
-                callback_metadata = {
-                    "callback_coordinator": callback_coordinator,
-                    "partition_context": partition_context,
-                }
                 operation_id = f"{self.task_id}:{self.node_id}:{ddf_output_meta.attr_name}"
 
-                output = ddf_output_meta.ddf.add_callbacks(
-                    on_start=_on_operation_start,
-                    on_end=_on_operation_end,
-                    on_partition=_on_operation_partition,
-                    on_error=_on_operation_error,
-                    metadata=callback_metadata,
-                    metadata_token=operation_id,
-                    operation_id=operation_id,
-                    operation_type="node_df_output",
-                    copy_meta_mode="none",
-                    copy_partition_mode="none",
-                    partition_dispatch_mode="sync" if writer is not None else "threaded",
-                    partition_dispatch_workers=1,
-                    partition_dispatch_queue_size=partition_dispatch_queue_size,
+                output = dask_lifecycle.attach_lifecycle(
+                    ddf_output_meta.ddf,
+                    _output_lifecycle_handlers(
+                        callback_coordinator=callback_coordinator,
+                        partition_context=partition_context,
+                        operation_id=operation_id,
+                    ),
                 )
                 setattr(
                     self,

@@ -1,0 +1,113 @@
+{
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      },
+      "key_cardinality": {
+        "__dvt_type": "const",
+        "value": 1000
+      }
+    }
+  },
+  "dim": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 800
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 1
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 7
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "dim"
+      }
+    }
+  },
+  "dim_keys": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "dim",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "id": "dim_key"
+        }
+      }
+    }
+  },
+  "join": {
+    "name": "DataFrameJoin",
+    "inputs": {
+      "left": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "right": {
+        "__dvt_type": "link",
+        "node_id": "dim_keys",
+        "output_name": "output"
+      },
+      "left_on": {
+        "__dvt_type": "const",
+        "value": [
+          "key"
+        ]
+      },
+      "right_on": {
+        "__dvt_type": "const",
+        "value": [
+          "dim_key"
+        ]
+      },
+      "how": {
+        "__dvt_type": "const",
+        "value": "left"
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "join",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

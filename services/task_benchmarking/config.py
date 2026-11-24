@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -56,6 +57,33 @@ def cli_global_input_overrides(
     if max_rows_per_partition is not None:
         overrides["max_rows_per_partition"] = max_rows_per_partition
     return overrides
+
+
+def parse_node_sets(values: list[str]) -> dict[str, dict[str, Any]]:
+    """Parse ``--set NODE.INPUT=VALUE`` items into matrix-style ``node_overrides``."""
+    overrides: dict[str, dict[str, Any]] = {}
+    for item in values:
+        target, separator, raw_value = item.partition("=")
+        node_id, dot, input_name = target.partition(".")
+        if not separator or not dot or not node_id or not input_name:
+            raise ValueError(f"--set expects NODE.INPUT=VALUE, got {item!r}")
+        try:
+            value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            value = raw_value
+        overrides.setdefault(node_id, {})[input_name] = value
+    return overrides
+
+
+def merge_node_overrides(
+    *values: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    """Merge per-node overrides; later values win per input."""
+    merged: dict[str, dict[str, Any]] = {}
+    for value in values:
+        for node_id, inputs in (value or {}).items():
+            merged.setdefault(node_id, {}).update(inputs)
+    return merged
 
 
 def merge_global_overrides(*values: dict[str, Any]) -> dict[str, Any]:

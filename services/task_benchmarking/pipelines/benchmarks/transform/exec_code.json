@@ -1,0 +1,55 @@
+{
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "exec_code": {
+    "name": "DataFrameExecCode",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "code": {
+        "__dvt_type": "const",
+        "value": "df_out = df_in.assign(amount_x2=df_in['amount'] * 2)"
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "exec_code",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

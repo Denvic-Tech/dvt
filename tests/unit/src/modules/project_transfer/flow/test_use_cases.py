@@ -197,6 +197,7 @@ async def _seed_project(session, *, owner: UserRecord, folder_id: str | None = N
         store_enabled=True,
         ttl_time=120,
         workers_count=3,
+        shuffle_method="tasks",
         variables={"limit": {"type": "int", "value": 10, "is_list_type": False}},
     )
     session.add(project)
@@ -456,7 +457,9 @@ async def test_import_create_project_with_existing_connection(async_test_db_sess
     assert result.warnings == []
 
     created = await async_test_db_session.get(ProjectRecord, new_id)
-    assert (created.name, created.folder_id, created.user_id, created.ttl_time) == ("Source", folder.id, admin.id, 120)
+    assert (
+        created.name, created.folder_id, created.user_id, created.ttl_time, created.shuffle_method
+    ) == ("Source", folder.id, admin.id, 120, "tasks")
     assert created.variables == {"limit": {"type": "int", "value": 10, "is_list_type": False}}
 
     nodes = (await async_test_db_session.execute(sa.select(GraphNodeRecord).where(GraphNodeRecord.project_id == new_id))).scalars().all()

@@ -1,9 +1,10 @@
 from uuid import uuid4
 
-from sqlalchemy import JSON, CheckConstraint, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, String, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from src.models.mixins import TimestampedModel
+from src.modules.project.domain import ShuffleMethod
 
 
 class ProjectRecord(TimestampedModel, SQLModel, table=True):
@@ -59,6 +60,16 @@ class ProjectRecord(TimestampedModel, SQLModel, table=True):
         ge=0
     )
 
+    shuffle_method: ShuffleMethod | None = Field(
+        default=None,
+        nullable=True,
+        sa_type=String,
+        description=(
+            "Метод shuffle Dask для запусков проекта: disk или tasks; "
+            "пусто — значение установки по умолчанию (обычно disk)"
+        ),
+    )
+
     # Исправленное поле variables
     variables: dict | None = Field(
         default=None,
@@ -71,5 +82,8 @@ class ProjectRecord(TimestampedModel, SQLModel, table=True):
         UniqueConstraint('id', 'organization_id', name='unique_project_id_organization_id'),
         CheckConstraint('ttl_time >= 0', name='check_ttl_time_non_negative'),
         CheckConstraint('workers_count >= 0', name='check_workers_count_non_negative'),
+        CheckConstraint(
+            "shuffle_method IN ('disk', 'tasks')", name='check_shuffle_method_allowed'
+        ),
         CheckConstraint('graph_revision >= 0', name='check_graph_revision_non_negative'),
     )

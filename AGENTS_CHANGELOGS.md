@@ -3754,6 +3754,56 @@
 ### 2026-11-10 17:00:37
 - Отделены служебные индексы DBV3 от бизнес-колонок. Исправлен выбор одноимённых колонок в Select Columns, Filter и Join. Подтверждённая привязка физического индекса сохраняется в кэше и позволяет соединять диапазонные партиции без shuffle.
 
+### 2026-11-17 17:13:09
+- Добавлены DB-free бенчмарки трансформаций в services/task_benchmarking/pipelines/benchmarks/transform: 35 сценариев (базовая генерация, построчные ноды, цепочки из 10 нод, groupby, join, sort, set_index, pivot, unpivot, union, lag, общий upstream с одним и двумя стоками).
+- В обвязке task_benchmarking: BenchmarkSyntheticDataFrame получил схему dim и колонку key с заданной кардинальностью (key_cardinality); BenchmarkMaterialize получил режим checksum (count/sum по колонкам) и проверку порядка sorted_by; CLI получил опцию --set NODE.INPUT=VALUE для переопределения одного входа одной ноды.
+- Обновлены README обвязки, описание метрик в схеме отчёта и юнит-тесты в tests/unit/services/task_benchmarking.
+
+### 2026-11-17 17:56:13
+- Супервизор проверил бенчмарки трансформаций: просмотрены изменения обвязки task_benchmarking, пройдены юнит-тесты, повторены ключевые замеры (join, sort, set_index, group_by, потоки, два стока, дисковый shuffle и tasks, join на 20 млн строк у лимита памяти, потолки pandas и DuckDB) и отдельно сверено сопоставление строк в join. Отчёт: experiments/2026-11-17T18-00-00_transform-benchmark-baseline.md. Код продукта не менялся.
+
+### 2026-11-17 20:36:22
+- Обвязка task_benchmarking для замеров многопроцессного исполнения пайплайнов: добавлены тестовые ноды `BenchmarkMaterializeConcurrent` (один `dask.compute` по двум стокам), `BenchmarkStoreWrite`/`BenchmarkStoreRead` и модуль `store.py` (барьерный store в форматах Parquet, Arrow IPC и кодеке pipeline_cache), сценарии `pipelines/benchmarks/stages/*.json` и `write/<postgres|clickhouse>/two_branches_5m.json`; в `BenchmarkMaterialize` выделены общие хелперы compute. Обновлены README, описание метрик в схеме отчёта и юнит-тесты.
+
+### 2026-11-17 21:13:45
+- Супервизорская проверка бенчмарка процессов (benchmark gate 3.6): пересчитаны таблицы сабагента по сырым результатам, повторены ключевые замеры групп 1–3, результаты сошлись. Подтверждены дефекты форка dask: зависание графа с сортировкой из-за закрытого диспетчера callbacks и падение tasks-shuffle на 128/129 партициях. Дополнительно найдена тихая потеря строк в join и nunique при ровно 129 партициях с дисковым shuffle (shuffle.py:95). Код продукта не менялся; отчёт — experiments/2026-11-17T21-15-00_process-parallelism-benchmark.md.
+
+### 2026-11-18 18:02:30
+- Ресёрч выхода с форка dvt-dask (без изменений кода): отчёт `experiments/2026-11-18T18-00-00_dvt-dask-fork-exit-research.ru.md`. Инвентаризация форка против upstream-базы 0993aa9d3, использование API форка в DVT, атрибуция пяти дефектов (1–2 — баги upstream, исправлены в 2026.6.0), прототип колбэков нод на чистом upstream Dask 2026.3.0/2026.8.0, сравнение вариантов и этапы миграции.
+
+### 2026-11-18 20:22:35
+- Уход с форка dvt-dask, этапы 1-2: добавлен пакет core/dask_lifecycle - единственное место, где DVT получает события жизненного цикла выхода ноды из Dask (attach_lifecycle, lifecycle_scope, delayed_partitions, suppress_lifecycle_events). Две реализации: fork (адаптер к add_callbacks / PublicOperationCallbacks, поведение прежнее) и tap (сквозной шаг map_partitions на выходе ноды плюс стандартный dask.callbacks.Callback, без API форка). Выбор - config.DASK_LIFECYCLE.IMPLEMENTATION (env DASK_LIFECYCLE_IMPLEMENTATION), по умолчанию fork.
+- На шов переведены src/node_dsl/base_node/df_output.py, Kafka-чтение (src/modules/kafka_consumption/infra/dask_reader.py), core/parquet/write/dask.py, бенчмарк-нода BenchmarkMaterializeConcurrent и вызовы to_delayed в SaveExcel, SaveParquet и DataFrameGroupByAgg. Чтение npartitions / divisions при построении графа в df_output обёрнуто в suppress_lifecycle_events.
+- Тесты: tests/unit/core/dask_lifecycle (один набор сценариев на обе реализации), тест параллельной записи партиций в кэш, тест событий для отсортированного выхода ноды. Пакет dvt-dask в requirements не менялся.
+
+### 2026-11-18 21:26:05
+- Уход с форка dvt-dask, этап 3: во всех шести requirements пакет dvt-dask[complete]==2026.3.11 заменён на dask[dataframe]==2026.8.0; в requirements orchestrator и project_scheduler добавлен Jinja2==3.1.6 (раньше приходил транзитивно через extra complete).
+- Удалена реализация событий на API форка (core/dask_lifecycle/fork.py), настройка DASK_LIFECYCLE и выбор реализации; остался один механизм - сквозной шаг на выходе ноды плюс стандартный dask.callbacks.Callback. API пакета: OutputLifecycleHandlers, attach_lifecycle, delayed_partitions, suppress_lifecycle_events. При импорте пакета стадия оптимизатора tune выключается по умолчанию (как было на форке для графов нод).
+- Из core/parquet/write/dask.py убран мост к callbacks форка; тесты записи parquet и записи в БД V3 переведены на шов. Добавлены регрессионные тесты: join и group-by через продуктовые ноды на 128/129/130 партициях, события записи при нескольких запусках Dask, восстановление регистрации Callback.
+
+### 2026-11-19 15:27:22
+- Исправлено зависание записи в БД (WriteDataFrameToDB V3/V4) на больших графах после перехода на чистый dask: проверка пустого набора партиций в core/db/write_v3/dask.py и core/db/write_v4/dask.py вызывала ddf.to_delayed(), который запускает стадию слияния задач оптимизатора (fuse) со сверхлинейным временем на графах с джойнами и union; форк эту стадию для графов нод пропускал. Проверка заменена на ddf.npartitions == 0, сама запись не менялась.
+- Добавлены регрессионные тесты: запись V3 и V4 не запускает слияние задач и по-прежнему даёт события вышестоящих нод ровно один раз.
+
+### 2026-11-19 16:18:25
+- Исправлена нода SaveCSV после перехода на чистый dask: Dask to_csv запускал стадию слияния задач (fuse) на всём входном графе - на больших графах нода зависала, а события вышестоящих нод не приходили. Теперь to_csv получает DataFrame, пересобранный из несливаемых партиций (delayed_partitions); раскладка файлов и содержимое не изменились.
+- Добавлен tests/unit/src/nodes/write/test_save_csv.py: содержимое в однофайловом и многофайловом режимах, заголовок, индекс, разделитель, кодировка, пустой DataFrame, события вышестоящих нод ровно один раз, отсутствие слияния задач на графе нод.
+
+### 2026-11-19 20:22:14
+- Диагностика повторных вычислений внутри одного запуска пайплайна (только замеры, код продукта не менялся): посчитаны запуски планировщика Dask по местам вызова и число выполнений задач по нодам на графах бенчмарка, измерен эффект барьера материализации, сделан статический разбор сохранённых проектов инсталляции (БД только на чтение). Отчёт: experiments/2026-11-19T20-00-00_recompute-diagnosis.ru.md.
+
+### 2026-11-20 15:03:50
+- Прототип-замер барьера материализации (только замеры, код продукта не менялся): графы из продуктовых нод чтения из PostgreSQL и ClickHouse, join и записи V4 с барьером после ветвления и без него, проверка точности форматов хранения на типах DVT; отдельно разобран код процессора под встраивание барьера. Отчёт: experiments/2026-11-20T12-00-00_barrier-prototype.ru.md.
+
+### 2026-11-20 17:01:03
+- Измерен профиль чтения PostgreSQL в read_v3 (только замеры, код продукта не менялся): чтение 5 млн строк занимает 20.4 с и ограничено GIL клиента (fetchall, обёртка Row, сборка DataFrame, приведения типов), а не сервером; сравнены кандидаты на замену (COPY CSV через libpq, ADBC, connectorx) с матрицей совпадения типов. Найден дефект: bigint больше 2^53 рядом с NULL молча округляется на шаге строки → DataFrame. Отчёт: experiments/2026-11-20T18-00-00_postgres-read-profile.ru.md.
+
+### 2026-11-20 18:46:27
+- Добавлен быстрый путь чтения PostgreSQL в read_v3 через ADBC (Arrow, двоичный COPY): новый executor core/db/read_v3/executors/pg.py, выбор в resolve_executor, выключатель DB_PG_ARROW_READ (по умолчанию включён), зависимости adbc-driver-manager и adbc-driver-postgresql 1.13.0 в requirements.txt, task_worker и task_benchmarking. Путь включается только для проверенного списка типов и при совпадении параметров сессии; чтения меньше 100 000 строк, прочие типы и любые ошибки ADBC идут прежним путём через query_df. В _apply_output_type_hints пропускается приведение колонки, уже имеющей целевой dtype. Обновлены README нод ReadTableFromDBV3 и ReadQueryFromDBV3 (en, ru) и core/db/read_v3/README.md, добавлены модульные и интеграционные тесты. Замер на 5 млн строк: нода чтения 22 с против 4.7 с, проход PostgreSQL - join - ClickHouse 28.8 с против 9.1 с; результат записи совпадает.
+
+### 2026-11-20 18:58:49
+- Исправлено округление 64-битных целых рядом с NULL при чтении партиций в read_v3 (все диалекты, кроме ClickHouse): runner executor-а создаётся с exact_integers=True и возвращает колонку как Int64, если в ней есть значения от 2^53 по модулю и все они целые; остальные колонки и остальные потребители query_df (планировщик, статистика ключей, ExecuteSQL) не меняются. Из README нод ReadTableFromDBV3 и ReadQueryFromDBV3 убрана оговорка про bigint на пути Arrow, обновлён core/db/read_v3/README.md, добавлены тесты.
+
 ### 2026-11-16 18:20:47
 - Добавлен журнал установки на хосте с постоянной identity, идемпотентным приёмом операции, типизированными чекпоинтами и межпроцессным владением исполнителя. Проверены конкурентный приём, смена владельца после завершения процесса и права на Linux.
 

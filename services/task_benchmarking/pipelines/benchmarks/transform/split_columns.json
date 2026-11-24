@@ -1,0 +1,63 @@
+{
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "split": {
+    "name": "DataFrameSplitColumn",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "column": {
+        "__dvt_type": "const",
+        "value": "str_low"
+      },
+      "delimiter": {
+        "__dvt_type": "const",
+        "value": "_"
+      },
+      "max_splits": {
+        "__dvt_type": "const",
+        "value": 1
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "split",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

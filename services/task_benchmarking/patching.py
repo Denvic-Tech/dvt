@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
 from typing import Any, Optional
 
 from .cli import BenchmarkOptions
@@ -73,6 +74,7 @@ def build_subprocess_args(
     npartitions: Optional[int],
     num_workers: Optional[int],
     max_rows_per_partition: Optional[int],
+    node_sets: Sequence[str] = (),
 ) -> list[str]:
     cmd = [
         executable,
@@ -112,6 +114,8 @@ def build_subprocess_args(
         cmd.extend(["--num-workers", str(num_workers)])
     if max_rows_per_partition is not None:
         cmd.extend(["--max-rows-per-partition", str(max_rows_per_partition)])
+    for node_set in node_sets:
+        cmd.extend(["--set", node_set])
     return cmd
 
 
@@ -167,6 +171,7 @@ def run_with_patches(options: BenchmarkOptions) -> int:
         npartitions=options.npartitions,
         num_workers=options.num_workers,
         max_rows_per_partition=options.max_rows_per_partition,
+        node_sets=options.node_sets,
     )
     baseline_code, _, _ = run_subprocess("Baseline (original code)", baseline_cmd)
 
@@ -196,6 +201,7 @@ def run_with_patches(options: BenchmarkOptions) -> int:
             npartitions=options.npartitions,
             num_workers=options.num_workers,
             max_rows_per_partition=options.max_rows_per_partition,
+            node_sets=options.node_sets,
         )
         patched_code, _, _ = run_subprocess("Patched code", patched_cmd)
     except Exception as exc:  # noqa: BLE001 - want to show failures and keep cleanup below
@@ -277,6 +283,7 @@ def run_safe_compare(options: BenchmarkOptions) -> int:
         npartitions=options.npartitions,
         num_workers=options.num_workers,
         max_rows_per_partition=options.max_rows_per_partition,
+        node_sets=options.node_sets,
     )
     baseline_code, _, _ = run_subprocess("Baseline", baseline_cmd)
 
@@ -299,6 +306,7 @@ def run_safe_compare(options: BenchmarkOptions) -> int:
         npartitions=options.npartitions,
         num_workers=options.num_workers,
         max_rows_per_partition=options.max_rows_per_partition,
+        node_sets=options.node_sets,
     )
     candidate_code, _, _ = run_subprocess("Candidate", candidate_cmd, cwd=candidate_workdir)
 

@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from sqlalchemy import create_engine, text
 
+from core.dask_lifecycle import OutputLifecycleHandlers, attach_lifecycle
 from core.db import concurrency
 from core.db.write_v3 import ExtraColumnsMode, MissingColumnsMode, UpsertConfig
 from src.node_dsl import IO
@@ -109,25 +110,23 @@ async def test_write_dataframe_to_db_v3_process_supports_upstream_callbacks(tmp_
         conn.execute(text("CREATE TABLE events (business_key TEXT, payload TEXT)"))
 
     callback_events = {"start": 0, "end": 0}
-    upstream_df = dd.from_pandas(
-        pd.DataFrame(
-            {
-                "business_key": ["a", "b", "c"],
-                "payload": ["x", "y", "z"],
-            }
+    upstream_df = attach_lifecycle(
+        dd.from_pandas(
+            pd.DataFrame(
+                {
+                    "business_key": ["a", "b", "c"],
+                    "payload": ["x", "y", "z"],
+                }
+            ),
+            npartitions=2,
         ),
-        npartitions=2,
-    ).add_callbacks(
-        on_start=lambda _meta, operation_id: callback_events.__setitem__(
-            "start",
-            callback_events["start"] + (1 if operation_id == "task:node:output" else 0),
+        OutputLifecycleHandlers(
+            on_start=lambda: callback_events.__setitem__(
+                "start", callback_events["start"] + 1
+            ),
+            on_end=lambda: callback_events.__setitem__("end", callback_events["end"] + 1),
+            on_partition=lambda _partition, _part_no: None,
         ),
-        on_end=lambda _meta, operation_id: callback_events.__setitem__(
-            "end",
-            callback_events["end"] + (1 if operation_id == "task:node:output" else 0),
-        ),
-        on_partition=lambda *_args, **_kwargs: None,
-        operation_id="task:node:output",
     )
 
     node = WriteDataFrameToDBV3(

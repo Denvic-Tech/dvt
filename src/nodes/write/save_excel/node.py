@@ -5,6 +5,8 @@ import dask.dataframe as dd
 import pandas as pd
 from loguru import logger
 
+from core.dask_lifecycle import delayed_partitions
+
 from src.node_dsl import BaseNode, InputField
 from src.node_dsl.runtime.integrations.file_connection.mixin import FileConnectionInputMixin
 from src.nodes.write._shared.target_path import normalize_relative_target_path
@@ -135,7 +137,7 @@ class SaveExcel(FileConnectionInputMixin, BaseNode):
                 logger.info(f"Saved single Excel file to {url} | shape={pdf.shape}")
 
             else:
-                parts = self.df.to_delayed()
+                parts = delayed_partitions(self.df)
                 if parts and isinstance(parts[0], (list, tuple)):
                     flat_parts = []
                     for p in parts:

@@ -55,6 +55,28 @@ async def async_test_user_project(async_db_session, async_test_user: UserRecord)
 
 
 @pytest.mark.asyncio
+async def test_copy_project_keeps_shuffle_method(
+    async_db_session,
+    async_test_user: UserRecord,
+    async_test_user_project: ProjectRecord,
+):
+    async_test_user_project.shuffle_method = "tasks"
+    async_db_session.add(async_test_user_project)
+    await async_db_session.commit()
+
+    copied_project = await copy_project(
+        project_id=async_test_user_project.id,
+        data=ProjectUpdateSchema(),
+        session=async_db_session,
+        user=async_test_user,
+        project=async_test_user_project,
+    )
+
+    assert copied_project.id != async_test_user_project.id
+    assert copied_project.shuffle_method == "tasks"
+
+
+@pytest.mark.asyncio
 async def test_copy_project_relinks_edge_endpoints_to_copied_nodes(
     async_db_session,
     async_test_user: UserRecord,

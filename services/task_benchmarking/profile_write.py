@@ -1855,7 +1855,6 @@ def _environment(ctx: _Context) -> dict:
         "numpy",
         "pyarrow",
         "dask",
-        "dvt-dask",
         "SQLAlchemy",
         "psycopg",
         "psycopg-binary",

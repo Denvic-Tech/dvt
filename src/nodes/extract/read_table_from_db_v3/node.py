@@ -318,6 +318,7 @@ class ReadTableFromDBV3(DFOutputBaseNode):
         executor = resolve_executor(
             engine,
             max_concurrent_queries=resolve_read_concurrency(self.max_concurrent_queries, engine),
+            pg_arrow_read=config.OTHER.DB_PG_ARROW_READ,
         )
         self.output = frame_from_executor(executor, plan)
         self.emit_system_variables(SystemVariables(

@@ -1,4 +1,6 @@
 import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from decimal import Decimal
 from types import SimpleNamespace
@@ -412,6 +414,45 @@ async def test_partition_is_serialized_before_mutable_dataframe_lifetime_ends() 
     ))
     cached = await store.get(manifest.partitions[0].cache_key)
     assert cached["value"].tolist() == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_partition_writer_accepts_concurrent_submissions() -> None:
+    """Lifecycle handlers submit partitions from several Dask worker threads at once."""
+    store = _data_store()
+    cache = DataFrameExecutionCache(data_store=store)
+    meta = pd.DataFrame({"value": pd.Series(dtype="int64")})
+    npartitions = 32
+    threads = 8
+    await cache.begin_output_generation(
+        project_id="p", node_id="n", output_name="output", generation_id="concurrent",
+        node_runtime_fingerprint="runtime", meta=meta, npartitions=npartitions,
+        known_divisions=False, divisions=None,
+    )
+    writer = DaskPartitionCacheWriter(
+        cache=cache, project_id="p", node_id="n", output_name="output",
+        generation_id="concurrent", npartitions=npartitions,
+        policy=DataFrameCachePolicy(max_pending_partitions=2, max_pending_bytes=1024 * 1024),
+    )
+    barrier = threading.Barrier(threads)
+
+    def submit(part_no: int) -> None:
+        partition = pd.DataFrame({"value": np.arange(part_no * 10, part_no * 10 + 10)})
+        barrier.wait(timeout=10)
+        writer.submit_partition(partition, part_no=part_no)
+
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        list(pool.map(submit, range(npartitions)))
+
+    assert writer.finish()
+    assert writer.pending_count == 0
+    assert writer.pending_bytes == 0
+    manifest = await store.get(dataframe_manifest_key(
+        project_id="p", node_id="n", output_name="output", generation_id="concurrent",
+    ))
+    assert [entry.part_no for entry in manifest.partitions] == list(range(npartitions))
+    cached = [await store.get(entry.cache_key) for entry in manifest.partitions]
+    assert pd.concat(cached)["value"].tolist() == list(range(npartitions * 10))
 
 
 @pytest.mark.asyncio

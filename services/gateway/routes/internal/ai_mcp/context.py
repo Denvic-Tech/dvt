@@ -60,6 +60,7 @@ async def get_project(*, session, principal: MCPPrincipal, project_id: str) -> d
         "graph_revision": project.graph_revision,
         "variables": project.variables or {},
         "store_enabled": project.store_enabled,
+        "shuffle_method": project.shuffle_method,
         "updated_at": project.updated_at.isoformat(),
     }
 

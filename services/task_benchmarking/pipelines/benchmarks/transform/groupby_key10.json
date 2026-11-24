@@ -1,0 +1,85 @@
+{
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      },
+      "key_cardinality": {
+        "__dvt_type": "const",
+        "value": 100000
+      }
+    }
+  },
+  "groupby": {
+    "name": "DataFrameGroupByAgg",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "group_by_columns": {
+        "__dvt_type": "const",
+        "value": [
+          "key"
+        ]
+      },
+      "new_cols": {
+        "__dvt_type": "const",
+        "value": [
+          "amount_sum",
+          "id_count",
+          "float_a_mean"
+        ]
+      },
+      "source_cols": {
+        "__dvt_type": "const",
+        "value": [
+          "amount",
+          "id",
+          "float_a"
+        ]
+      },
+      "agg_funcs": {
+        "__dvt_type": "const",
+        "value": [
+          "sum",
+          "count",
+          "mean"
+        ]
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "groupby",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

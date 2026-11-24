@@ -379,3 +379,23 @@ def test_df_join_with_omitted_keys_does_not_join_by_physical_index():
     )
     node.process()
     assert node.output.compute().empty
+
+
+@pytest.mark.parametrize("npartitions", [128, 129, 130])
+def test_df_join_hash_shuffle_keeps_every_row_around_the_int8_partition_boundary(npartitions):
+    """Dask before 2026.6.0 lost rows when a hash shuffle had 129 output partitions (dask#12430)."""
+    keys = list(range(4000))
+    left = pd.DataFrame({"key": keys, "left_value": [key * 2 for key in keys]})
+    right = pd.DataFrame({"key": keys[::-1], "right_value": [key * 3 for key in keys[::-1]]})
+    node = DataFrameJoin(
+        user_id="user", project_id="project", task_id="task", node_id="boundary-join",
+        left=dd.from_pandas(left, npartitions=npartitions),
+        right=dd.from_pandas(right, npartitions=npartitions),
+        left_on=["key"], right_on=["key"], how="inner",
+    )
+    node.process()
+
+    assert node.output.npartitions == npartitions
+    result = node.output.compute().sort_values("key").reset_index(drop=True)
+    expected = left.merge(right, on="key").sort_values("key").reset_index(drop=True)
+    pd.testing.assert_frame_equal(result, expected)

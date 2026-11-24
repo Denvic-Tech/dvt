@@ -50,6 +50,7 @@ async def copy_project(
         user_id=project.user_id,
         organization_id=project.organization_id,
         is_deleted=False,
+        shuffle_method=project.shuffle_method,
         created_at=now,
         updated_at=now,
     )

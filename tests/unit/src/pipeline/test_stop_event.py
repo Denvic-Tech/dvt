@@ -5,6 +5,7 @@ import pytest
 from src.pipeline import processor as processor_module
 from src.pipeline.execution_mode import PipelineExecutionMode
 from src.pipeline.processor import PipelineProcessor
+from src.schemas.internal import ProjectSettings
 
 
 class _StopEvent:
@@ -70,6 +71,7 @@ async def test_stop_during_current_node_prevents_next_node_start(monkeypatch):
         changed_node_ids=None,
         metadata_changed_node_ids=None,
         project_variables=None,
+        project_settings=ProjectSettings(),
         mode=PipelineExecutionMode.FULL,
     )
     processor = PipelineProcessor(task=task, stop_event=stop_event)

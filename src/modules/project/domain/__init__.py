@@ -1,3 +1,3 @@
-from .enums import ProjectScheduleRunStatus
+from .enums import ProjectScheduleRunStatus, ShuffleMethod
 
-__all__ = ["ProjectScheduleRunStatus"]
+__all__ = ["ProjectScheduleRunStatus", "ShuffleMethod"]

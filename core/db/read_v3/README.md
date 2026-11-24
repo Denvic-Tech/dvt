@@ -22,6 +22,8 @@
 - `resolve_executor(engine)` и `frame_from_executor(...)` из [`dask.py`](dask.py);
   `resolve_executor(engine, max_concurrent_queries=N)` ограничивает число одновременных запросов
   партиций этого executor'а (семафор вокруг вызова runner'а), независимо от пула потоков потребителя.
+  `resolve_executor(engine, pg_arrow_read=False)` оставляет PostgreSQL на `query_df` (ноды
+  передают `config.OTHER.DB_PG_ARROW_READ`).
 
 Основные пользовательские параметры:
 - режим: `table` или `query`;
@@ -255,6 +257,51 @@ MCP-инструмент `suggest_read_partitioning`.
     Arrow), сегмент перечитывается через `query_df` с предупреждением в логе.
   - `DateTime64` с точностью не 0/3/6/9 `query_df` не читает (`ProgrammingError`), а путь Arrow
     читает.
+- PostgreSQL: [`executors/pg.py`](executors/pg.py) переопределяет `_fetch_segment_df`, если
+  установлен `adbc_driver_postgresql` и `pg_arrow_read` включён (иначе `resolve_executor`
+  возвращает `SQLReadExecutor`; без ADBC — одна debug-строка в логе). Планирование и
+  `build_meta` по-прежнему идут через `sql_runner`.
+  - Сегмент читается через ADBC (двоичный `COPY` в Arrow) и поколоночно приводится к тем же
+    dtypes и значениям, что дал бы `query_df` с `_apply_output_type_hints`.
+  - Подключение строится из `engine.url` (`create_connect_args` диалекта psycopg →
+    `make_conninfo`); параметры libpq (`pgconn.info`) подключения SQLAlchemy сравниваются с
+    параметрами пробного подключения psycopg только по этому conninfo (так значения, которые
+    libpq выводит сам, из переменных окружения или passfile, совпадают). Параметр, заданный
+    вне URL (`connect_args`, кроме `connect_timeout`, который переносится), драйвер не
+    psycopg 3, сервер старше 12, клиентская кодировка не UTF8, серверная `SQL_ASCII` или
+    `DateStyle` не ISO оставляют весь read на `query_df`. Каждое новое подключение ADBC
+    (`autocommit`) сверяет отпечаток сессии (пользователь, база, сервер, кодировки, `TimeZone`,
+    `search_path`, SSL/GSS, параметры сессии, вывод `float4`/`float8`) с сессией SQLAlchemy.
+  - Пул подключений ADBC одного executor'а: одно подключение на одновременный запрос сегмента,
+    не больше `max_concurrent_queries` простаивающих (без лимита — 4); подключение, запрос
+    которого упал, закрывается. Простаивающие подключения закрываются через ~1 с после
+    последнего запроса сегмента и при сборке executor'а, поэтому сессии сервера не переживают
+    чтение.
+  - План с известным числом строк меньше `_MIN_ARROW_ROWS` (100 000, шаг строк на партицию
+    планировщика по умолчанию) читается через `query_df` без пробы сессии и подключений ADBC:
+    открытие подключений (драйвер загружает каталог типов при подключении) стоит дороже, чем
+    экономит путь Arrow. Эта причина пишется в лог на уровне debug, остальные — info.
+  - Решение принимается один раз на план: статически по `output_column_type_repr` (массивы,
+    `interval`, `bytea`, `time`/`timetz`, колонка без dtype read_v3, точный `Decimal`-индекс
+    range-плана, служебный range-индекс нецелого типа) и по схеме Arrow первого сегмента
+    (`adbc_execute_schema`, метаданные поля `POSTGRESQL:type`). Тройка (тип PostgreSQL, тип
+    Arrow, целевой dtype) должна входить в список: `int2/int4/int8` → `Int64`; `numeric` →
+    `Int64` (через `int64`, `NaN` → `<NA>`) или `float64`; `float4` → `float64` (Arrow даёт
+    кратчайший текст, допускающий границу интервала округления, а `float4out` PostgreSQL — нет;
+    такие значения пересчитываются) и `float8` → `float64`, если сервер выводит их кратчайшим
+    точным текстом (`extra_float_digits` > 0, по умолчанию 1); `bool` → `boolean`;
+    `text/varchar/bpchar/name` и перечисления (`pg_type.typtype = 'e'`) → `string`; `date`,
+    `timestamp`, `timestamptz` → `datetime64[s|us|ns]`; `uuid` → `string`; `json/jsonb` →
+    `object` через `json.loads`, если у диалекта нет своего `json_deserializer`. Служебный целый
+    индекс — `int64`. Остальное (`"char"`, `money`, `inet`, `oid`, геотипы, диапазоны и т.п.)
+    оставляет план на `query_df`.
+  - Ошибка ADBC/Arrow при чтении или приведении сегмента (дата или время вне 1–9999 годов,
+    `infinity`, невалидный UTF-8, переполнение `int64`) перечитывает сегмент через `query_df` с
+    предупреждением, поэтому результат или ошибка совпадают с `query_df`. Сбой подключения или
+    несовпадение отпечатка выключает путь Arrow для executor'а с предупреждением; пароль URL в
+    логе заменяется на `***`.
+  - Runner executor'а создан с `exact_integers=True`: целые с `NULL` и значением по модулю
+    ≥ 2^53 приходят `Int64` с точными значениями, поэтому `bigint` с `NULL` точен на обоих путях.
 
 ### Интеграция с Dask
 Файл: [`dask.py`](dask.py)

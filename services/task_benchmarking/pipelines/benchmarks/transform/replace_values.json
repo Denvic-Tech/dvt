@@ -1,0 +1,62 @@
+{
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "replace": {
+    "name": "DataFrameReplaceValues",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "column_to_replace": {
+        "__dvt_type": "const",
+        "value": "str_low"
+      },
+      "dictionary": {
+        "__dvt_type": "const",
+        "value": {
+          "group_00": "zero",
+          "group_01": "one"
+        }
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "replace",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

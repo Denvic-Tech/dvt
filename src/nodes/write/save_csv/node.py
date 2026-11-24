@@ -1,6 +1,9 @@
 from typing import Optional
 
+import dask
 from dask import dataframe as dd
+
+from core.dask_lifecycle import delayed_partitions
 
 from src.logger import logger
 from src.node_dsl import BaseNode, InputField
@@ -87,12 +90,24 @@ class SaveCSV(FileConnectionInputMixin, BaseNode):
             # если что-то не так — просто вернуть как есть
             return value
 
+    def _unfused_frame(self) -> dd.DataFrame:
+        """``self.df`` rebuilt from its non-fused partitions, for Dask's ``to_csv``.
+
+        ``to_csv`` runs ``optimize()`` and ``to_delayed()``, i.e. Dask's blockwise fusion, which
+        is superlinear on DVT node graphs and hides the upstream lifecycle taps; on this frame it
+        sees only the ``from_delayed`` leaf. The partitions reach ``to_csv`` unchanged: no meta
+        check, no conversion of object columns to Arrow strings.
+        """
+        partitions = delayed_partitions(self.df)
+        with dask.config.set({"dataframe.convert-string": False}):
+            return dd.from_delayed(partitions, meta=self.df._meta, verify_meta=False)
+
     def process(self):
         ctx = self._get_fs_context(path=self._target_path(), create_fs=False)
         logger.info(f"Saving DataFrame to CSV: {ctx.path}, delimiter: {self.delimiter}")
 
         try:
-            self.df.to_csv(
+            self._unfused_frame().to_csv(
                 ctx.path,
                 sep=self._decode_delimiter(self.delimiter),
                 encoding=self.encoding,

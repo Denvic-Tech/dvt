@@ -44,7 +44,8 @@ class SQLReadExecutor(Executor):
     ):
         self.engine = engine
         self.dialect = dialect or resolve_dialect(engine)
-        self.sql_runner: ReadV3SqlRunner = resolve_sql_runner(engine)
+        # Segment and meta queries keep 64-bit integers next to NULL exact (Int64).
+        self.sql_runner: ReadV3SqlRunner = resolve_sql_runner(engine, exact_integers=True)
         if max_concurrent_queries is not None and max_concurrent_queries < 1:
             raise ReadV3ConfigError(
                 f"max_concurrent_queries must be positive; got {max_concurrent_queries!r}"
@@ -443,6 +444,14 @@ class SQLReadExecutor(Executor):
             if resolved_column is None:
                 continue
             target_dtype = cls._dtype_for_column(plan, column)
+            series = df[resolved_column]
+            # Every branch below is an identity for a column that already has the target dtype
+            # (dtype objects compare storage and NA value: the inferred ``str`` dtype is not
+            # ``pandas_dtype("string")``), so the cast is skipped.
+            if isinstance(series, pd.Series) and series.dtype == pd.api.types.pandas_dtype(
+                target_dtype
+            ):
+                continue
             try:
                 if target_dtype.startswith("datetime64"):
                     df[resolved_column] = cls._normalize_datetime_series(df[resolved_column], target_dtype)

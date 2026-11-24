@@ -10,9 +10,13 @@ import pytest
 import yaml
 
 from services.task_benchmarking.matrix import load_matrix_cases
+from services.task_benchmarking.nodes import register_benchmark_nodes
 from services.task_benchmarking.utils import load_pipeline
 
-from src.node_dsl import registry
+from src.node_dsl import _init_nodes, registry
+from src.node_dsl.registry import nodes as nodes_registry
+
+import config
 
 PIPELINES_DIR = Path(__file__).resolve().parents[4] / "services" / "task_benchmarking" / "pipelines"
 REPO_ROOT = PIPELINES_DIR.parents[2]
@@ -27,8 +31,29 @@ def _iter_links(value):
             yield item
 
 
+@pytest.fixture(scope="module")
+def registry_with_experimental_nodes():
+    """Built-in registry rebuilt with EXPERIMENTAL nodes (as under DEBUG) plus benchmark nodes.
+
+    Transform scenarios use experimental nodes such as DataFrameSortValues and DataFrameQuery,
+    which the registry includes only when DEBUG is on (the compose ``.env`` sets it).
+    """
+    nodes_registry.get_all()
+    snapshot = _init_nodes._snapshot_registries()
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(config.DEBUG, "DEBUG", True)
+        try:
+            _init_nodes.init_nodes()
+            register_benchmark_nodes()
+            yield
+        finally:
+            _init_nodes._restore_registries(snapshot, restore_bootstrap_state=True)
+
+
 @pytest.mark.parametrize("path", PIPELINE_FILES, ids=lambda path: path.name)
-def test_pipeline_references_registered_nodes_inputs_and_outputs(benchmark_registry, path) -> None:
+def test_pipeline_references_registered_nodes_inputs_and_outputs(
+    registry_with_experimental_nodes, path
+) -> None:
     pipeline = load_pipeline(str(path), pipeline_format="internal")
 
     for node_id, node in pipeline.items():

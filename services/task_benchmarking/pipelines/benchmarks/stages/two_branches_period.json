@@ -1,0 +1,147 @@
+{
+  "data_a": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "period_a": {
+    "name": "DataFrameConvertToPeriodStart",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data_a",
+        "output_name": "output"
+      },
+      "column": {
+        "__dvt_type": "const",
+        "value": "ts_a"
+      },
+      "period": {
+        "__dvt_type": "const",
+        "value": "month"
+      },
+      "new_column": {
+        "__dvt_type": "const",
+        "value": "ts_month"
+      }
+    }
+  },
+  "sink_a": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "period_a",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  },
+  "data_b": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 44
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "period_b": {
+    "name": "DataFrameConvertToPeriodStart",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data_b",
+        "output_name": "output"
+      },
+      "column": {
+        "__dvt_type": "const",
+        "value": "ts_a"
+      },
+      "period": {
+        "__dvt_type": "const",
+        "value": "month"
+      },
+      "new_column": {
+        "__dvt_type": "const",
+        "value": "ts_month"
+      }
+    }
+  },
+  "sink_b": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "period_b",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  },
+  "sink_ab": {
+    "name": "BenchmarkMaterializeConcurrent",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "period_a",
+        "output_name": "output"
+      },
+      "df_b": {
+        "__dvt_type": "link",
+        "node_id": "period_b",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

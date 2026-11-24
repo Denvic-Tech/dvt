@@ -1,0 +1,201 @@
+{
+  "data": {
+    "name": "BenchmarkSyntheticDataFrame",
+    "inputs": {
+      "rows": {
+        "__dvt_type": "const",
+        "value": 1000000
+      },
+      "npartitions": {
+        "__dvt_type": "const",
+        "value": 16
+      },
+      "seed": {
+        "__dvt_type": "const",
+        "value": 42
+      },
+      "schema": {
+        "__dvt_type": "const",
+        "value": "wide_mixed"
+      }
+    }
+  },
+  "r01": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "data",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a": "float_a_x"
+        }
+      }
+    }
+  },
+  "r02": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r01",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a_x": "float_a"
+        }
+      }
+    }
+  },
+  "r03": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r02",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a": "float_a_x"
+        }
+      }
+    }
+  },
+  "r04": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r03",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a_x": "float_a"
+        }
+      }
+    }
+  },
+  "r05": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r04",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a": "float_a_x"
+        }
+      }
+    }
+  },
+  "r06": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r05",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a_x": "float_a"
+        }
+      }
+    }
+  },
+  "r07": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r06",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a": "float_a_x"
+        }
+      }
+    }
+  },
+  "r08": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r07",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a_x": "float_a"
+        }
+      }
+    }
+  },
+  "r09": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r08",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a": "float_a_x"
+        }
+      }
+    }
+  },
+  "r10": {
+    "name": "DataFrameRenameColumns",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r09",
+        "output_name": "output"
+      },
+      "mapping": {
+        "__dvt_type": "const",
+        "value": {
+          "float_a_x": "float_a"
+        }
+      }
+    }
+  },
+  "materialize": {
+    "name": "BenchmarkMaterialize",
+    "inputs": {
+      "df": {
+        "__dvt_type": "link",
+        "node_id": "r10",
+        "output_name": "output"
+      },
+      "mode": {
+        "__dvt_type": "const",
+        "value": "count_rows"
+      },
+      "num_workers": {
+        "__dvt_type": "const",
+        "value": 8
+      }
+    }
+  }
+}

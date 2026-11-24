@@ -1148,3 +1148,78 @@ def test_index_dtype_unchanged_for_non_fractional_decimal_keys(type_repr, divisi
 
     assert SQLReadExecutor._uses_exact_decimal_index(plan) is False
     assert SQLReadExecutor._dtype_for_index(plan) == expected
+
+
+def _hints_plan(kinds: dict[str, tuple[ValueKind, str]]) -> ReadV3Plan:
+    columns = list(kinds)
+    return ReadV3Plan(
+        mode=ReadMode.QUERY,
+        dialect="postgresql",
+        cte_prefix_sql=None,
+        relation_sql="FROM t",
+        select_exprs=columns,
+        output_columns=columns,
+        partition_key_name=columns[0],
+        partition_key_kind=ValueKind.NUMERIC,
+        strategy=PartitionStrategy.RANGE,
+        segments=[],
+        divisions=(0, 1),
+        max_rows_per_partition=10,
+        output_column_kinds={column: kind for column, (kind, _repr) in kinds.items()},
+        output_column_type_repr={column: type_repr for column, (_kind, type_repr) in kinds.items()},
+    )
+
+
+def test_output_type_hints_skip_columns_already_at_the_target_dtype(monkeypatch) -> None:
+    def _fail(*_args, **_kwargs):
+        raise AssertionError("a column at its target dtype was cast again")
+
+    for name in ("_normalize_datetime_series", "_normalize_boolean_series", "_normalize_string_series"):
+        monkeypatch.setattr(SQLReadExecutor, name, _fail)
+    plan = _hints_plan(
+        {
+            "i": (ValueKind.NUMERIC, "int8"),
+            "f": (ValueKind.NUMERIC, "float8"),
+            "b": (ValueKind.BOOL, "bool"),
+            "s": (ValueKind.STRING, "text"),
+            "d": (ValueKind.DATETIME, "timestamp"),
+            "j": (ValueKind.JSON, "jsonb"),
+        }
+    )
+    df = pd.DataFrame(
+        {
+            "i": pd.array([1, None], dtype="Int64"),
+            "f": [0.5, float("nan")],
+            "b": pd.array([True, None], dtype="boolean"),
+            "s": pd.array(["a", None], dtype=pd.api.types.pandas_dtype("string")),
+            "d": pd.Series(pd.to_datetime(["2024-01-01", None])).astype("datetime64[us]"),
+            "j": pd.Series([{"a": 1}, None], dtype=object),
+        }
+    )
+    expected = df.copy()
+
+    result = SQLReadExecutor._apply_output_type_hints(df, plan, stage="test")
+
+    pd.testing.assert_frame_equal(result, expected)
+    assert result["j"].tolist() == [{"a": 1}, None]
+
+
+def test_output_type_hints_still_cast_the_inferred_str_dtype_to_string() -> None:
+    plan = _hints_plan({"s": (ValueKind.STRING, "text")})
+    df = pd.DataFrame([("a",), (None,)], columns=["s"])
+    assert df["s"].dtype == "string"  # the alias matches the NaN-backed str dtype ...
+    assert df["s"].dtype != pd.api.types.pandas_dtype("string")  # ... the dtype object does not
+
+    result = SQLReadExecutor._apply_output_type_hints(df, plan, stage="test")
+
+    assert result["s"].dtype == pd.api.types.pandas_dtype("string")
+    assert result["s"].tolist() == ["a", pd.NA]
+
+
+def test_output_type_hints_cast_duplicate_named_columns() -> None:
+    plan = _hints_plan({"x": (ValueKind.NUMERIC, "int8")})
+    df = pd.DataFrame([[1, 2]], columns=["x", "x"])
+
+    result = SQLReadExecutor._apply_output_type_hints(df, plan, stage="test")
+
+    assert [str(dtype) for dtype in result.dtypes] == ["Int64", "Int64"]

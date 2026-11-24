@@ -62,5 +62,4 @@ class DataFrameSetIndex(DFOutputBaseNode):
         )
 
         self.output = df.set_index(self.index_col,
-                                   partition_size=128 * 1024 * 1024,
-                                   shuffle="tasks")
+                                   partition_size=128 * 1024 * 1024)

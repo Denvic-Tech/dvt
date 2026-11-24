@@ -21,6 +21,9 @@ BENCHMARK_NODE_PACKAGES = (
     "benchmark_ensure_table",
     "benchmark_synthetic_dataframe",
     "benchmark_materialize",
+    "benchmark_materialize_concurrent",
+    "benchmark_store_write",
+    "benchmark_store_read",
 )
 
 

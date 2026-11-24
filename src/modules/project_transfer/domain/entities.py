@@ -109,6 +109,7 @@ class ProjectMeta:
     store_enabled: bool | None = False
     ttl_time: int | None = 0
     workers_count: int | None = 0
+    shuffle_method: str | None = None
 
 
 @dataclass

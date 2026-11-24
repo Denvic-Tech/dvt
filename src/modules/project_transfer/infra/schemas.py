@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.modules.project.domain import ShuffleMethod
 from src.modules.project_transfer.domain.types import (
     ConflictDecision,
     ConnectionDecisionAction,
@@ -111,6 +112,8 @@ class ProjectMetaDoc(BaseModel):
     store_enabled: bool | None = False
     ttl_time: int | None = 0
     workers_count: int | None = 0
+    # Optional since bundles written before the project shuffle method existed omit it.
+    shuffle_method: ShuffleMethod | None = None
 
 
 class ProjectFileDoc(BaseModel):
