@@ -104,6 +104,7 @@ class CatalogSnapshot:
 class SelectedRelease:
     pin: ReleasePin
     manifest_url: str
+    following: tuple[ReleasePin, ...] = ()
 
 
 class ReleaseCatalog:
@@ -215,6 +216,21 @@ class ReleaseCatalog:
                     *prefix, row,
                 )
         return paths
+
+    def select_route(
+        self, snapshot: CatalogSnapshot, target: CatalogRelease, observed: SourceFacts, *,
+        allow_rc: bool = False,
+    ) -> SelectedRelease:
+        route = self.paths(snapshot, observed, allow_rc=allow_rc).get(target.version)
+        if not route or route[-1].pin != target.pin:
+            raise incompatible("No supported upgrade route to the selected release")
+        selected = []
+        for step in route:
+            # Verify every incoming edge and cache every immutable manifest before admission.
+            selected.append(self.select(step, observed, allow_rc=allow_rc))
+            observed = SourceFacts(step.version, step.target_revision)
+        first, *following = selected
+        return SelectedRelease(first.pin, first.manifest_url, tuple(step.pin for step in following))
 
     def select(
         self,

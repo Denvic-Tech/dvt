@@ -1,0 +1,16 @@
+{
+  "origin": "https://dvt.distribution.denvic.tech",
+  "asset_origins": [
+    "https://dvt.distribution.denvic.tech"
+  ],
+  "registry_hosts": [
+    "cr.distribution.denvic.tech",
+    "docker.io"
+  ],
+  "trust": {
+    "roots": {
+      "dvt-root-1": "e0f24c90407015ce08913f23698aca6a9c87baa64772bc5da40b53dae5df08d3"
+    },
+    "revoked_signers": []
+  }
+}

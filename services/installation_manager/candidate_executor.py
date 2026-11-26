@@ -13,9 +13,13 @@ import time
 from pathlib import Path
 from uuid import UUID
 
+from packaging.version import Version
+
 from .application.application_apply import APPLY_STAGES, ApplicationApply
 from .application.legacy_adopt import PLAN as LEGACY_ADOPTION, execute as adopt_legacy
+from .application.legacy_import import PLAN as LEGACY_IMPORT, execute as import_legacy
 from .application.maintenance_backup import MAINTENANCE_STAGES, MaintenanceBackup
+from .application.offline_bundles import _preparer_version
 from .application.online_operations import is_online, prepare_online
 from .application.restore_runtime import AUTHORIZATION, RestoreRuntime
 from .candidate_auth import CandidateAuth
@@ -33,6 +37,7 @@ from .domain.operation_state import (
 from .domain.release_manifest import Environment, canonical_json
 from .host_bootstrap import (
     CONTROL,
+    _promotable_executor,
     apply_manager,
     atomic_write,
     candidate,
@@ -41,6 +46,8 @@ from .host_bootstrap import (
     init_container,
     manager_origin,
 )
+from .infrastructure.catalog_files import read_selected_manifest
+from .infrastructure.offline_host import local_trust
 from .infrastructure.operation_store import FORMAT_VERSION, OperationStore
 from .infrastructure.staging_artifacts import artifact_directory, read_artifact, write_artifact
 from .infrastructure.staging_commands import Deadline, RetryPolicy
@@ -198,6 +205,48 @@ def _probe(config: dict, store: OperationStore, operation_id: UUID, claim_id: UU
     raise RuntimeError("The manager did not confirm access to the current journal")
 
 
+def _preparer_key(value: str) -> tuple[int, int, int, int, int]:
+    version = Version(value)
+    candidate = version.pre
+    return version.major, version.minor, version.micro, int(candidate is None), (
+        candidate[1] if candidate else 0
+    )
+
+
+def _defer_to_newer_executor(config, operation) -> bool:
+    if (
+        operation.request.kind is not OperationKind.UPDATE
+        or operation.stage not in {OperationStage.ADMITTED, OperationStage.PREPARING}
+        or operation.request.bundle_id is not None
+        or not config.get("release_catalog")
+    ):
+        return False
+    data = Path(config["data"])
+    pin = operation.request.release
+    try:
+        content = read_selected_manifest(data, pin)
+        if content is None:
+            return False
+        trust = local_trust(data, config["release_catalog"].get("trust"))
+        minimum = _preparer_key(trust.verify(content, pin).compatibility.minimum_preparer_version)
+        if minimum <= _preparer_key(_preparer_version()):
+            return False
+        candidate = _promotable_executor(config, str(operation.id))
+        if candidate is None or candidate[2] < minimum:
+            return False
+        _, manager, _ = candidate
+        # The committed web manager survives the old executor's exit. Its short
+        # handoff process starts the saved operation through the usual launcher.
+        docker(
+            "container", "exec", "--detach", manager,
+            "python3", "-m", "services.installation_manager",
+            "candidate-executor-handoff", config["data"], str(operation.id),
+        )
+    except CHECK_ERRORS:
+        return False
+    return True
+
+
 def _execute_application(config: dict, store: OperationStore, operation) -> None:
     operation_id = operation.id
     if operation.stage in {OperationStage.ADMITTED, OperationStage.PREPARING}:
@@ -217,7 +266,9 @@ def _execute_application(config: dict, store: OperationStore, operation) -> None
         and operation.stage in MAINTENANCE_STAGES
         and operation.observation.backup_id is None
     ):
-        MaintenanceBackup(store, config).execute(operation_id)
+        MaintenanceBackup(store, config).execute(
+            operation_id, confirm=store.route_root(operation_id) != operation_id,
+        )
         operation = store.get(operation_id)
     if operation.stage in APPLY_STAGES and (
         operation.request.kind is OperationKind.INSTALL
@@ -230,10 +281,20 @@ def execute(config: dict, store: OperationStore, operation_id: UUID) -> None:
     operation = store.get(operation_id)
     if operation is None:
         raise ValueError("Unknown candidate operation")
+    directory = store.artifact_path(ArtifactKind.STAGING, operation_id)
+    if (directory / LEGACY_IMPORT).exists():
+        import_legacy(config, store, operation_id, _probe)
+        return
     if operation.stage.terminal:
         return
     if operation.request.kind in {OperationKind.INSTALL, OperationKind.UPDATE}:
-        _execute_application(config, store, operation)
+        root_id = store.route_root(operation.id)
+        while not _defer_to_newer_executor(config, operation):
+            _execute_application(config, store, operation)
+            current = store.current_step(root_id)
+            if current.id == operation.id or current.stage.terminal:
+                break
+            operation = current
         return
     if (store.artifact_path(ArtifactKind.STAGING, operation_id) / LEGACY_ADOPTION).exists():
         adopt_legacy(config, store, operation_id, _probe)

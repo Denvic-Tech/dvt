@@ -20,6 +20,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -184,12 +185,148 @@ def container_name(config):
     return f"dvt-bootstrap-executor-{config['instance']}"
 
 
+def _executor_version(config, image):
+    try:
+        info = json.loads(init_container({**config, "manager": image}, "candidate-executor-version"))
+        if info["journal_format"] == 1 and info["route_protocol"] == 1:
+            revision = info["preparer"]
+            if (
+                isinstance(revision, list) and len(revision) == 5
+                and all(type(part) is int and part >= 0 for part in revision)
+            ):
+                return tuple(revision)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _committed_manager_image(config):
+    data = Path(config["data"])
+    marker = safe_path(data / CONTROL / "current-release.json")
+    current = safe_path(data / CONTROL / "current-manager")
+    if marker.stat().st_size > 128 * 1024 or current.stat().st_size > 4096:
+        return None
+    release = json.loads(marker.read_bytes())
+    image = current.read_text(encoding="ascii").strip()
+    if (
+        image == config["executor"] or release["instance"] != config["instance"]
+        or release["images"]["installation_manager"] != image
+    ):
+        return None
+    journal = data / STATE / "journal.sqlite3"
+    with contextlib.closing(sqlite3.connect(f"{journal.as_uri()}?mode=ro", uri=True)) as db:
+        row = db.execute(
+            "SELECT request FROM operations WHERE id=? AND instance_id=? AND stage='succeeded'",
+            (release["operation"], config["instance"]),
+        ).fetchone()
+    if row is not None and json.loads(row[0])["release"] == {
+        "release_id": release["release_id"], "manifest_digest": release["manifest_digest"],
+    }:
+        return image
+    return None
+
+
+def _promotable_executor(config, operation_id=None):
+    """Only the running manager of a completed, committed release may become executor."""
+    if not config.get("release_catalog"):
+        return None
+    try:
+        active = active_operation(config)
+        if operation_id is None:
+            ready = active is None
+        else:
+            ready = (
+                active is not None and active[0] == operation_id
+                and active[1] in {"admitted", "preparing"}
+                and json.loads(active[2])["kind"] == "update"
+            )
+        if not ready or not (image := _committed_manager_image(config)):
+            return None
+        ids = docker(
+            "container", "ls", "--quiet", "--no-trunc",
+            "--filter", f"label=com.docker.compose.project={config['project']}",
+            "--filter", "label=com.docker.compose.service=installation_manager",
+        ).stdout.split()
+        if len(ids) != 1:
+            return None
+        (manager,) = json.loads(docker("container", "inspect", ids[0]).stdout)
+        if manager["Image"] != check_image(image) or manager["Config"]["Cmd"] != [
+            "candidate-web", config["data"],
+        ]:
+            return None
+        version = _executor_version(config, image)
+        if version is not None:
+            return image, manager["Id"], version
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _adopt_executor(config, operation_id=None):
+    candidate = _promotable_executor(config, operation_id)
+    if candidate:
+        image, _, version = candidate
+        current = _executor_version(config, config["executor"])
+        if current is None or version > current:
+            config = {**config, "executor": image}
+            path = Path(config["data"]) / CONTROL / "host.json"
+            atomic_write(path, json.dumps(config).encode())
+    return config
+
+
+def prepare_route_executor(config):
+    import fcntl
+
+    data = Path(config["data"])
+    with (data / CONTROL / "launch.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        saved = load_host(data)
+        if saved["instance"] != config["instance"]:
+            raise ValueError("The executor belongs to a different installation")
+        selected = _adopt_executor(saved)
+        return _executor_version(selected, selected["executor"]) is not None
+
+
 def launch(config, operation_id, action="candidate-executor"):
     import fcntl
 
-    with (Path(config["data"]) / CONTROL / "launch.lock").open("a") as lock:
+    data = Path(config["data"])
+    with (data / CONTROL / "launch.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        # This manager process can outlive the operation that changed the saved executor.
+        saved = load_host(data)
+        if saved["instance"] != config["instance"]:
+            raise ValueError("The executor belongs to a different installation")
+        config = saved
+        if action == "candidate-executor" and docker(
+            "container", "inspect", container_name(config), check=False,
+        ).returncode:
+            config = _adopt_executor(config, operation_id)
         _launch(config, operation_id, action)
+
+
+def launch_after_executor(config, operation_id):
+    """Run inside the already verified web manager while the preceding executor exits."""
+    manager = (Path(config["data"]) / CONTROL / "current-manager").read_text().strip()
+    stop = time.monotonic() + 90
+    while time.monotonic() < stop:
+        if active_id(config) != operation_id:
+            return
+        result = docker("container", "inspect", container_name(config), check=False)
+        if result.returncode:
+            launch(config, operation_id)
+            return
+        (runner,) = json.loads(result.stdout)
+        labels = runner["Config"]["Labels"] or {}
+        if labels.get("dvt.executor.instance") != config["instance"]:
+            raise ValueError("A different executor owns the installation")
+        if (
+            labels.get("dvt.executor.operation") == operation_id
+            and runner["Config"]["Image"] == manager and runner["State"]["Running"]
+        ):
+            return
+        time.sleep(1)
+    raise RuntimeError("The previous executor did not release the installation")
 
 
 def _launch(config, operation_id, action="candidate-executor"):

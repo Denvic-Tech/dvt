@@ -80,16 +80,45 @@ Deploy DVT on your own infrastructure with Docker and Docker Compose.
 
 ### Run DVT with the installer
 
-On a supported DVT host, run:
+On a Linux amd64 host with systemd and root or sudo access, run in an administrative terminal:
 
 ```bash
 bash <(sudo curl -fsSL https://raw.distribution.denvic.tech/dvt/install.sh)
 ```
 
-The command requires a ready stable release in the signed catalog. It opens
-the HTTPS installer on loopback, prints how to connect through SSH, and asks
-before installing Docker if required. The separate legacy entry is documented
-in the [installation and upgrade guide](services/installation_manager/customer_installation.md).
+The command starts the installer from the latest ready stable release in the signed
+catalog. On a clean host, it can install Docker Engine and Compose automatically.
+Keep the terminal open until you submit the installation form.
+
+1. Open the complete **Manager** link printed in the terminal, including its
+   one-time `#pairing=…` code. The new installer uses HTTP on port `8888` and
+   selects a free port when the default is occupied.
+2. Select the DVT version, server addresses, installation directory, application
+   port, worker count, and optional AI MCP.
+3. Click **Установить DVT** and follow the progress log.
+4. After installation succeeds, click **Открыть DVT** and create the first administrator.
+
+The pairing code is valid for ten minutes. Repeat the command in an interactive
+terminal to obtain a new link. Use a trusted network or restrict access to the
+manager port because HTTP transmits data in plain text. Existing installations
+with local HTTPS use the access instructions printed by their installer.
+
+Use `--channel rc` to start from the latest ready release candidate, or
+`--version 1.24.0` to select an exact release. If the server is behind NAT,
+`--public-url` sets the DVT address explicitly. Host requirements, address setup,
+and installer options are described in the
+[installation and upgrade guide](services/installation_manager/customer_installation.md).
+
+### Update an existing installation
+
+A superadministrator opens **Профиль → Обновление DVT**, selects a reachable release,
+and prepares the update while DVT remains available. Save the operation ID and
+open the independent manager before applying the update. Confirm the maintenance
+window, then follow the operation log while the main UI may be temporarily unavailable.
+
+The guide covers [updates from the previous manager](services/installation_manager/customer_installation.md),
+[offline installation and updates](scripts/offline/README.md), and
+[continuation and recovery by operation ID](services/installation_manager/recovery.md).
 
 ### Start the development stack
 
@@ -144,6 +173,8 @@ flowchart LR
 - **Orchestrator** — manages durable dispatch and worker lifecycle reconciliation.
 - **Task Worker** — executes pipelines using the shared runtime and Node DSL.
 - **Project Scheduler** — triggers scheduled project runs.
+- **Installation Manager** — installation, updates, backups, and recovery through an independent web manager, a detached executor, and a durable operation journal.
+- **migrate** — one-time service using the Gateway image to apply core migrations and prepare extensions before application services start.
 - **UI** — visual node editor maintained in the [`Denvic-Tech/dvt-ui`](https://github.com/Denvic-Tech/dvt-ui) repository and pinned here as a Git submodule.
 - **PostgreSQL** — authoritative storage for projects, graphs, tasks, schedules, and lifecycle state.
 - **Valkey / Celery** — task transport, worker communication, and execution telemetry.

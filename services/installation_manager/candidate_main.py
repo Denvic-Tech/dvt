@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import ssl
@@ -12,14 +13,16 @@ from uuid import UUID
 import uvicorn
 
 from .application.application_apply import ApplicationApply
+from .application.legacy_import import PLAN as LEGACY_IMPORT, return_to_legacy
 from .application.maintenance_backup import MaintenanceBackup
+from .application.offline_bundles import _preparer_version
 from .application.recovery import cancel_preparation
 from .application.restore_runtime import RestoreRuntime
 from .candidate_api import create_app
 from .candidate_auth import CandidateAuth
-from .candidate_executor import _probe, execute
-from .domain.operation_state import InstanceIdentity
-from .host_bootstrap import CONTROL, atomic_write, load_host
+from .candidate_executor import _preparer_key, _probe, execute
+from .domain.operation_state import ArtifactKind, InstanceIdentity
+from .host_bootstrap import CONTROL, atomic_write, launch_after_executor, load_host
 from .infrastructure.operation_files import _require_regular_file
 from .infrastructure.operation_store import FORMAT_VERSION, OperationStore
 
@@ -101,8 +104,15 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
         CandidateAuth(config)
         sys.stdout.write(f"{FORMAT_VERSION}\n")
         return
-    if action == "candidate-pair":
+    if action == "candidate-executor-version":
+        sys.stdout.write(json.dumps({
+            "journal_format": FORMAT_VERSION, "route_protocol": 1,
+            "preparer": _preparer_key(_preparer_version()),
+        }) + "\n")
+    elif action == "candidate-pair":
         sys.stdout.write(CandidateAuth(config).issue_pairing() + "\n")
+    elif action == "candidate-executor-handoff" and operation_id is not None:
+        launch_after_executor(config, str(UUID(operation_id)))
     elif action == "candidate-executor" and operation_id is not None:
         execute(config, store, UUID(operation_id))
     elif action == "candidate-cancel-preparation" and operation_id is not None:
@@ -110,7 +120,12 @@ def run(action: str, data: Path, operation_id: str | None = None) -> None:
     elif action == "candidate-recover-manager" and operation_id is not None:
         ApplicationApply(store, config, _probe).recover_manager(UUID(operation_id))
     elif action == "candidate-return-to-source" and operation_id is not None:
-        ApplicationApply(store, config, _probe).return_to_source(UUID(operation_id))
+        selected = UUID(operation_id)
+        directory = store.artifact_path(ArtifactKind.STAGING, selected)
+        if (directory / LEGACY_IMPORT).is_file():
+            return_to_legacy(config, store, selected)
+        else:
+            ApplicationApply(store, config, _probe).return_to_source(selected)
     elif action == "candidate-restore-start" and operation_id is not None:
         RestoreRuntime(store, config, _probe).execute(UUID(operation_id), authorize=True)
     elif action in {"candidate-maintenance", "candidate-maintenance-extend",

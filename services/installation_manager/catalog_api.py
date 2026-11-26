@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.operator_contract import SelectRelease
+from core.operator_contract import SelectRelease, UpdateRequest
 
 from .application.legacy_adopt import _containers
 from .application.release_catalog import (
@@ -232,6 +232,8 @@ def select_release(config, store, selection):
         if pin and (version, entry.manifest_digest) != (pin.version, pin.manifest_digest):
             raise HTTPException(409, "The selected release differs from the initial installation pin")
     try:
+        if observed is not None and isinstance(selection, UpdateRequest):
+            return catalog.select_route(snapshot, entry, observed, allow_rc=selection.confirm_rc), observed
         return catalog.select(entry, observed, allow_rc=selection.confirm_rc), observed
     except StagingError as error:
         response_code = 422

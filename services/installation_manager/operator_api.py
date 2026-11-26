@@ -39,6 +39,7 @@ from .application.recovery import Action, last_failure
 from .catalog_api import initial_release, select_release
 from .domain.operation_state import (
     ArtifactKind,
+    FailureReason,
     OperationConflict,
     OperationKind,
     OperationRequest,
@@ -46,7 +47,7 @@ from .domain.operation_state import (
     OwnershipConflict,
 )
 from .domain.release_manifest import StagingError, canonical_json, strict_json
-from .host_bootstrap import CONTROL, atomic_write
+from .host_bootstrap import CONTROL, atomic_write, prepare_route_executor
 from .infrastructure.operation_files import executor_lock
 from .infrastructure.staging_artifacts import read_artifact, save_config, write_artifact
 from .infrastructure.staging_commands import Deadline, RetryPolicy
@@ -79,7 +80,13 @@ def _conflict(operation_id: UUID) -> HTTPException:
 
 def _marker(store, operation):
     if not is_online(store, operation):
-        return None
+        path = store.artifact_path(ArtifactKind.STAGING, operation.id) / "legacy-import.json"
+        raw = read_artifact(path, LIMIT)
+        if raw is None:
+            return None
+        imported = strict_json(raw)
+        return {"kind": "update", "version": imported["target_version"],
+                "manifest_digest": imported["target_manifest_digest"]}
     path = store.artifact_path(ArtifactKind.CONFIG, operation.request.config_id)
     return strict_json(read_artifact(path / "operator.json", MAX_INTENT_BYTES))
 
@@ -173,7 +180,7 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
         return operation
 
     def lookup(request: Request, operation_id: UUID):
-        operation = store.get(operation_id)
+        operation = store.current_step(operation_id)
         if operation is None:
             raise HTTPException(404, "Unknown operation")
         return scoped(request, operation)
@@ -198,15 +205,17 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
         if actions and store.executor_busy():
             actions = []
         plan = _plan(store, operation)
+        root = store.get(store.route_root(operation.id))
         return OperationView(
-            id=operation.id, kind=operation.request.kind,
+            id=root.id, kind=operation.request.kind,
             version=(
                 marker["version"] if marker else
                 plan.target_version if plan else operation.request.release.release_id
             ),
-            manifest_digest=operation.request.release.manifest_digest, stage=operation.stage,
+            manifest_digest=marker["manifest_digest"] if marker else operation.request.release.manifest_digest,
+            stage=operation.stage,
             failure=failure, actions=actions, plan=plan,
-            created_at=operation.admitted_at, finished_at=operation.finished_at,
+            created_at=root.admitted_at, finished_at=operation.finished_at,
         )
 
     def install_operation(operation_id: UUID):
@@ -284,9 +293,9 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
                         intent["task_workers_count"] = 1
                     if previous != intent:
                         raise _conflict(existing.id)
-                    operation = existing
+                    operation = store.current_step(existing.id) or existing
                 elif active := store.active():
-                    raise _conflict(active.id)
+                    raise _conflict(store.route_root(active.id))
                 else:
                     selected, source = select_release(config, store, payload)
                     if (payload.kind == "install") != (source is None):
@@ -315,6 +324,12 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
                         )
                         if (observed.version, observed.revision) != (source.version, source.revision):
                             raise HTTPException(409, "The observed source changed")
+                        if selected.following and not prepare_route_executor(config):
+                            raise StagingError(
+                                FailureReason.INCOMPATIBLE_RELEASE,
+                                "The installed executor cannot continue a release route",
+                                "Install a compatible manager through a supported direct update",
+                            )
                         operation_settings = {}
                     values["DVT_ALLOW_PRERELEASE"] = "true" if payload.confirm_rc else "false"
                     config_id = save_config(store, values)
@@ -326,6 +341,7 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
                             **operation_settings,
                         ),
                         idempotency_key=key,
+                        following=selected.following if isinstance(payload, UpdateRequest) else (),
                     )
         except OperationConflict as error:
             raise _conflict(error.operation_id) from None
@@ -349,9 +365,11 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
     def update_summary():
         active = store.active()
         if active is not None:
-            if active.request.kind is not OperationKind.UPDATE or active.stage in {
+            if active.request.kind is not OperationKind.UPDATE:
+                return None
+            if store.route_root(active.id) == active.id and active.stage in {
                 OperationStage.ADMITTED, OperationStage.PREPARING, OperationStage.PREPARED,
-            }:
+            } and not (store.artifact_path(ArtifactKind.STAGING, active.id) / "legacy-import.json").is_file():
                 return None
             operation = active
             state = "running"
@@ -366,9 +384,12 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
                 return None
             # Both successful application and a verified cancellation restore service readiness.
             state = "succeeded"
+        root = store.get(store.route_root(operation.id))
+        marker = _marker(store, operation)
         return {
-            "id": operation.id, "kind": operation.request.kind, "state": state,
-            "version": operation.request.release.release_id, "started_at": operation.admitted_at,
+            "id": root.id, "kind": operation.request.kind, "state": state,
+            "version": marker["version"] if marker else operation.request.release.release_id,
+            "started_at": root.admitted_at,
             "finished_at": operation.finished_at,
         }
 
@@ -386,13 +407,19 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
     def history(
         request: Request, limit: int = Query(default=20, ge=1, le=20),
     ) -> list[OperationView]:
-        if not getattr(request.state, "gateway_operator", False):
-            return [view(row) for row in store.history(limit=limit)]
+        gateway_request = getattr(request.state, "gateway_operator", False)
         records = []
+        seen = set()
         before = None
         for _ in range(5):
             page = store.history(before=before, limit=20)
-            records.extend(row for row in page if row.request.kind is OperationKind.UPDATE)
+            for row in page:
+                if gateway_request and row.request.kind is not OperationKind.UPDATE:
+                    continue
+                root_id = store.route_root(row.id)
+                if root_id not in seen:
+                    records.append(row)
+                    seen.add(root_id)
             if len(records) >= limit or len(page) < 20:
                 break
             before = page[-1].id
@@ -427,10 +454,10 @@ def operator_router(config, store, auth, snapshot, start, diagnostics, static_di
 
     @router.get("/operations/{operation_id}/diagnostics", dependencies=operator)
     def support(request: Request, operation_id: UUID, after: int = 0) -> dict:
-        lookup(request, operation_id)
+        operation = lookup(request, operation_id)
         if not 0 <= after < 2**63:
             raise HTTPException(422, "Invalid diagnostic cursor")
-        return diagnostics(operation_id, after=after, limit=100)
+        return diagnostics(operation.id, after=after, limit=100)
 
     @router.post("/setup/{operation_id}/pairing", dependencies=paired)
     def setup_link(operation_id: UUID) -> PairingCode:
