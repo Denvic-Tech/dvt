@@ -29,11 +29,19 @@ uninstall preserves state and physical data; explicit removal with
 
 ## Upgrade procedure
 
-Deploy Gateway and task workers from the same new release. Drain active
-executions before the migration and restart workers with the new runtime;
-running old and new storage-resolution code together is unsupported.
-Apply `alembic upgrade head` before starting the updated services. Reinstallation
-of extension packages is not required.
+For a managed installation, prepare and apply the supported release through
+**Профиль → Обновление DVT**. The manager drains accepted executions, creates a
+verified backup, runs the target release's migrator, and starts Gateway and
+workers from that release. Save the operation ID and follow its log in the
+independent manager. The installation guide describes the supported legacy
+transition through the managed `1.24.0` release. [Installation and updates](../services/installation_manager/customer_installation.md)
+
+For local development, run `python -m services.gateway.migrate` through the
+project virtual environment with the target release and database settings
+before starting Gateway and workers. This prepares core migrations and
+extensions. The full Compose stack runs the same command in its one-time
+`migrate` service using the Gateway image. Existing extension packages are
+retained.
 
 Migration validation runs before updating records. Unknown technical names,
 duplicate canonical identities, or aliases shared by different records abort
@@ -45,6 +53,10 @@ packages and multiple records that may own data.
 Migration 0062 intentionally has no automatic downgrade: dropping physical
 storage mappings could orphan retained schemas. Rollback requires a compatible
 forward migration or restoring a consistent pre-upgrade database and release.
+For a failed managed update, use the available action under the original
+operation ID. Data restoration requires confirmation of the backup manifest
+digest and cutoff time, followed by readiness checks and an explicit resume.
+[Recovery procedure](../services/installation_manager/recovery.md)
 
 ## Verification
 

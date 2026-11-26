@@ -34,6 +34,11 @@ Celery + Valkey, статусы и события пробрасываются �
   и публикует execution events, heartbeat и telemetry.
 - **Project Scheduler** (`services/project_scheduler/`) — отдельный сервис cron-планировщика
   для регулярного запуска проектов.
+- **Installation Manager** (`services/installation_manager/`) — независимый веб-мастер
+  установки, обновления и восстановления с отдельным исполнителем и журналом операций.
+- **migrate** (`services/gateway/migrate.py`) — одноразовая подготовка схемы БД и расширений
+  из того же образа, что и Gateway. Compose ожидает её успешного завершения перед запуском
+  зависимых сервисов приложения.
 - **UI** (`services/ui/`) — Vite frontend с визуальным редактором узлов.
 - **Proxy** (`services/proxy/`) — Nginx reverse proxy для выдачи UI и проксирования API.
 - **Task Benchmarking** (`services/task_benchmarking/`) — benchmarking pipeline по времени
@@ -198,8 +203,9 @@ GRPC_FORWARD_SERVICE_TOKEN=secret-token-WS-FORWARD
 DVT_AI_MCP_ENABLED=false
 ```
 
-Для включения через `install.sh` используйте `--enable-ai-mcp`; при прямом запуске Compose
-дополнительно активируйте профиль `ai-mcp`. Включённому сервису требуется уникальный
+Для включения при установке используйте переключатель **Включить AI MCP** в мастере.
+При прямом запуске Compose задайте `DVT_AI_MCP_ENABLED=true` и активируйте профиль `ai-mcp`.
+Включённому сервису требуется уникальный
 `DVT_AI_MCP_INTERNAL_SECRET` длиной не менее 32 символов. Installer генерирует отсутствующий
 секрет автоматически. При выключении Gateway не публикует MCP API, proxy отвечает `404` на
 `/mcp`, а контейнер `dvt-ai-mcp` не запускается.
@@ -217,11 +223,17 @@ docker compose --project-directory . \
   up -d postgres valkey
 ```
 
-### 2. Применить миграции
+### 2. Подготовить БД и расширения
+
+Из корня репозитория с тем же окружением БД, которое будет использовать Gateway, выполните:
 
 ```bash
-<venv_dir>/Scripts/python.exe -m alembic upgrade head
+<venv_dir>/Scripts/python.exe -m services.gateway.migrate
 ```
+
+Команда ожидает PostgreSQL, применяет миграции ядра под advisory lock и готовит
+установленные расширения. Затем можно запускать сервисы. В полном Compose-стеке
+эту команду выполняет одноразовый сервис `migrate` из образа Gateway.
 
 ### 3. Запустить сервисы
 
@@ -264,6 +276,68 @@ docker compose --project-directory . \
 Официальные release-образы собираются в CI через Docker Buildx Bake ровно один раз под pipeline-specific candidate tag. После push CI фиксирует digest каждого candidate image; integration tests загружают backend candidates по immutable `@sha256` refs, а promotion использует сохранённые протестированные digest'ы, а не изменяемый candidate tag. После тестов те же remote manifests без пересборки получают version tag, а stable release дополнительно получает `latest`. Compose-файлы остаются источником build definitions, а `docker/docker-bake.release.hcl` задаёт release group, registry и candidate tagging policy для `cr.distribution.denvic.tech/dvt/*`.
 
 Локальная production-like сборка через Compose по-прежнему поддерживает `UI_BUILD_CONTEXT`, поэтому UI можно собирать из отдельного checkout с незапушенными изменениями. Официальный candidate Bake всегда принудительно использует pinned Git submodule `services/ui` и `VITE_API_BASE_URL=/api`.
+
+### Подписанный релиз и проверка установщика
+
+`scripts/release/build_manifest.py` формирует подписанный манифест из точной ревизии
+Backend. Он фиксирует версию из `pyproject.toml`, SHA Backend и UI gitlink, целевую
+Alembic-ревизию, совместимые исходные версии, требования к хосту и digest образов.
+Compose и `host_bootstrap.py` берутся из той же ревизии и публикуются как артефакты
+с закреплёнными размером и SHA-256. Gateway и `migrate` используют один образ.
+Установщик выбирает готовый релиз из подписанного каталога и проверяет комплект
+перед изменением экземпляра.
+
+Для проверки изменений используйте сценарий, затронутый правкой.
+
+| Сценарий | Средство и результат |
+| --- | --- |
+| Контракты и отдельные шаги | Существующие тесты в `tests/unit/services/installation_manager/`, `tests/unit/services/gateway/` и `tests/unit/scripts/release/` |
+| Чистая установка | [test_install_candidate.py](../scripts/release/test_install_candidate.py) проверяет точный подписанный комплект в отдельном Docker daemon, готовность и первый вход, затем выдаёт install E2E receipt |
+| Обновление старого экземпляра | [test_legacy_update.py](../scripts/release/test_legacy_update.py) проверяет исходную версию, обновление через старый UI, сохранение ID экземпляра, проекта и числа воркеров, затем выполняет сохранённый проект |
+| Матрица приёмки на ВМ | [acceptance.py](../scripts/release/acceptance.py) создаёт шаблон AT-01–AT-13 и проверяет собранные свидетельства для точного digest манифеста |
+
+Сценарии Docker требуют хоста с поддержкой привилегированного временного daemon.
+Для проверки старого обновления укажите поддерживаемую исходную версию
+(`--source`), точную стабильную цель или `latest` (`--target`), ожидаемые итоговые
+версию и ревизию (`--expected-version`, `--revision`), доступный из daemon raw origin
+и закреплённый тестовый образ Docker (`--raw-origin`, `--dind-image`).
+Аргументы каждого инструмента доступны через
+`<venv_dir>/Scripts/python.exe -m scripts.release.<имя_модуля> --help`.
+
+## Установка и обновление экземпляра заказчика
+
+Публичная команда, параметры адресов и первый вход описаны в
+[руководстве оператора](../services/installation_manager/customer_installation.md).
+Онлайн-путь использует Linux amd64, локальные Docker и Compose и systemd для службы
+продолжения. Приёмочная матрица включает Debian 13 и Ubuntu 24.04 LTS.
+Выбор онлайн-релиза учитывает платформу и требования комплекта независимо от имени
+и версии дистрибутива. Для автоматической установки Docker через APT нужны данные
+репозитория Docker для ОС хоста. Офлайн-профили включают собственный набор пакетов
+для заявленной ОС.
+
+Суперадминистратор готовит обновление через **Профиль → Обновление DVT**.
+Независимый мастер и отдельный исполнитель продолжают операцию при остановке
+основного приложения. Журнал `.installation-state/journal.sqlite3` хранит ID,
+выбранный комплект и подтверждённые шаги. PostgreSQL хранит состояние допуска задач
+и подтверждения миграции.
+
+Подготовка проверяет подписи, digest, совместимость, место и образы при работающем
+приложении. После подтверждения обслуживания исполнитель закрывает приём новых
+запусков, дожидается завершения принятых задач, останавливает писателей, создаёт
+проверенную копию, выполняет миграцию и проверяет весь комплект. Приём открывается
+после подтверждения готовности. Доступные действия продолжения зависят от сохранённой
+стадии операции.
+
+Для прежнего менеджера в `1.22.0`, `1.23.0` и `1.24.0-rc1`–`rc12` предусмотрен
+переход через базовый комплект `1.24.0` с проверкой фактической ревизии БД.
+При выборе более поздней стабильной версии менеджер сохраняет маршрут следующих
+переходов и исходный ID для оператора.
+
+Подробные процедуры приведены в руководствах по
+[обслуживанию и копии](../services/installation_manager/maintenance_backup.md),
+[применению релиза](../services/installation_manager/migration_apply.md),
+[восстановлению](../services/installation_manager/recovery.md)
+и [офлайн-поставке](../scripts/offline/README.md).
 
 ## Запуск в Docker
 
@@ -324,11 +398,11 @@ docker compose --project-directory . \
 ### Миграции
 
 ```bash
-# Применить миграции
-<venv_dir>/Scripts/python.exe -m alembic upgrade head
+# Применить миграции ядра и подготовить расширения
+<venv_dir>/Scripts/python.exe -m services.gateway.migrate
 
-# Создать новую миграцию
-alembic revision --autogenerate -m "Add new table"
+# Создать новую миграцию ядра
+<venv_dir>/Scripts/python.exe -m alembic revision --autogenerate -m "Add new table"
 ```
 
 ## Тестирование
@@ -424,11 +498,21 @@ docker compose --project-directory . \
 
 ### Ошибки миграций
 
+Для локальной диагностики с тем же окружением БД проверьте ревизию и историю:
+
 ```bash
-alembic current
-alembic history
-alembic downgrade -1
+<venv_dir>/Scripts/python.exe -m alembic current
+<venv_dir>/Scripts/python.exe -m alembic history
 ```
+
+После устранения причины повторите `services.gateway.migrate`.
+
+В управляемом экземпляре откройте журнал и скачайте диагностику по исходному ID
+операции. Исполнитель сверяет реальную ревизию БД, активный мигратор и сохранённые
+подтверждения. До начала миграции возможен проверенный возврат к исходному комплекту.
+Для восстановления данных подтвердите digest копии и её время, затем пройдите
+проверку и возобновление через мастер. Доступные действия и команды приведены
+в [руководстве по восстановлению](../services/installation_manager/recovery.md).
 
 ### Очистка Docker volumes
 
@@ -441,6 +525,10 @@ docker compose --project-directory . \
 
 ## Дополнительные материалы
 
+- [Установка и обновление](../services/installation_manager/customer_installation.md) — публичный вход и действия оператора
+- [Каталог релизов](../services/installation_manager/release_catalog.md) — выбор версии, доверие и сохранённый каталог
+- [Подготовка релиза](../services/installation_manager/verified_staging.md) — pin, образы и ресурсы хоста
+- [Частная проверка установщика](../services/installation_manager/bootstrap_candidate.md) — bootstrap и локальные образы
 - [`../AGENTS.md`](../AGENTS.md) — инструкции для coding agents и описание сервисов
 - `services/task_benchmarking/README.md` — benchmarking workflow
 - `docs/` — дополнительная документация (эта директория)
